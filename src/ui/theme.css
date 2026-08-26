@@ -1,0 +1,1232 @@
+/*
+ * conteo — the instrument.
+ *
+ * The reference points are a bench scale, a label printer and a POS terminal:
+ * a big legible readout, a handful of controls, and nothing on screen that is
+ * not being read. Not a dashboard.
+ *
+ * Two faces, deliberately from different families rather than one superfamily:
+ *
+ *   Source Sans 3   labels, names, chrome. A humanist sans — open apertures and
+ *                   letterforms that stay distinct through a smudge, drawn for
+ *                   UI at small sizes, with real Ñ / Í / Ó rather than
+ *                   synthesised ones.
+ *   JetBrains Mono  every number, every codigo, and the readout. Monospace, so
+ *                   digits are tabular by construction rather than by a `tnum`
+ *                   feature a fallback face would not honour; the tallest
+ *                   x-height of the common monos; slashed zero and a
+ *                   disambiguated 1/l/I, which matters when a codigo is seven
+ *                   digits and a misread routes a count to the wrong balance.
+ *
+ * Both are bundled (see main.tsx). There is no network in a walk-in cooler.
+ *
+ * Colour carries exactly one meaning: variance direction. Shortage is red,
+ * overage is blue — a pair every common dichromacy separates. A match gets no
+ * colour at all, because the absence of variance is the absence of a
+ * direction; it is signalled by the word and by a zero.
+ */
+
+:root {
+  /* Warm paper, warm ink: this is a count sheet, and the panels these tablets
+     ship with have poor blacks off-axis, which is how they are held here. */
+  --paper: #faf8f5;
+  --paper-raised: #ffffff;
+  --paper-sunken: #f0ece6;
+  --ink: #171310;
+  --ink-quiet: #4c443c;
+  --rule: #ded7cd;
+  --rule-strong: #a89e91;
+
+  /* The only colours in the product. */
+  --short: #a8201a;
+  --short-wash: #fbeceb;
+  --over: #10428f;
+  --over-wash: #e8eefb;
+
+  --sans: 'Source Sans 3', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Roboto Mono', Consolas, monospace;
+
+  --tap: 44px;
+  --tap-primary: 64px;
+
+  color-scheme: light;
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  /* No overscroll rubber-band: the screen is a fixed instrument face and the
+     only thing that scrolls is the list. */
+  overscroll-behavior: none;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Numbers never shift width. Every figure in the product goes through this. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ---- shell ------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--paper);
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---- header ------------------------------------------------------------ */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+
+.topbar__where {
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar__bodega {
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+
+.topbar__corte {
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.topbar__progress {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.topbar__count {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.topbar__label {
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.progressbar {
+  /* Also used inside a session card, where it is a <span>. */
+  display: block;
+  height: 4px;
+  background: var(--paper-sunken);
+}
+
+.progressbar__fill {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transition: width 180ms ease-out;
+}
+
+.zonabar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.zonabar select,
+.zonabar input {
+  min-height: var(--tap);
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ---- search ------------------------------------------------------------ */
+
+.searchbar {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.searchbar input {
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 14px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 2px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+
+.searchbar input:focus {
+  outline: 3px solid var(--ink);
+  outline-offset: -1px;
+  border-color: var(--ink);
+}
+
+.searchbar input::placeholder {
+  color: var(--ink-quiet);
+  font-weight: 400;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 6px;
+  font-size: 16px;
+  color: var(--ink-quiet);
+  text-transform: lowercase;
+}
+
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+/* ---- result rows ------------------------------------------------------- */
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:active {
+  background: var(--paper-sunken);
+}
+
+.row__main {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.row__nombre {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__meta {
+  display: block;
+  font-size: 16px;
+  color: var(--ink-quiet);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__right {
+  display: block;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.row__existencia {
+  display: block;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+/* State is a word plus a rule weight, never a colour: colour is variance. */
+.chip {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--ink-quiet);
+  background: var(--paper-raised);
+}
+
+.chip--counted {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.chip--unchanged {
+  border-style: dashed;
+}
+
+.chip--short {
+  border-color: var(--short);
+  color: var(--short);
+  background: var(--short-wash);
+  font-weight: 600;
+}
+
+.chip--over {
+  border-color: var(--over);
+  color: var(--over);
+  background: var(--over-wash);
+  font-weight: 600;
+}
+
+/* ---- entry card -------------------------------------------------------- */
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 6px solid var(--ink);
+  background: var(--paper-raised);
+}
+
+/* In tally mode the card takes the whole screen so the pad can: the readout
+   being the button is only worth the risk if the button is unmissable. */
+.entry--tally {
+  flex: 1;
+  min-height: 0;
+}
+
+.entry--tally .tallypad {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.entry__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px 0;
+}
+
+.entry__nombre {
+  flex: 1;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.entry__codigo {
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.entry__close {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+/* The readout. Everything else on the screen is smaller than this. */
+.readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 16px;
+  padding: 4px 16px 0;
+}
+
+.readout__expected {
+  text-align: right;
+  min-width: 90px;
+}
+
+.readout__expected-label {
+  display: block;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.readout__expected-value {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--ink-quiet);
+}
+
+.readout__field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Pushes the actions into the lower half when the card is short. */
+.spacer {
+  flex: 1;
+  min-height: 0;
+}
+
+.readout__input,
+.readout__value {
+  display: block;
+  width: 100%;
+  min-width: 4ch;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 3px solid var(--rule-strong);
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(52px, 17vw, 104px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.readout__input:focus {
+  outline: none;
+  border-bottom-color: var(--ink);
+}
+
+.readout__input::placeholder {
+  color: var(--rule-strong);
+}
+
+.readout__unit {
+  display: block;
+  padding-top: 4px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+/* The risk: in tally mode the readout *is* the button. */
+.tallypad {
+  display: block;
+  width: 100%;
+  min-height: 190px;
+  padding: 16px;
+  border: 0;
+  border-top: 1px dashed var(--rule-strong);
+  background: var(--paper-raised);
+  cursor: pointer;
+}
+
+.tallypad:active {
+  background: var(--paper-sunken);
+}
+
+.tallypad__value {
+  display: block;
+  text-align: center;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(56px, 19vw, 112px);
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.tallypad__hint {
+  display: block;
+  text-align: center;
+  font-size: 17px;
+  color: var(--ink-quiet);
+}
+
+/* ---- variance ---------------------------------------------------------- */
+
+.variance {
+  padding: 8px 16px 12px;
+}
+
+.variance__bar {
+  position: relative;
+  height: 14px;
+  margin-bottom: 6px;
+  background: var(--paper-sunken);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+/* The zero mark sits in the middle; the bar grows left for a shortage and
+   right for an overage, so "how wrong is this" reads as a shape before it
+   reads as a number. */
+.variance__zero {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--rule-strong);
+}
+
+.variance__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transition: left 120ms ease-out, width 120ms ease-out;
+}
+
+.variance__fill--short {
+  background: var(--short);
+}
+
+.variance__fill--over {
+  background: var(--over);
+}
+
+.variance__line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  min-height: 28px;
+}
+
+.variance__line--short {
+  color: var(--short);
+}
+
+.variance__line--over {
+  color: var(--over);
+}
+
+.variance__valor {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--ink-quiet);
+}
+
+/* ---- presentation group ------------------------------------------------ */
+
+.presentaciones {
+  border-top: 1px solid var(--rule);
+}
+
+.presentaciones__label {
+  padding: 8px 16px 2px;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.presrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 16px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: var(--paper-raised);
+  text-align: left;
+  cursor: pointer;
+}
+
+.presrow--active {
+  background: var(--paper-sunken);
+  box-shadow: inset 4px 0 0 var(--ink);
+}
+
+.presrow__name {
+  flex: 1;
+  font-size: 17px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presrow__qty {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* ---- actions ----------------------------------------------------------- */
+
+.actions {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.actions__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.btn {
+  min-height: var(--tap-primary);
+  padding: 10px 16px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--paper-raised);
+  font-size: 19px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:active {
+  background: var(--paper-sunken);
+}
+
+.btn--primary {
+  background: var(--ink);
+  color: var(--paper-raised);
+}
+
+.btn--on {
+  background: var(--ink);
+  color: var(--paper-raised);
+}
+
+.btn:disabled {
+  border-color: var(--rule-strong);
+  color: var(--rule-strong);
+  background: var(--paper);
+  cursor: default;
+}
+
+/* Corrections live below a rule, apart from the three outcomes above it. A
+   count, an acceptance and a waiver are things that happen to the stock;
+   undoing and discarding are things that happen to the record. Ranking them in
+   one stack made the outcome hierarchy unreadable at arm's length. */
+.corrections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+
+/* Natural width, packed left. The right-hand column of this footer belongs to
+   the mode's primary action in every mode, and a correction must never occupy
+   it — that is where a thumb lands without looking. */
+.corrections .btn {
+  flex: 0 0 auto;
+}
+
+/* The waiver. Secondary by construction: no border, no fill, ordinary weight,
+   and it sits under the two counts rather than beside them. An escape hatch. */
+.btn--waiver {
+  /* Left-aligned and only as wide as its words. Stretched across the grid it
+     reads as a third button however quietly it is painted, and the whole point
+     of the waiver's styling is that it does not look like one. */
+  justify-self: start;
+  min-height: var(--tap);
+  padding-left: 0;
+  border: 0;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--ink-quiet);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.btn--small {
+  min-height: var(--tap);
+  font-size: 17px;
+  font-weight: 500;
+  border-width: 1px;
+  border-color: var(--rule-strong);
+}
+
+.hint {
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+/* ---- confirm strip (never a browser dialog) ----------------------------
+ *
+ * Ink, not red. A confirmation and a warning are not variance directions, and
+ * the moment either borrows the shortage colour, red on this product stops
+ * meaning one thing. Weight and a heavy rule carry the urgency instead — which
+ * also survives the eight percent of men who would read the red as the blue. */
+
+.confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 4px solid var(--ink);
+  background: var(--paper-sunken);
+}
+
+.confirm__text {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ---- sessions ---------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead__title {
+  flex: 1;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+}
+
+.who input {
+  min-height: var(--tap);
+  width: 12ch;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  font-weight: 600;
+}
+
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.empty__title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.empty__body {
+  font-size: 18px;
+  color: var(--ink-quiet);
+}
+
+.sessioncard {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessioncard__top {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.sessioncard__bodega {
+  flex: 1;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.sessioncard__meta {
+  display: flex;
+  gap: 14px;
+  margin: 4px 0 8px;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+/* ---- faltantes --------------------------------------------------------- */
+
+.total {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+
+.total__label {
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.total__value {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.total__note {
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.rank {
+  min-width: 3ch;
+  font-size: 17px;
+  color: var(--ink-quiet);
+  text-align: right;
+}
+
+/* ---- banners ----------------------------------------------------------- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--rule);
+  border-left: 6px solid var(--ink);
+  background: var(--paper-sunken);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* ---- motion: feedback only --------------------------------------------- */
+
+@keyframes land {
+  0% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.landed {
+  animation: land 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* ---- review: the one screen that is a table -----------------------------
+ *
+ * A different device and a different job. The counting screen is a tablet held
+ * in one hand and everything on it is a card sized for a glove; this is a
+ * laptop on a desk, and the person reading it is comparing rows. Denser type,
+ * a wider measure, and real table semantics — but the same two faces, the same
+ * two colours, and the same rule about what colour means.
+ *
+ * Nothing here drops below 16px either. Density is column count and row
+ * height, not small type. */
+
+.app:has(.screen--desk) {
+  max-width: 1180px;
+}
+
+.section {
+  padding: 18px 16px 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.section__title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.section__body {
+  margin: 0 0 10px;
+  max-width: 72ch;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+/* ---- filter chips ------------------------------------------------------ */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+
+.chipbtn {
+  min-height: var(--tap);
+  padding: 6px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  font-size: 17px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chipbtn--on {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper-raised);
+  font-weight: 600;
+}
+
+/* ---- the table --------------------------------------------------------- */
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 17px;
+}
+
+.grid__caption {
+  padding: 8px 16px;
+  text-align: left;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  text-align: left;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink-quiet);
+  white-space: nowrap;
+}
+
+/* The whole header cell is the control: a 44px target that happens to be a
+   column heading, rather than a word with a hit area the size of a word. */
+.grid__sort {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.grid__sort:hover {
+  background: var(--paper-sunken);
+}
+
+.grid__arrow {
+  display: inline-block;
+  width: 1.2em;
+  font-size: 12px;
+}
+
+.grid tbody tr {
+  border-bottom: 1px solid var(--rule);
+}
+
+.grid tbody tr:nth-child(even) {
+  background: var(--paper-raised);
+}
+
+.grid td,
+.grid tbody th {
+  padding: 8px 10px;
+  vertical-align: top;
+  text-align: left;
+  font-weight: 400;
+}
+
+.grid__rank {
+  width: 4ch;
+  padding-left: 16px;
+  color: var(--ink-quiet);
+  text-align: right;
+}
+
+.grid__n {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.grid__name {
+  min-width: 22ch;
+}
+
+.grid__nombre {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.grid__meta {
+  display: block;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.grid__dir {
+  display: block;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.grid__impacto {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* Colour on the two cells that carry a direction, and nowhere else. A tinted
+   row would put the product's only colour behind a name and a code, which
+   carry no direction at all. */
+.grid--short .grid__impacto,
+.grid--short .grid__dir,
+.figure--short {
+  color: var(--short);
+}
+
+.grid--over .grid__impacto,
+.grid--over .grid__dir,
+.figure--over {
+  color: var(--over);
+}
+
+.tablefoot {
+  padding: 10px 16px 4px;
+}
+
+/* ---- panels: waiver, confirmation, receipt ----------------------------- */
+
+.panel {
+  max-width: 78ch;
+  padding: 18px 16px 24px;
+}
+
+.panel__title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.panel__subtitle {
+  margin: 0 0 4px;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.panel__body {
+  margin: 0 0 12px;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.panel__section {
+  margin: 16px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+.panel__figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin: 12px 0 16px;
+}
+
+.field {
+  display: block;
+  margin: 12px 0;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.field input {
+  width: 100%;
+  max-width: 44ch;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  border: 2px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--paper-raised);
+  font-size: 18px;
+}
+
+.field input:focus {
+  outline: 3px solid var(--ink);
+  outline-offset: -1px;
+  border-color: var(--ink);
+}
+
+/* ---- the waiver checklist ---------------------------------------------- */
+
+.checklist {
+  margin: 8px 0 16px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+
+.checklist > .btn {
+  margin: 10px;
+}
+
+.checklist .rows {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.checkrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  min-height: var(--tap);
+  border-top: 1px solid var(--rule);
+  cursor: pointer;
+}
+
+.checkrow input {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  accent-color: var(--ink);
+}
+
+/* A list row that is not a control. Same shape, no affordance. */
+.row--static {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* ---- the footer rail --------------------------------------------------- */
+
+.reviewbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 2px solid var(--ink);
+  background: var(--paper-raised);
+}
+
+.reviewbar__figures {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.reviewbar__figure {
+  min-width: 0;
+}
+
+.reviewbar__value {
+  display: block;
+  font-size: 21px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The right-hand slot, and the rule about it: the mode's primary action, in
+   every mode, and never a correction. */
+.reviewbar__action {
+  display: grid;
+  gap: 6px;
+  justify-items: stretch;
+  max-width: 34ch;
+}
+
+.reviewbar__action .hint {
+  max-width: 34ch;
+}
+
+/* The secondary half of a rail figure: same line, quieter, not mono — a
+   percentage and the word it applies to should not read as one number. */
+.reviewbar__aside {
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink-quiet);
+}
