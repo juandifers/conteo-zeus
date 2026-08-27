@@ -16,7 +16,7 @@ import { exportAdjustment } from '../../src/app';
 import { MemoryRepository, summarizeSession, type Session } from '../../src/domain';
 import { parseXls } from '../../src/zeus';
 import { ReviewScreen } from '../../src/ui/screens/ReviewScreen';
-import { formatMoney } from '../../src/ui/format';
+import { formatMoney, formatQty } from '../../src/ui/format';
 import { CountStore } from '../../src/ui/store';
 import type { Downloader } from '../../src/ui/download';
 import { SAMPLE_XLS, firstDifference, readSample } from '../helpers';
@@ -57,6 +57,9 @@ interface Options {
   counted?: Map<number, number>;
   /** Items to leave untouched — the ones that block a post. */
   untouched?: number[];
+  /** Leave the reveal gate standing. Only the gate's own tests do. */
+  reveal?: boolean;
+  onBack?: () => void;
 }
 
 async function draw(options: Options = {}) {
@@ -77,10 +80,19 @@ async function draw(options: Options = {}) {
 
   const download = recorder();
   const user = userEvent.setup();
-  render(<ReviewScreen store={store} repo={repo} download={download} onBack={() => {}} />);
-  // The export history is read in an effect; nothing on screen is final until
-  // it has landed, because it decides whether this file is a repeat.
-  await screen.findByRole('button', { name: 'Generar archivo' });
+  const onBack = options.onBack ?? (() => {});
+  render(<ReviewScreen store={store} repo={repo} download={download} onBack={onBack} />);
+
+  // An unfinished count opens this screen closed (§2.1). Everything below is
+  // about what is behind the gate, so it steps through it — the gate itself
+  // has its own describe, which passes `reveal: false`.
+  if (options.reveal !== false) {
+    const gate = screen.queryByRole('button', { name: 'Ver las cifras del sistema' });
+    if (gate) await user.click(gate);
+    // The export history is read in an effect; nothing on screen is final until
+    // it has landed, because it decides whether this file is a repeat.
+    await screen.findByRole('button', { name: 'Generar archivo' });
+  }
   return { session, repo, store, download, user };
 }
 
@@ -511,5 +523,72 @@ describe('the file', () => {
     expect(screen.getByRole('region', { name: 'archivo generado' })).toHaveTextContent(
       'Esta aplicación no sube nada.',
     );
+  });
+});
+
+describe('the reveal gate (§2.1)', () => {
+  it('closes the screen while anything is still uncounted', async () => {
+    const { session } = await draw({ untouched: [ID.melon, ID.panTajado], reveal: false });
+
+    expect(screen.getByText('Esta pantalla muestra lo que dice Zeus')).toBeInTheDocument();
+    // Not a blurred table or a disabled one: nothing is rendered. PAN TAJADO
+    // holds 81 in this file, and the footer rail's money is absent with it.
+    const panTajado = session.items.find((item) => item.idarticulo === ID.panTajado)!;
+    expect(document.body.textContent).not.toContain(formatQty(panTajado.existencia));
+    expect(screen.queryByText('diferencia neta')).toBeNull();
+    expect(screen.queryByText('cobertura')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Generar archivo' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Exentar artículos sin contar' }),
+    ).toBeNull();
+  });
+
+  it('says how many rows are still open, and why that matters', async () => {
+    await draw({ untouched: [ID.melon, ID.panTajado], reveal: false });
+
+    const body = screen.getByText(/Faltan/).textContent!;
+    expect(body).toContain('2');
+    expect(body).toContain('no sepa qué se supone que va a encontrar');
+  });
+
+  it('opens on the second press, and the whole screen is there', async () => {
+    const { user } = await draw({ untouched: [ID.melon, ID.panTajado], reveal: false });
+    await user.click(screen.getByRole('button', { name: 'Ver las cifras del sistema' }));
+
+    expect(await screen.findByRole('button', { name: 'Generar archivo' })).toBeInTheDocument();
+    expect(screen.getByText('diferencia neta')).toBeInTheDocument();
+    expect(screen.getByText(/Sin verificar/).textContent).toContain('2');
+    expect(
+      screen.getByRole('button', { name: 'Exentar artículos sin contar' }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers going back to the count as the weighted answer', async () => {
+    // The safe action owns the fill; revealing is the plain button beside it.
+    let backs = 0;
+    const { user } = await draw({
+      untouched: [ID.melon],
+      reveal: false,
+      onBack: () => backs++,
+    });
+
+    const back = screen.getByRole('button', { name: 'Volver a contar' });
+    expect(back.className).toContain('btn--primary');
+    expect(
+      screen.getByRole('button', { name: 'Ver las cifras del sistema' }).className,
+    ).not.toContain('btn--primary');
+
+    await user.click(back);
+    expect(backs).toBe(1);
+  });
+
+  it('does not appear once every row is counted or waived', async () => {
+    // Nothing left to protect: blindness has already done its work, and a gate
+    // in front of a finished count is a tap that buys nobody anything.
+    await draw({ reveal: false });
+
+    expect(screen.queryByText('Esta pantalla muestra lo que dice Zeus')).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Generar archivo' })).toBeInTheDocument();
+    expect(screen.getByText('diferencia neta')).toBeInTheDocument();
   });
 });

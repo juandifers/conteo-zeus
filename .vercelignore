@@ -1,0 +1,5 @@
+# Real bodega data and dev-only material — never needs to reach the build host.
+samples/
+tests/
+docs/
+.claude/

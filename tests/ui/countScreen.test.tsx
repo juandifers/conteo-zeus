@@ -38,6 +38,30 @@ function draw() {
 }
 
 const search = () => screen.getByLabelText('buscar artículo');
+
+/**
+ * Record a count the way a blind counter records one: type it and save.
+ *
+ * Most of what follows used `Coincide con el sistema` to get an item into
+ * `counted` in one click, which is no longer a control a blind count has
+ * (DOMAIN.md §2.1). Typing the same quantity produces the same `set` event, so
+ * the assertions below are about what they were always about — the fold, the
+ * withdrawal, the stamp — and not about which button got there.
+ *
+ * Called with no `qty` it saves whatever the card is already showing, which is
+ * how a second identical count is made: re-opening a counted row prefills the
+ * field with what is recorded.
+ */
+async function save(
+  user: ReturnType<typeof userEvent.setup>,
+  nombre: string,
+  qty?: string,
+): Promise<void> {
+  if (qty !== undefined) {
+    await user.type(screen.getByLabelText(`cantidad contada de ${nombre}`), qty);
+  }
+  await user.click(screen.getByRole('button', { name: /^Guardar/ }));
+}
 const eventsFor = (idarticulo: number): CountEvent[] =>
   store.getSnapshot().events.filter((event) => event.idarticulo === idarticulo);
 
@@ -58,15 +82,83 @@ describe('search', () => {
     await user.type(search(), 'pan tajado');
 
     const row = screen.getAllByRole('button', { name: /PAN TAJADO/ })[0];
-    // 81 in the books, 70 found: the row says so before anybody opens it.
-    expect(row.textContent).toContain('faltan');
-    expect(row.textContent).toContain('11');
+    // Blind: the row says what this counter recorded, which is what "already
+    // counted" needed to say. It does not say what the books hold, and it does
+    // not say the two disagree — 81 against 70 is a variance, and a variance is
+    // an arithmetic statement about `existencia` (DOMAIN.md §2.1).
+    expect(row.textContent).toContain('contado');
+    expect(row.textContent).toContain('70');
+    expect(row.textContent).not.toContain('faltan');
+    expect(row.textContent).not.toContain('81');
+  });
+
+  it('prints no book figure on any row', async () => {
+    const user = draw();
+    await user.type(search(), 'pan tajado');
+    // 81 is PAN TAJADO's `existencia`, and it used to sit in the right-hand
+    // column of every result row — 298 of them, at a glance (DOMAIN.md §2.1).
+    expect(document.querySelectorAll('.row__existencia')).toHaveLength(0);
+    expect(screen.queryByText('81')).toBeNull();
   });
 
   it('draws a divider between word matches and mid-word matches', async () => {
     const user = draw();
     await user.type(search(), 'pan');
     expect(screen.getByText('coincidencias parciales')).toBeTruthy();
+  });
+});
+
+describe('the card carries nothing from Zeus (§2.1)', () => {
+  it('shows no book figure, no variance and no bar', async () => {
+    const user = draw();
+    await user.type(search(), '0112006{Enter}');
+
+    // 81 in the books at 2 968,75 each. None of it, in any form: not beside
+    // the field, not under it, not as a bar that resolves as a shape.
+    expect(document.querySelector('.readout__expected')).toBeNull();
+    expect(document.querySelector('.variance__bar')).toBeNull();
+    expect(screen.queryByText('81')).toBeNull();
+    expect(screen.getByText(/el sistema no se muestra/)).toBeTruthy();
+  });
+
+  it('keeps the variance hidden while a quantity is being typed', async () => {
+    // The live preview was the leak that mattered: type 80 against a book
+    // figure of 81 and the card used to answer «faltan 1», which is the book
+    // figure arrived at by subtraction.
+    const user = draw();
+    await user.type(search(), '0112006{Enter}');
+    await user.type(screen.getByLabelText('cantidad contada de PAN TAJADO'), '80');
+
+    expect(screen.queryByText(/faltan/)).toBeNull();
+    expect(screen.queryByText(/sobran/)).toBeNull();
+    expect(screen.queryByText(/cuadra con el sistema/)).toBeNull();
+  });
+
+  it('prints no book figures beside the other presentations of one codigo', async () => {
+    // PANCETA SV is three balances under 0103005 and the card lists all three,
+    // because typing 60 into KILO when you weighed PORCION X 350 GRAMOS is how
+    // a count reaches the wrong balance (ZEUS_FORMAT.md §4). The list stays.
+    // The quantities that used to sit beside it do not.
+    const user = draw();
+    await user.type(search(), '0103005{Enter}');
+
+    expect(screen.getByText(/3 presentaciones/)).toBeTruthy();
+    expect(document.querySelectorAll('.presrow')).toHaveLength(3);
+    expect(document.querySelectorAll('.presrow__qty')).toHaveLength(0);
+  });
+
+  it('still shows the counter their own number', async () => {
+    // The rule is about what the ERP believes, not about what this person
+    // recorded ten minutes ago on the shelf they are standing at.
+    store.setCount(ID.panTajado, 70);
+    const user = draw();
+    await user.type(search(), '0112006{Enter}');
+
+    expect(screen.getByLabelText('cantidad contada de PAN TAJADO')).toHaveProperty(
+      'value',
+      '70',
+    );
+    expect(screen.getByText('contado').textContent).toContain('70');
   });
 });
 
@@ -94,11 +186,17 @@ describe('Enter — the scanner path', () => {
 });
 
 describe('the three actions are not interchangeable', () => {
-  it('«Coincide con el sistema» is a count', async () => {
+  it('offers no route to agreeing with the system', async () => {
+    // «Coincide con el sistema» was one tap and is gone. Not a leak that was
+    // patched — a sentence that cannot be meant: "what I found is what you
+    // have on file" is unavailable to somebody who has not been told what is
+    // on file (DOMAIN.md §2.1). Typing the figure still produces the same
+    // `set`, which is the point: nothing is lost but the shortcut.
     const user = draw();
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    expect(screen.queryByRole('button', { name: 'Coincide con el sistema' })).toBeNull();
 
+    await save(user, 'PAN TAJADO', '81');
     expect(eventsFor(ID.panTajado)).toHaveLength(1);
     expect(eventsFor(ID.panTajado)[0].kind).toBe('set');
     expect(store.resolutionFor(ID.panTajado)).toEqual({ state: 'counted', qty: 81 });
@@ -118,7 +216,7 @@ describe('the three actions are not interchangeable', () => {
     expect(store.resolutionFor(ID.panTajado)).toEqual({ state: 'unchanged' });
   });
 
-  it('confirms a zero against a non-zero book figure before recording it', async () => {
+  it('confirms a zero before recording it', async () => {
     const user = draw();
     await user.type(search(), '0103005{Enter}');
     // File order opens on PORCION X 300 GRAMOS, 30 in the books.
@@ -130,15 +228,23 @@ describe('the three actions are not interchangeable', () => {
     expect(store.resolutionFor(ID.pancetaPorcion300)).toEqual({ state: 'counted', qty: 0 });
   });
 
-  it('records a confirmed-empty shelf as a match, not a shortage', async () => {
-    // MELON is booked at zero. Counting zero there is `counted` + `none`; the
-    // same quantity against PANCETA's 97,5 is `counted` + `shortage`. One
-    // state, two variance classes — DOMAIN.md §2.
+  it('asks about every zero, including the ones the books expect', async () => {
+    // MELON is booked at zero, so this zero contradicts nothing and the prompt
+    // still appears. A prompt that fired only when the books disagreed would
+    // be a readout of `existencia > 0`, one bit at a time, for any row
+    // somebody cared to probe (DOMAIN.md §2.1). It is also the last check the
+    // screen can make on its own, now that there is no reference to catch an
+    // order-of-magnitude slip against.
     const user = draw();
     await user.type(search(), '0111020{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'MELON', '0');
+
+    expect(eventsFor(ID.melon)).toHaveLength(0);
+    const prompt = screen.getByText(/El estante está vacío/);
+    expect(prompt.textContent).not.toContain('El sistema dice');
+
+    await user.click(screen.getByRole('button', { name: 'Sí, registrar 0' }));
     expect(store.resolutionFor(ID.melon)).toEqual({ state: 'counted', qty: 0 });
-    expect(screen.queryByRole('button', { name: 'Sí, registrar 0' })).toBeNull();
   });
 });
 
@@ -225,7 +331,7 @@ describe('taking it back', () => {
   it('«Descartar conteo» returns the row to pendiente and appends a withdrawal', async () => {
     const user = draw();
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'PAN TAJADO', '81');
     expect(store.resolutionFor(ID.panTajado).state).toBe('counted');
 
     await user.type(search(), 'pan tajado');
@@ -242,7 +348,7 @@ describe('taking it back', () => {
   it('puts the item back in the way of a post', async () => {
     const user = draw();
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'PAN TAJADO', '81');
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1');
 
     await user.type(search(), 'pan tajado');
@@ -267,7 +373,7 @@ describe('taking it back', () => {
   it('greys out the withdrawal it has just carried out, and keeps undo live', async () => {
     const user = draw();
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'PAN TAJADO', '81');
     await user.type(search(), 'pan tajado');
     await user.click(screen.getAllByRole('button', { name: /PAN TAJADO/ })[0]);
     await user.click(screen.getByRole('button', { name: 'Descartar conteo' }));
@@ -289,10 +395,11 @@ describe('taking it back', () => {
     // second copy of the fold (DOMAIN.md §3).
     const user = draw();
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'PAN TAJADO', '81');
     await user.type(search(), 'pan tajado');
     await user.click(screen.getAllByRole('button', { name: /PAN TAJADO/ })[0]);
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    // Re-opening a counted row prefills the field, so this saves the same 81.
+    await save(user, 'PAN TAJADO');
 
     await user.type(search(), 'pan tajado');
     await user.click(screen.getAllByRole('button', { name: /PAN TAJADO/ })[0]);
@@ -320,7 +427,7 @@ describe('taking it back', () => {
     // prior resolution to restore, so the count could only be overwritten.
     const user = draw();
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'PAN TAJADO', '81');
 
     await user.type(search(), 'pan tajado');
     await user.click(screen.getAllByRole('button', { name: /PAN TAJADO/ })[0]);
@@ -372,15 +479,18 @@ describe('a file that does not pass its own integrity check', () => {
     store = await CountStore.open(repo, SESSION_ID, fakeIdentity());
     draw();
 
-    // ZEUS_FORMAT.md §5: 43 of 232 codes in this export carry more than one
-    // name. Counting against it lands quantities on the wrong balances, and
-    // finding that out at posting time is too late.
-    expect(screen.getByRole('status').textContent).toContain('43 códigos');
+    // ZEUS_FORMAT.md §4.1: 43 of 232 codes in this export carry more than one
+    // name. The importer refuses a file like this now, so the only way to be
+    // looking at one is to have imported it before the check existed — and the
+    // screen has to say so rather than let somebody count a whole cava into a
+    // session that cannot produce a file.
+    expect(screen.getByRole('alert').textContent).toContain('no cuadra consigo mismo');
+    expect(screen.getByRole('alert').textContent).toContain('artículo equivocado');
   });
 
   it('stays quiet on a file that does pass it', () => {
     draw();
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 
@@ -399,7 +509,7 @@ describe('progress', () => {
     const user = draw();
     await user.selectOptions(screen.getByLabelText('Zona'), 'CAVA');
     await user.type(search(), '0112006{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await save(user, 'PAN TAJADO', '81');
 
     expect(eventsFor(ID.panTajado)[0].zona).toBe('CAVA');
   });

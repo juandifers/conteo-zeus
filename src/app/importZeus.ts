@@ -62,6 +62,239 @@ function toItem(item: ZeusItem): Item {
 }
 
 /**
+ * A way this file contradicts itself (ZEUS_FORMAT.md §4.1).
+ *
+ * Nothing in a Zeus row cross-checks its own name against its own key, so a
+ * single file cannot be *verified* — only found inconsistent. What makes that
+ * possible at all is that a catalogue repeats: 44 of bodega 01's 232 `codigo`s
+ * carry more than one row, and names repeat across presentations. Those
+ * repetitions are the only redundancy the format has, and every check below is
+ * one of them.
+ */
+export interface CatalogueFault {
+  kind: 'nombre-por-codigo' | 'codigo-por-nombre' | 'fila-repetida' | 'columna-ordenada';
+  /**
+   * What the rows disagree about: the `codigo`, the `nombre`, or
+   * `codigo presentacion`. For `columna-ordenada` it is the column's name.
+   */
+  key: string;
+  /**
+   * What they say instead — names, codes, or the `idarticulo`s that collide.
+   * For `columna-ordenada`, the first and last value in the column, which is
+   * the evidence: `«|MIEL MAPLE SYRUP»` to `«ZUMO DE LIMON»`.
+   */
+  values: string[];
+}
+
+/** Trailing spaces and a double space are not a different product. */
+function normal(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function conflicts(
+  items: readonly Item[],
+  kind: CatalogueFault['kind'],
+  keyOf: (item: Item) => string,
+  valueOf: (item: Item) => string,
+): CatalogueFault[] {
+  const seen = new Map<string, Set<string>>();
+  for (const item of items) {
+    const key = keyOf(item);
+    const values = seen.get(key) ?? new Set<string>();
+    values.add(valueOf(item));
+    seen.set(key, values);
+  }
+  return [...seen]
+    .filter(([, values]) => values.size > 1)
+    .map(([key, values]) => ({ kind, key, values: [...values].sort() }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * How far out of alphabetical order a column is, as a fraction of the adjacent
+ * pairs there are to be out of order.
+ *
+ * A real catalogue's names, read down the rows Zeus emitted, are shuffled:
+ * bodega 01's `.xls` sits at 48.5% — 144 of its 297 pairs — which is what a
+ * column nobody has touched looks like. Exported to `.txt` and handled, the
+ * same 298 rows read 0%.
+ */
+export function inversionRate(values: readonly string[]): number {
+  if (values.length < 2) return 0;
+  let inversions = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i - 1].localeCompare(values[i], 'es') > 0) inversions++;
+  }
+  return inversions / (values.length - 1);
+}
+
+/** Under this, a column is sorted. The samples are at 0% and 48.5%. */
+const SORTED = 0.05;
+
+/**
+ * Below this many rows, an accident is no longer impossible enough to refuse
+ * an import over. 11 pairs and a 5% allowance means *zero* inversions, which a
+ * genuine catalogue reaches by luck once in 12! — about one in 479 million —
+ * but a bodega with eight articles is a real thing and blocking one over a
+ * coincidence is worse than the check is worth.
+ */
+const ENOUGH_ROWS = 12;
+
+/**
+ * The names are alphabetical and the rows are not.
+ *
+ * The second signal, and the one that survives where the first has nothing to
+ * read. Zeus writes its rows in ascending `idarticulo`, an order that has
+ * nothing to do with the alphabet — so a file still in that order whose
+ * `nombre` column runs A to Z has had that column put in order by somebody,
+ * separately, after the export. Every name is then one or more rows away from
+ * the `codigo`, `costo` and `idarticulo` that stayed put.
+ *
+ * The `idarticulo` test is what keeps a legitimate sort out of it: somebody who
+ * sorts by name in Excel with the whole sheet selected moves the rows, names
+ * and keys together, and the file is fine. That one comes out with `nombre`
+ * ordered and `idarticulo` shuffled, and this returns `null`.
+ *
+ * What it cannot tell apart is a bodega whose articles were genuinely created
+ * in alphabetical order, where `idarticulo` ascending really is `nombre`
+ * ascending. Bodega 01 is not one — 48.5% says so — but a bodega set up in one
+ * sitting from an alphabetised list would be, and this would refuse it
+ * (ZEUS_FORMAT.md §4.1).
+ */
+function sortedColumn(items: readonly Item[]): CatalogueFault | null {
+  if (items.length < ENOUGH_ROWS) return null;
+  for (let i = 1; i < items.length; i++) {
+    if (items[i - 1].idarticulo >= items[i].idarticulo) return null;
+  }
+  const names = items.map((item) => normal(item.nombre));
+  if (inversionRate(names) >= SORTED) return null;
+  return {
+    kind: 'columna-ordenada',
+    key: 'nombre',
+    values: [names[0], names[names.length - 1]],
+  };
+}
+
+/**
+ * Every way this set of items gives itself away.
+ *
+ * Two signals, both of which the bodega 01 `.xls` passes and both of which the
+ * `.txt` beside it — same bodega, same corte — fails.
+ *
+ * **The file contradicts itself.** Three invariants over the redundancy a
+ * catalogue happens to carry:
+ *
+ *   `codigo` -> one `nombre`     one code is one product, whatever its
+ *                                presentations. 43 of 44 multi-row codes fail.
+ *   `nombre` -> one `codigo`     the mirror, and the one that still fires when
+ *                                every code happens to be unique. 44 fail.
+ *   `(codigo, presentacion)`     two rows for the same code and the same
+ *                                presentation are two balances for one thing.
+ *                                6 fail.
+ *
+ * **A column is in an order the file is not.** `nombre` alphabetical while the
+ * rows are still in `idarticulo` order: 0% against the `.xls`'s 48.5%.
+ *
+ * The two do not overlap. The first reads repetition and says nothing about a
+ * catalogue that has none — 232 unique codes and 232 unique names would satisfy
+ * all three invariants while being nonsense. The second reads order and does
+ * not care whether anything repeats. Between them they cover the failure that
+ * matters: a displacement large enough to matter moves rows relative to each
+ * other, and it is hard to do that without either breaking a repetition or
+ * leaving a column suspiciously tidy.
+ *
+ * What neither can do is confirm that `idarticulo` 1960 really is the product
+ * named beside it. There is no second opinion inside one file. The real one is
+ * a previous session for the same bodega, which the database has from the
+ * second import onward.
+ */
+export function catalogueFaults(items: readonly Item[]): CatalogueFault[] {
+  const sorted = sortedColumn(items);
+  return [
+    ...conflicts(items, 'nombre-por-codigo', (i) => i.codigo, (i) => normal(i.nombre)),
+    ...conflicts(items, 'codigo-por-nombre', (i) => normal(i.nombre), (i) => i.codigo),
+    ...conflicts(
+      items,
+      'fila-repetida',
+      (i) => `${i.codigo} ${normal(i.presentacion)}`,
+      (i) => String(i.idarticulo),
+    ),
+    ...(sorted ? [sorted] : []),
+  ];
+}
+
+/** `«a», «b» y «c»` — Spanish lists take no comma before the conjunction. */
+function listOf(values: readonly string[]): string {
+  const quoted = values.map((value) => `«${value}»`);
+  if (quoted.length < 2) return quoted.join('');
+  return `${quoted.slice(0, -1).join(', ')} y ${quoted[quoted.length - 1]}`;
+}
+
+/**
+ * What the person holding the file is told, and what to do about it.
+ *
+ * Two sentences before the remedy, because they are asked to distrust a file
+ * they have no reason to distrust: what the file says about itself, and — if
+ * the column gave it away — what a fresh export looks like instead. A bare
+ * count of faults leaves somebody at six on cutoff day staring at a banner.
+ */
+export function describeFaults(faults: readonly CatalogueFault[]): string {
+  const of = (kind: CatalogueFault['kind']) => faults.filter((f) => f.kind === kind);
+  const names = of('nombre-por-codigo');
+  const codes = of('codigo-por-nombre');
+  const rows = of('fila-repetida');
+  const sorted = of('columna-ordenada')[0];
+
+  const parts: string[] = [];
+  if (names.length > 0) parts.push(`${names.length} códigos llevan más de un nombre`);
+  if (codes.length > 0) parts.push(`${codes.length} nombres aparecen bajo más de un código`);
+  if (rows.length > 0) parts.push(`${rows.length} filas repiten código y presentación`);
+
+  const sample = names[0] ?? codes[0];
+  const contradicts =
+    parts.length > 0
+      ? `El archivo se contradice a sí mismo: ${parts.join(', ')}` +
+        (sample ? ` — «${sample.key}» está como ${listOf(sample.values)}` : '') +
+        '. '
+      : '';
+  const ordered = sorted
+    ? `${parts.length > 0 ? 'Además la' : 'La'} columna de nombres va en orden alfabético de ` +
+      `punta a punta, de «${sorted.values[0]}» a «${sorted.values[1]}», mientras las filas ` +
+      'siguen en el orden en que Zeus las exporta. Un archivo recién exportado no sale así. '
+    : '';
+
+  return (
+    contradicts +
+    ordered +
+    'Pasa cuando se ordenan unas columnas en Excel sin arrastrar el resto de la ' +
+    'fila: el nombre y la existencia se mueven, el código y el costo se quedan. Un ' +
+    'conteo tomado contra un archivo así se sube a los artículos equivocados. ' +
+    'Vuelve a exportar la bodega desde Zeus sin ordenarla.'
+  );
+}
+
+/** Thrown by `importZeusFile`; carries the whole list, not the summary. */
+export class CatalogueError extends Error {
+  readonly faults: readonly CatalogueFault[];
+  constructor(faults: readonly CatalogueFault[]) {
+    super(describeFaults(faults));
+    this.name = 'CatalogueError';
+    this.faults = faults;
+  }
+}
+
+/**
+ * The `ZeusItem` -> `Item` mapping, over a whole file.
+ *
+ * Exported because a test has to build a session the importer now refuses:
+ * files like that were imported before the check existed, they are in the
+ * database, and the screens still have to cope with them.
+ */
+export function toItems(file: ZeusFile): Item[] {
+  return file.items.map(toItem);
+}
+
+/**
  * Build a session from a parsed Zeus file.
  *
  * `sourceHash` is the SHA-256 of the file's **canonical `.txt` rendering**
@@ -74,17 +307,22 @@ function toItem(item: ZeusItem): Item {
  * against.
  */
 export function importZeusFile(file: ZeusFile, options: ImportOptions = {}): Session {
+  // These messages are read by whoever is holding the file, in a banner, at
+  // six on cutoff day. They say what is wrong with the file and what to do
+  // about it, in the language the rest of the app is written in.
   if (file.items.length === 0) {
-    throw new Error('cannot import an empty file: there is nothing to count');
+    throw new Error('El archivo está vacío: no hay nada que contar.');
   }
   if (file.bodega === null) {
     throw new Error(
-      'this file mixes bodegas, so it is not one count. Import one warehouse per session',
+      'El archivo mezcla bodegas, así que no es un solo conteo. Exporta e importa ' +
+        'una bodega por sesión.',
     );
   }
   if (file.fecha === null) {
     throw new Error(
-      'this file mixes cutoff dates, so its balances are not a single snapshot',
+      'El archivo mezcla fechas de corte, así que sus saldos no son una sola foto ' +
+        'del inventario.',
     );
   }
 
@@ -93,13 +331,21 @@ export function importZeusFile(file: ZeusFile, options: ImportOptions = {}): Ses
   for (const item of file.items) {
     if (seen.has(item.idarticulo)) {
       throw new Error(
-        `idarticulo ${item.idarticulo} appears twice; it is the primary key ` +
-          '(ZEUS_FORMAT.md §4)',
+        `El idarticulo ${item.idarticulo} aparece dos veces y es la llave primaria ` +
+          'de este archivo (ZEUS_FORMAT.md §4). Vuelve a exportar la bodega desde Zeus.',
       );
     }
     seen.add(item.idarticulo);
     items.push(toItem(item));
   }
+
+  // Last, because it is the expensive one and the cheap checks above name a
+  // simpler problem when they fire. Refused rather than warned: a count taken
+  // against a file whose names have come loose from its keys posts quantities
+  // to the wrong articles, and there is no way to take that back once somebody
+  // has uploaded it (ZEUS_FORMAT.md §4.1).
+  const faults = catalogueFaults(items);
+  if (faults.length > 0) throw new CatalogueError(faults);
 
   return {
     id: options.id ?? crypto.randomUUID(),

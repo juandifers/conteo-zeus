@@ -6,8 +6,8 @@
  * once, each bound to its own `idarticulo` — that grouping is the whole
  * defence against posting a count to the wrong balance (ZEUS_FORMAT.md §4).
  * The active presentation owns the big readout; the rest stay visible below
- * it with their own book figures and their own states, so nobody types 60 into
- * `KILO` when they weighed `PORCION X 350 GRAMOS`.
+ * it with their own states, so nobody types 60 into `KILO` when they weighed
+ * `PORCION X 350 GRAMOS`.
  *
  * Three actions, and the distance between the first two is the design:
  *
@@ -17,13 +17,26 @@
  *                                       a name (DOMAIN.md §4). Rendered as a
  *                                       plain underlined link below the two
  *                                       counts: an escape hatch, not a shortcut.
+ *
+ * **Nothing the ERP believes is on this card** (DOMAIN.md §2.1): not
+ * `existencia` beside the field, not the variance under it, not the quantity
+ * that used to sit against each presentation. The card asks one question and
+ * takes one answer.
+ *
+ * `Coincide con el sistema` went with them, and not because it leaked the
+ * figure — it did, in the echo line — but because it cannot be *meant*. It
+ * says "what I found is what you have on file", which is not a sentence
+ * available to somebody who has not been told what is on file. Nothing is
+ * lost: a counter who finds exactly the book quantity types it, the fold
+ * records a `set`, and the variance comes out at zero at the review. What is
+ * gone is the one-tap route to agreeing with the ERP, which is the route this
+ * whole rule exists to close.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Item, Resolution } from '../../domain';
 import { formatQty, parseQty } from '../format';
 import type { CountStore } from '../store';
 import { StateChip } from './StateChip';
-import { Expected, VarianceReadout } from './VarianceReadout';
 
 export interface EntryCardProps {
   group: readonly Item[];
@@ -72,10 +85,7 @@ export function EntryCard({
     if (!tally) field.current?.focus();
   }, [tally, active.idarticulo]);
 
-  /** Live preview: what the variance would be if this draft landed. */
   const typed = parseQty(draft);
-  const preview: Resolution =
-    !tally && typed !== null ? { state: 'counted', qty: typed } : resolution;
 
   const index = group.findIndex((item) => item.idarticulo === active.idarticulo);
 
@@ -94,9 +104,16 @@ export function EntryCard({
 
   function commit(qty: number): void {
     // DOMAIN.md §2's UI rule, derived rather than modelled: a count of zero
-    // against a non-zero book figure is both the genuine write-off and what a
-    // mis-tap produces, so it is the one entry that gets asked twice.
-    if (qty === 0 && active.existencia > 0 && !confirmZero) {
+    // is both the genuine write-off and what a mis-tap produces, so it is the
+    // one entry that gets asked twice.
+    //
+    // Every zero, not only the ones that contradict the books — asking
+    // selectively would make the prompt itself a readout of `existencia > 0`,
+    // one bit at a time, for any row somebody cared to probe (§2.1). It costs
+    // a tap on the 31 rows the ERP already believes are empty. It is also the
+    // only slip this screen can still catch on its own, now that there is no
+    // reference to catch the others against.
+    if (qty === 0 && !confirmZero) {
       setConfirmZero(true);
       return;
     }
@@ -120,7 +137,7 @@ export function EntryCard({
               {active.codigo} · {active.presentacion}
             </div>
           </div>
-          <StateChip item={active} resolution={resolution} />
+          <StateChip resolution={resolution} />
           <button
             type="button"
             className="entry__close"
@@ -145,7 +162,6 @@ export function EntryCard({
           </button>
         ) : (
           <div className="readout">
-            <Expected item={active} />
             <div className="readout__field">
               <input
                 ref={field}
@@ -170,7 +186,21 @@ export function EntryCard({
           </div>
         )}
 
-        <VarianceReadout item={active} resolution={preview} />
+        {/*
+          The slot the variance used to occupy, saying why it is empty rather
+          than collapsing. A missing readout reads as a broken screen; this
+          reads as a decision somebody made, which it is.
+
+          What was there caught an order-of-magnitude keypad slip as a *shape*,
+          from arm's length, and it could only do that against a reference the
+          counter must not have. That check is spent, and independence is what
+          it bought (DOMAIN.md §2.1).
+        */}
+        <div className="variance">
+          <div className="variance__line">
+            <span className="hint">a ciegas — el sistema no se muestra en esta pantalla</span>
+          </div>
+        </div>
 
         {group.length > 1 && (
           <div className="presentaciones">
@@ -192,8 +222,7 @@ export function EntryCard({
                     {mixedNames && <strong>{item.nombre} · </strong>}
                     {item.presentacion}
                   </span>
-                  <span className="presrow__qty num">{formatQty(item.existencia)}</span>
-                  <StateChip item={item} resolution={each} />
+                  <StateChip resolution={each} />
                 </button>
               );
             })}
@@ -206,8 +235,7 @@ export function EntryCard({
       {confirmZero && (
         <div className="confirm">
           <div className="confirm__text">
-            El sistema dice <span className="num">{formatQty(active.existencia)}</span> y vas a
-            registrar <span className="num">0</span>. ¿El estante está vacío?
+            Vas a registrar <span className="num">0</span>. ¿El estante está vacío?
           </div>
           <div className="actions__pair">
             <button type="button" className="btn" onClick={() => setConfirmZero(false)}>
@@ -258,19 +286,14 @@ export function EntryCard({
           </button>
         )}
 
-        <div className="actions__pair">
-          <button type="button" className="btn" onClick={() => commit(active.existencia)}>
-            Coincide con el sistema
-          </button>
-          <button
-            type="button"
-            className={`btn ${tally ? 'btn--on' : ''}`}
-            aria-pressed={tally}
-            onClick={() => setTally((on) => !on)}
-          >
-            Modo conteo
-          </button>
-        </div>
+        <button
+          type="button"
+          className={`btn ${tally ? 'btn--on' : ''}`}
+          aria-pressed={tally}
+          onClick={() => setTally((on) => !on)}
+        >
+          Modo conteo
+        </button>
 
         <button type="button" className="btn btn--waiver" onClick={waive}>
           Dejar sin verificar

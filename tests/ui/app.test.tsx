@@ -54,12 +54,12 @@ describe('an empty tablet', () => {
 });
 
 describe('importing a Zeus export', () => {
-  it('opens the count straight from the .txt', async () => {
+  it('opens the count straight from the file', async () => {
     const repo = new MemoryRepository();
     const { container } = render(<App repo={repo} outbox={localOutbox(memoryStorage())} />);
     await screen.findByText('Trae un archivo de Zeus y empieza');
 
-    upload(container, zeusFile(SAMPLE_TXT, 'COMESTIBLES ALMACEN.txt'));
+    upload(container, zeusFile(SAMPLE_XLS, 'COMESTIBLES ALMACEN.xls'));
 
     // Straight into counting: the person who just imported is the person about
     // to count, and a list with one row on it is a tap for nothing.
@@ -69,7 +69,7 @@ describe('importing a Zeus export', () => {
     expect(await repo.listSessions()).toHaveLength(1);
   });
 
-  it('takes the .xls just as happily, sniffing the bytes rather than the name', async () => {
+  it('sniffs the bytes rather than the name', async () => {
     const repo = new MemoryRepository();
     const { container } = render(<App repo={repo} outbox={localOutbox(memoryStorage())} />);
     await screen.findByText('Trae un archivo de Zeus y empieza');
@@ -80,6 +80,26 @@ describe('importing a Zeus export', () => {
     expect(await screen.findByLabelText('buscar artículo')).toBeTruthy();
     const [session] = await repo.listSessions();
     expect(session.itemCount).toBe(298);
+  });
+
+  it('refuses the .txt whose names came loose from its keys', async () => {
+    // ZEUS_FORMAT.md §4.1. Somebody sorted three columns in Excel without
+    // dragging the rest of the row, so 297 of these 298 rows describe one
+    // article and are keyed to another. Counting against it posts quantities
+    // to the wrong balances, and nothing downstream could tell.
+    const repo = new MemoryRepository();
+    const { container } = render(<App repo={repo} outbox={localOutbox(memoryStorage())} />);
+    await screen.findByText('Trae un archivo de Zeus y empieza');
+
+    upload(container, zeusFile(SAMPLE_TXT, 'COMESTIBLES ALMACEN.txt'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('se contradice a sí mismo');
+    expect(alert.textContent).toContain('43 códigos llevan más de un nombre');
+    // Says what to do about it, and leaves nothing behind to count against.
+    expect(alert.textContent).toContain('Vuelve a exportar la bodega desde Zeus');
+    expect(await repo.listSessions()).toHaveLength(0);
+    expect(screen.queryByLabelText('buscar artículo')).toBeNull();
   });
 
   it('says why when the bytes are not a Zeus export', async () => {
@@ -98,12 +118,13 @@ describe('coming back to a session', () => {
     const repo = new MemoryRepository();
     const { container } = render(<App repo={repo} outbox={localOutbox(memoryStorage())} />);
     await screen.findByText('Trae un archivo de Zeus y empieza');
-    upload(container, zeusFile(SAMPLE_TXT, 'COMESTIBLES ALMACEN.txt'));
+    upload(container, zeusFile(SAMPLE_XLS, 'COMESTIBLES ALMACEN.xls'));
     await screen.findByLabelText('buscar artículo');
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('buscar artículo'), '0111020{Enter}');
-    await user.click(screen.getByRole('button', { name: 'Coincide con el sistema' }));
+    await user.type(screen.getByLabelText(/^cantidad contada de/), '5');
+    await user.click(screen.getByRole('button', { name: /^Guardar/ }));
     await user.click(screen.getByRole('button', { name: 'sesiones' }));
 
     const card = await screen.findByRole('button', { name: /Bodega/ });
@@ -127,6 +148,11 @@ describe('the way through to the review', () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Revisar y generar archivo' }));
+
+    // Nothing has been counted, so the door opens onto the gate: this is the
+    // one screen that shows what Zeus holds, and it asks first (§2.1).
+    expect(screen.getByText('Esta pantalla muestra lo que dice Zeus')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Ver las cifras del sistema' }));
 
     expect(await screen.findByRole('button', { name: 'Generar archivo' })).toBeDisabled();
     expect(screen.getByText('Faltan 298 artículos por contar o exentar.')).toBeTruthy();

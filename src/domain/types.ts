@@ -89,6 +89,7 @@ export interface CountEventBase {
   seq: number;
 }
 
+
 /** Replace the running value: what a keypad entry means. */
 export interface SetCountEvent extends CountEventBase {
   kind: 'set';

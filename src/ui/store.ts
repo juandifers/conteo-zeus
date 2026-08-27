@@ -196,7 +196,7 @@ export class CountStore {
 
   // --- what a counter can do ------------------------------------------------
 
-  /** A keypad entry, and what `Coincide con el sistema` appends. */
+  /** A keypad entry: the only way a quantity gets into the log (§2.1). */
   setCount(idarticulo: number, qty: number): CountEvent {
     return this.append(idarticulo, { kind: 'set', qty });
   }

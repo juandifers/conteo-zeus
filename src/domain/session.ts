@@ -185,6 +185,7 @@ export function isWriteOff(summary: ItemSummary): boolean {
 }
 
 function accumulate(into: Exposure, valor: number, exposicion: number): void {
+
   into.items++;
   into.valor = addDecimal(into.valor, valor);
   into.exposicion = addDecimal(into.exposicion, exposicion);

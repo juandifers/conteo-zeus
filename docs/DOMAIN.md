@@ -53,6 +53,109 @@ bug.
 write-off and what a mis-tap produces. It warrants a confirmation prompt. Derive
 it; do not model it.
 
+### 2.1 The count is blind
+
+Inventory sends counters out with nothing from Zeus, and the reason is that a
+variance is only evidence to the extent the counter did not know what they were
+supposed to find. Shown `existencia` first, a person under time pressure finds
+`existencia`: the shelf gets a glance instead of a count, an awkward weight gets
+rounded to the book figure, and every row that agrees with the ERP agrees with
+it for a reason the report cannot distinguish from the true one. The count then
+confirms the balances instead of testing them, which is the one thing it exists
+to do.
+
+**So no counting surface renders anything the ERP believes.** Not a default, not
+a mode, not a preference — there is no switch, because "always" and "unless
+somebody taps this" are different rules and the department's rule is the first
+one. Concretely, off the entry card, the search results, the presentation list
+and the faltantes list:
+
+| Gone | It was |
+|---|---|
+| `existencia` beside the field and on every result row | the figure itself |
+| the variance readout and its bar, live as a quantity is typed | `existencia` by subtraction |
+| `Coincide con el sistema` | a sentence nobody blind can mean — below |
+| every peso figure on faltantes, and the `sistema · antes` chip | `existencia x costo` |
+| the zero prompt's *selectivity* | it fired on `existencia > 0`, one bit at a time |
+
+The counter's own numbers stay. A row they counted at 70 says `contado 70`
+where it used to say `faltan 11`, and progress (`verificados/total`) stays
+because it counts their work rather than the ERP's opinion.
+
+Three consequences, all of which look like losses:
+
+**`Coincide con el sistema` is not hidden, it is unavailable.** It asserts
+"what I found is what you have on file", which is not a sentence available to
+somebody who has not been told what is on file. Typing the figure produces the
+same `set` event and the same zero variance at the review; what goes is the
+one-tap route to agreeing with the ERP, which is the route this rule exists to
+close.
+
+**The variance bar caught keypad slips, and now it cannot.** An order of
+magnitude off read as a *shape* against the book figure, from arm's length —
+and only against a reference the counter must not have. That check is spent;
+independence is what it bought. The one slip the screen can still catch alone
+is a zero, so **every** zero is confirmed rather than only the ones that
+contradict the books. Asking selectively would make the prompt a readout of
+`existencia > 0` for any row somebody cared to probe.
+
+**Faltantes keeps its ranking and loses its figures.** The order is still
+`byExposicion`, so the walk is still most-material-first; the pesos behind the
+order are not printed. The ordering leaks materiality, which is weak, and is
+also the screen's entire purpose. The figure a supervisor used to read there is
+on the review screen under `pendiente · en riesgo`.
+
+#### Where the rule lives
+
+In the code, and asserted by reading the code — `tests/blindCount.test.ts`,
+in the spirit of `tests/boundaries.test.ts`. The counting surfaces may not
+mention `existencia`, `costo`, `ultimoConteo`, `valor`, `exposicion`,
+`itemVariance` or `formatMoney`; a variance is the book figure arrived at by
+subtraction and a peso total is the book figure arrived at by multiplication,
+and neither is any less the book figure for having been through arithmetic
+first. A rendering test can only catch what it happens to render, and this is a
+count of 298 items with fifteen ways to reach any one of them.
+
+An earlier version of this made blindness a per-device default with a switch,
+and stamped every event with what the screen was showing when it was appended,
+so the review could report how many counts were taken sighted. That is the
+right design when the rule is a policy people can decide against; it is the
+wrong one when the rule is "always", because the record then documents a
+freedom that should not exist. The guarantee is stronger unenforceable-by-
+construction than observable-after-the-fact, and one boolean per event is not
+worth carrying to describe a constant.
+
+**The review screen is the reveal, and shows all of it.** A variance review
+against hidden expectations is not a review, and blindness is a property of the
+count, which is over by the time anybody opens it.
+
+**The review screen cannot hide `existencia` either, and it is worth saying why
+rather than leaving it to look like an oversight.** The table is `sistema`,
+`conteo`, `diferencia` and `impacto`, and any two of the first three give the
+third: hide the book quantity and it is `conteo - diferencia`. `impacto` is
+`diferencia x costo`, so it gives the quantity away a second time. A variance
+report *is* the comparison; a version that withheld half of it would be harder
+to read and no less revealing.
+
+So the limit is about **who opens the screen, not what is on it** — and it is a
+real one. There is no backend and no merge yet, so a session lives in exactly
+one browser: the reviewer is holding the counter's tablet, because the count is
+nowhere else. Separating the two roles for real is blocked on the same
+multi-device work as §6's `CountingSession` and `zona`.
+
+Until then the screen does the one thing available to it. **While any row is
+still uncounted it opens closed**, naming what is behind it and how many rows
+are still open, with going back as the weighted button and revealing as the
+plain one beside it. That converts an accidental eyeful — `Revisar y generar
+archivo` is one tap from the search box — into a decision somebody made. It is
+friction, not security: it stops curiosity and nothing else, and pretending
+otherwise would be worse than not having it. Once every row is counted or
+waived it does not appear, because blindness has already done its work.
+
+What the app guarantees is therefore narrower than "no Zeus figure is visible",
+and worth stating exactly: *a counter who counts is never shown a Zeus figure
+by any screen they count from, and never reaches one without saying so first.*
+
 ---
 
 ## 3. Events
@@ -168,7 +271,9 @@ Therefore:
 **Generating the file is recorded, and not in the event log.** An `ExportRecord`
 carries the instant, the user, the SHA-256 of the bytes written, the
 verification counts at that moment, and the coverage those counts represent
-(§5.3). Not a boolean on the session: people export,
+(§5.3). It says nothing about whether the count was blind, because §2.1 makes
+that unconditional: a record that asserted it would be describing a constant.
+Not a boolean on the session: people export,
 count some more, and export again, and afterwards the useful question is *which*
 file the ERP received. Two records with one digest are two downloads of one
 file; two digests are two different files, and what happened in between can be

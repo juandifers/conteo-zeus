@@ -11,7 +11,7 @@
 import { writeTxt, type WriteTxtOptions, type ZeusFile } from '../zeus';
 import { resolveSession, type CountEvent, type Session } from '../domain';
 import { sha256Hex } from '../lib/hash';
-import { parseZeusBytes, sourceHashOf } from './importZeus';
+import { CatalogueError, catalogueFaults, parseZeusBytes, sourceHashOf } from './importZeus';
 
 export interface ExportAdjustmentOptions
   extends Pick<WriteTxtOptions, 'countTargetColumn' | 'differenceColumn' | 'numberFormat'> {
@@ -102,12 +102,22 @@ export type GenerateAdjustmentOptions = Omit<ExportAdjustmentOptions, 'file'>;
  * the screen has no business computing it — it would need a hash function, and
  * a second implementation of "which bytes did we write" is how an export
  * record ends up describing a file nobody has.
+ *
+ * It also refuses a session whose catalogue contradicts itself. `importZeusFile`
+ * already refuses those, so this can only fire for a session imported before
+ * that check existed — which is exactly the session it needs to fire for, since
+ * the count on it landed on whatever `idarticulo` shared a line with the name
+ * the counter read (ZEUS_FORMAT.md §4.1). The last gate belongs here rather
+ * than on the screen: this is the only function in the app that turns a count
+ * into bytes an ERP will believe.
  */
 export function generateAdjustment(
   session: Session,
   events: readonly CountEvent[],
   options: GenerateAdjustmentOptions = {},
 ): Adjustment {
+  const faults = catalogueFaults(session.items);
+  if (faults.length > 0) throw new CatalogueError(faults);
   const bytes = exportAdjustment(session, events, {
     ...options,
     file: parseZeusBytes(requireSource(session)),

@@ -1,28 +1,29 @@
 /**
- * Faltantes — the untouched items, ordered by exposure.
+ * Faltantes — what is still to count, in the order it should be counted.
  *
  * This screen is two things at once, which is why it is worth its own route:
  * it is the completeness check *and* it is the count route. Whatever does not
  * get counted before the clock runs out should be the least material thing in
  * the bodega, so the order of this list decides what gets left behind.
  *
- * Both figures on this screen are scoped to `pendiente` — over `untouched`
- * only — because this is the work list. A waived row is not somewhere anybody
- * still has to walk to, so it leaves this screen. The figure that does *not*
- * fall when somebody signs a waiver is `sinVerificar`, and it belongs on the
- * review screen, where the question is what the count is worth rather than
- * what is left of it (DOMAIN.md §5).
+ * **The order is the whole product here, because it is all that is left.** It
+ * is `byExposicion` — `max(existencia, ultimoConteo) x costo`, descending —
+ * and DOMAIN.md §5 is the reason it is not book value: 31 of the 298 rows are
+ * perishables the ERP books at zero between purchases, so a value-ordered walk
+ * sends everybody past the produce cooler last.
  *
- * The order is `byExposicion`, not book value, and DOMAIN.md §5 is the reason:
- * 31 of the 298 rows are perishables the ERP books at zero between purchases,
- * so a value-ordered walk sends everybody past the produce cooler last. Both
- * figures are on screen because they answer different questions — finance
- * wants the book total, the supervisor deciding where to send people needs the
- * exposure.
+ * Not one of those pesos reaches the screen. This is a surface a counter
+ * counts from, so nothing the ERP believes may be printed on it — not the
+ * exposure that ranks the row, not the book quantity, not the previous count
+ * (DOMAIN.md §2.1). The ranking carries the materiality; the figures behind it
+ * stay in the summary and surface on the review screen, which is a different
+ * screen for a different person after the count is over.
+ *
+ * The figure the supervisor used to read here — `pendiente`, in pesos — is on
+ * the review screen under `pendiente · en riesgo`, alongside the same list.
  */
 import { useMemo, useSyncExternalStore } from 'react';
 import { summarizeSession, type Item } from '../../domain';
-import { formatMoney, formatMoneyShort, formatQty } from '../format';
 import type { CountStore } from '../store';
 
 export function FaltantesScreen({
@@ -37,11 +38,6 @@ export function FaltantesScreen({
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { session, events } = snapshot;
   const summary = useMemo(() => summarizeSession(session, events), [session, events]);
-
-  // The rows §5 is about: nothing in the books, something on the shelf.
-  const invisible = summary.byExposicion.filter(
-    (row) => row.valor === 0 && row.exposicion > 0,
-  );
 
   return (
     <div className="screen">
@@ -59,23 +55,11 @@ export function FaltantesScreen({
       </div>
 
       <div className="total">
-        <div className="total__label">en riesgo sin verificar</div>
-        <div className="total__value num">
-          {formatMoney(summary.pendiente.exposicion)} <span className="total__note">COP</span>
-        </div>
+        <div className="total__label">sin contar</div>
+        <div className="total__value num">{summary.pendiente.items}</div>
         <div className="total__note">
-          valor en libros <span className="num">{formatMoney(summary.pendiente.valor)}</span> COP
-          {invisible.length > 0 && (
-            <>
-              {' '}· <span className="num">{invisible.length}</span> artículos valen 0 en libros y{' '}
-              <span className="num">
-                {formatMoneyShort(
-                  invisible.reduce((total, row) => total + row.exposicion, 0),
-                )}
-              </span>{' '}
-              por su último conteo
-            </>
-          )}
+          de <span className="num">{summary.itemCount}</span> artículos · la lista va de lo más
+          material a lo menos, así que cuenta de arriba hacia abajo
         </div>
       </div>
 
@@ -97,19 +81,6 @@ export function FaltantesScreen({
                     <span className="row__nombre">{row.item.nombre}</span>
                     <span className="row__meta">
                       <span className="num">{row.item.codigo}</span> · {row.item.presentacion}
-                      {row.valor === 0 && row.exposicion > 0 && ' · sin existencia en libros'}
-                    </span>
-                  </span>
-                  <span className="row__right">
-                    <span className="row__existencia num">{formatMoney(row.exposicion)}</span>
-                    <br />
-                    <span className="chip">
-                      sistema <span className="num">{formatQty(row.item.existencia)}</span>
-                      {row.item.ultimoConteo !== null && (
-                        <>
-                          {' '}· antes <span className="num">{formatQty(row.item.ultimoConteo)}</span>
-                        </>
-                      )}
                     </span>
                   </span>
                 </button>

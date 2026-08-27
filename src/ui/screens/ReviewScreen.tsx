@@ -16,9 +16,25 @@
  * uploads it, exactly as they do today. Say what actually happens, or the
  * first time an upload fails somebody will believe the app did something it
  * did not.
+ *
+ * **This screen is the reveal** (DOMAIN.md §2.1). Every book figure in the
+ * bodega is on it, because a variance review against hidden expectations is
+ * not a review — and every one of them is here for the first time, since no
+ * surface the count was taken from printed a single one. That is what makes
+ * the variances below evidence rather than a comparison somebody was steered
+ * into.
+ *
+ * Which is also why, **while the count is unfinished, the screen opens closed**
+ * and asks. There is one tablet — no backend, one browser's IndexedDB per
+ * session — so the counter and the reviewer are holding the same device, and
+ * `Revisar y generar archivo` is one tap from the search box. The gate turns
+ * an accidental eyeful into a decision somebody made. It is friction and not
+ * security: it stops curiosity, it stops nothing that means it, and only auth
+ * would (§6). Once every row is counted or waived there is nothing left to
+ * protect, so it does not appear at all.
  */
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { generateAdjustment, sourceIntact } from '../../app';
+import { catalogueFaults, generateAdjustment, sourceIntact } from '../../app';
 import {
   compareEvents,
   nowInstant,
@@ -68,7 +84,12 @@ function matches(row: ItemSummary, filter: Filter): boolean {
 type Panel =
   | { kind: 'waiver' }
   | { kind: 'confirm' }
-  | { kind: 'repeat'; previous: ExportRecord; bytes: Uint8Array; sha256: string }
+  | {
+      kind: 'repeat';
+      previous: ExportRecord;
+      bytes: Uint8Array;
+      sha256: string;
+    }
   | { kind: 'done'; record: ExportRecord };
 
 export function ReviewScreen({
@@ -95,6 +116,9 @@ export function ReviewScreen({
   // mount — otherwise the second file of a session is offered under the first
   // one's name and the browser silently resolves the collision with `(1)`.
   const [renamed, setRenamed] = useState<string | null>(null);
+  // Per visit, deliberately: leaving for the counting screen unmounts this one,
+  // so coming back asks again rather than staying open behind somebody's back.
+  const [revealed, setRevealed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const summary = useMemo(() => summarizeSession(session, events), [session, events]);
@@ -114,6 +138,9 @@ export function ReviewScreen({
   // Checked here rather than left to throw inside the writer: a disabled
   // button that says why beats an exception at the moment somebody presses it.
   const intact = useMemo(() => sourceIntact(session), [session]);
+  // Only reachable for a session imported before the importer checked this
+  // (ZEUS_FORMAT.md §4.1). `generateAdjustment` refuses it too.
+  const faults = useMemo(() => catalogueFaults(session.items), [session.items]);
 
   useEffect(() => {
     let live = true;
@@ -173,7 +200,7 @@ export function ReviewScreen({
     setError(null);
     // Belt as well as braces: the button is disabled without these, and this
     // is the only call site of `generateAdjustment` in the app.
-    if (!summary.canPost || !intact) return;
+    if (!summary.canPost || !intact || faults.length > 0) return;
     let built;
     try {
       built = generateAdjustment(session, events);
@@ -212,13 +239,69 @@ export function ReviewScreen({
   const rows = summary.items.filter((row) => matches(row, filter));
   const figures = postFigures(summary);
   const blocked =
-    summary.counts.untouched > 0
-      ? `Faltan ${summary.counts.untouched} artículos por contar o exentar.`
-      : !intact
-        ? session.source
-          ? 'El archivo guardado con esta sesión ya no coincide con el conteo. No se puede generar un ajuste contra otro corte.'
-          : 'Esta sesión no guardó el archivo de Zeus del que se importó, así que no puede generar un ajuste.'
-        : null;
+    faults.length > 0
+      ? 'El archivo de esta sesión se contradice a sí mismo, así que sus conteos no ' +
+        'se pueden atribuir a un artículo. Vuelve a importar la bodega y cuenta ' +
+        'contra el archivo nuevo.'
+      : summary.counts.untouched > 0
+        ? `Faltan ${summary.counts.untouched} artículos por contar o exentar.`
+        : !intact
+          ? session.source
+            ? 'El archivo guardado con esta sesión ya no coincide con el conteo. No se puede generar un ajuste contra otro corte.'
+            : 'Esta sesión no guardó el archivo de Zeus del que se importó, así que no puede generar un ajuste.'
+          : null;
+
+  if (summary.counts.untouched > 0 && !revealed) {
+    return (
+      <div className="screen screen--desk">
+        <div className="topbar">
+          <button
+            type="button"
+            className="entry__close"
+            aria-label="volver"
+            onClick={onBack}
+          >
+            ‹
+          </button>
+          <div className="topbar__where">
+            <div className="topbar__bodega">
+              Revisión · bodega <span className="num">{session.bodega}</span>
+            </div>
+            <div className="topbar__corte">
+              corte <span className="num">{session.fechaCorte}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="empty" role="status">
+          <div className="empty__title">Esta pantalla muestra lo que dice Zeus</div>
+          <div className="empty__body">
+            Faltan <span className="num">{summary.counts.untouched}</span> artículos por
+            contar. Abajo está la existencia que el sistema tiene de cada uno, y quien
+            esté contando no debería verla: un conteo sirve como prueba mientras la
+            persona no sepa qué se supone que va a encontrar.
+          </div>
+        </div>
+
+        <div className="spacer" />
+
+        {/*
+          Going back is the filled button and revealing is the plain one, the
+          same ranking the entry card gives `Guardar` over `Dejar sin
+          verificar`: the safe action owns the weight, and the escape hatch is
+          available without being the thing a thumb finds on its own.
+        */}
+        <div className="actions">
+          <button type="button" className="btn btn--primary" onClick={onBack}>
+            Volver a contar
+          </button>
+          <button type="button" className="btn" onClick={() => setRevealed(true)}>
+            Ver las cifras del sistema
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (panel) {
     return (
@@ -283,7 +366,12 @@ export function ReviewScreen({
   return (
     <div className="screen screen--desk">
       <div className="topbar">
-        <button type="button" className="entry__close" aria-label="volver" onClick={onBack}>
+        <button
+          type="button"
+          className="entry__close"
+          aria-label="volver"
+          onClick={onBack}
+        >
           ‹
         </button>
         <div className="topbar__where">
@@ -370,10 +458,10 @@ export function ReviewScreen({
               <span className="num">{formatMoney(summary.writeOffValue)}</span> COP
             </h2>
             <p className="section__body">
-              Contados en cero contra una existencia que el sistema sí tiene. Cada uno da de
-              baja la línea completa, y son exactamente los renglones que produce un toque en
-              falso. Un artículo que el sistema ya tenía en cero y se contó en cero no está
-              aquí: ahí no se pierde nada.
+              Contados en cero contra una existencia que el sistema sí tiene. Cada uno da
+              de baja la línea completa, y son exactamente los renglones que produce un
+              toque en falso. Un artículo que el sistema ya tenía en cero y se contó en
+              cero no está aquí: ahí no se pierde nada.
             </p>
             <VarianceTable
               rows={summary.writeOffs}
@@ -402,8 +490,8 @@ export function ReviewScreen({
               </div>
               <div className="total__note">
                 sin contar y exentos · libros{' '}
-                <span className="num">{formatMoney(summary.sinVerificar.valor)}</span> · firmar
-                una exención no baja esta cifra
+                <span className="num">{formatMoney(summary.sinVerificar.valor)}</span> ·
+                firmar una exención no baja esta cifra
               </div>
             </div>
             <div>
@@ -413,8 +501,11 @@ export function ReviewScreen({
               </div>
               <div className="total__note">
                 del valor ·{' '}
-                <span className="num">{formatCoverage(summary.cobertura.fraccionFilas)}</span> de
-                las filas · <span className="num">{formatMoney(summary.cobertura.valor)}</span> de{' '}
+                <span className="num">
+                  {formatCoverage(summary.cobertura.fraccionFilas)}
+                </span>{' '}
+                de las filas ·{' '}
+                <span className="num">{formatMoney(summary.cobertura.valor)}</span> de{' '}
                 <span className="num">{formatMoney(summary.cobertura.valorTotal)}</span>
               </div>
             </div>
@@ -425,9 +516,9 @@ export function ReviewScreen({
               {figures.waived > 0 && (
                 <>
                   {' '}
-                  <span className="num">{figures.waived}</span> de esas filas son exenciones,
-                  y siguen contadas arriba como sin verificar — una exención acepta la
-                  exposición, no la retira.
+                  <span className="num">{figures.waived}</span> de esas filas son
+                  exenciones, y siguen contadas arriba como sin verificar — una exención
+                  acepta la exposición, no la retira.
                 </>
               )}
             </p>
@@ -440,14 +531,19 @@ export function ReviewScreen({
                     {formatMoney(summary.pendiente.exposicion)}
                   </div>
                   <div className="total__note">
-                    <span className="num">{summary.pendiente.items}</span> filas que todavía se
-                    pueden contar — max(existencia, último conteo) × costo, estimación
+                    <span className="num">{summary.pendiente.items}</span> filas que
+                    todavía se pueden contar — max(existencia, último conteo) × costo,
+                    estimación
                   </div>
                 </div>
                 <div>
                   <div className="total__label">pendiente · valor en libros</div>
-                  <div className="total__value num">{formatMoney(summary.pendiente.valor)}</div>
-                  <div className="total__note">existencia × costo — la cifra contable</div>
+                  <div className="total__value num">
+                    {formatMoney(summary.pendiente.valor)}
+                  </div>
+                  <div className="total__note">
+                    existencia × costo — la cifra contable
+                  </div>
                 </div>
               </div>
               {(() => {
@@ -460,7 +556,9 @@ export function ReviewScreen({
                     <span className="num">{invisible.length}</span> de estos valen{' '}
                     <span className="num">0</span> en libros y{' '}
                     <span className="num">
-                      {formatMoney(invisible.reduce((total, row) => total + row.exposicion, 0))}
+                      {formatMoney(
+                        invisible.reduce((total, row) => total + row.exposicion, 0),
+                      )}
                     </span>{' '}
                     COP por su último conteo — el sistema los deja en cero entre compras:{' '}
                     {invisible
@@ -477,12 +575,15 @@ export function ReviewScreen({
                     <span className="row__main">
                       <span className="row__nombre">{row.item.nombre}</span>
                       <span className="row__meta">
-                        <span className="num">{row.item.codigo}</span> · {row.item.presentacion} ·
-                        sistema <span className="num">{formatQty(row.item.existencia)}</span>
+                        <span className="num">{row.item.codigo}</span> ·{' '}
+                        {row.item.presentacion} · sistema{' '}
+                        <span className="num">{formatQty(row.item.existencia)}</span>
                       </span>
                     </span>
                     <span className="row__right">
-                      <span className="row__existencia num">{formatMoney(row.exposicion)}</span>
+                      <span className="row__existencia num">
+                        {formatMoney(row.exposicion)}
+                      </span>
                     </span>
                   </li>
                 ))}

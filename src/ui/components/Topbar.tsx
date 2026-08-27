@@ -5,6 +5,11 @@
  * waived, and that would be the first crack in the rule that colour on this
  * screen means variance direction and nothing else. The breakdown lives on the
  * faltantes screen, in words.
+ *
+ * `verificados/total` stays on a screen that shows nothing else numeric
+ * (DOMAIN.md §2.1): it counts the counter's own work, not anything the ERP
+ * believes, and it is the one figure that says how much of the afternoon is
+ * left.
  */
 import { ZONAS } from '../identity';
 import type { CountSnapshot } from '../store';

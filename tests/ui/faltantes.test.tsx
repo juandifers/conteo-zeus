@@ -62,15 +62,28 @@ describe('ordering', () => {
   });
 });
 
-describe('the two figures', () => {
-  it('shows exposure and book value side by side, and names the gap', () => {
+describe('the figures behind the order', () => {
+  it('prints none of them', () => {
+    // This is a surface a counter counts from, so the money that ranks the
+    // list stays out of it (DOMAIN.md §2.1): 152 562 010 exposed against
+    // 140 505 651 in the books, and the 31 rows the ERP holds at zero. All of
+    // it decides the order above; none of it reaches the glass. It is on the
+    // review screen, under `pendiente · en riesgo`.
     draw();
-    const total = screen.getByText('en riesgo sin verificar').parentElement!;
-    // 152 562 010 exposed against 140 505 651 in the books.
-    expect(total.textContent).toContain('152.562.010');
-    expect(total.textContent).toContain('140.505.651');
-    // The 31 rows that carry the whole distinction.
-    expect(total.textContent).toContain('31 artículos valen 0 en libros');
+    const total = screen.getByText('sin contar').parentElement!;
+    expect(total.textContent).toContain('298');
+    expect(total.textContent).toContain('cuenta de arriba hacia abajo');
+    expect(document.body.textContent).not.toContain('152.562.010');
+    expect(document.body.textContent).not.toContain('140.505.651');
+    expect(document.querySelectorAll('.row__existencia')).toHaveLength(0);
+    expect(screen.queryByText('en riesgo sin verificar')).toBeNull();
+  });
+
+  it('keeps the ranking that those figures produced', () => {
+    // The order is the product and it survives intact: ranked by exposure,
+    // MELON is 28th of 298 rather than 274th (see `ordering`, above).
+    const { names } = draw();
+    expect(names()[27]).toBe('MELON');
   });
 
   it('drops an item from the list the moment it is verified', async () => {

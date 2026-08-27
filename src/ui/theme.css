@@ -325,20 +325,6 @@ select {
   border-style: dashed;
 }
 
-.chip--short {
-  border-color: var(--short);
-  color: var(--short);
-  background: var(--short-wash);
-  font-weight: 600;
-}
-
-.chip--over {
-  border-color: var(--over);
-  color: var(--over);
-  background: var(--over-wash);
-  font-weight: 600;
-}
-
 /* ---- entry card -------------------------------------------------------- */
 
 .entry {
@@ -400,23 +386,6 @@ select {
   justify-content: center;
   gap: 16px;
   padding: 4px 16px 0;
-}
-
-.readout__expected {
-  text-align: right;
-  min-width: 90px;
-}
-
-.readout__expected-label {
-  display: block;
-  font-size: 16px;
-  color: var(--ink-quiet);
-}
-
-.readout__expected-value {
-  font-size: 22px;
-  font-weight: 500;
-  color: var(--ink-quiet);
 }
 
 .readout__field {
@@ -499,46 +468,16 @@ select {
   color: var(--ink-quiet);
 }
 
-/* ---- variance ---------------------------------------------------------- */
+/* ---- the empty slot where the variance was ----------------------------- */
 
+/* A zero-centred bar used to live here, growing left in red for a shortage and
+   right in blue for an overage. It was the fastest way to catch a keypad slip
+   of an order of magnitude — and it could only work against the book figure,
+   which no counting surface is allowed to show (DOMAIN.md §2.1). What is left
+   is the line that says so, in place rather than collapsed, because a missing
+   readout reads as a broken screen. */
 .variance {
   padding: 8px 16px 12px;
-}
-
-.variance__bar {
-  position: relative;
-  height: 14px;
-  margin-bottom: 6px;
-  background: var(--paper-sunken);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-/* The zero mark sits in the middle; the bar grows left for a shortage and
-   right for an overage, so "how wrong is this" reads as a shape before it
-   reads as a number. */
-.variance__zero {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--rule-strong);
-}
-
-.variance__fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  transition: left 120ms ease-out, width 120ms ease-out;
-}
-
-.variance__fill--short {
-  background: var(--short);
-}
-
-.variance__fill--over {
-  background: var(--over);
 }
 
 .variance__line {
@@ -548,20 +487,6 @@ select {
   font-size: 20px;
   font-weight: 600;
   min-height: 28px;
-}
-
-.variance__line--short {
-  color: var(--short);
-}
-
-.variance__line--over {
-  color: var(--over);
-}
-
-.variance__valor {
-  font-size: 17px;
-  font-weight: 400;
-  color: var(--ink-quiet);
 }
 
 /* ---- presentation group ------------------------------------------------ */
@@ -602,11 +527,6 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.presrow__qty {
-  font-size: 17px;
-  font-weight: 600;
 }
 
 /* ---- actions ----------------------------------------------------------- */

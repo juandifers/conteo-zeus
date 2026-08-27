@@ -5,7 +5,7 @@
  * rules are only interesting where three letters return a dozen rows, and no
  * hand-built fixture reproduces `EMPANADA DE MAIZ CARNE`.
  */
-import { importZeusFile } from '../../src/app';
+import { importZeusFile, sourceHashOf, toItems } from '../../src/app';
 import { localOutbox } from '../../src/ui/outbox';
 import { MemoryRepository, type CountRepository, type Session } from '../../src/domain';
 import { parseTxt, parseXls } from '../../src/zeus';
@@ -53,15 +53,25 @@ export function mismatchedSession(): Session {
 /**
  * The other sample — a different export of the same bodega (ZEUS_FORMAT.md §5).
  *
- * Used for one thing only: in this file 43 `codigo`s cover more than one
- * `nombre`, breaking §4's integrity claim. It is the only sample that exercises
- * what the entry card does when a group disagrees with itself.
+ * Its `nombre`, `presentacion` and `existencia` columns were sorted away from
+ * its keys, so 43 `codigo`s carry more than one `nombre` and 297 of 298 rows
+ * describe one article while being keyed to another (§4.1).
+ *
+ * **Built by hand, because `importZeusFile` refuses it now** — which is the
+ * point of the fixture. Sessions in this state exist only because they were
+ * imported before the check did, they are sitting in somebody's IndexedDB, and
+ * the screens still have to say so and refuse to post them.
  */
 export function txtSession(): Session {
-  return importZeusFile(TXT_SOURCE, {
+  return {
     id: SESSION_ID,
+    bodega: TXT_SOURCE.bodega!,
+    fechaCorte: TXT_SOURCE.fecha!,
+    sourceHash: sourceHashOf(TXT_SOURCE),
     createdAt: '2026-08-25T09:00:00.000Z',
-  });
+    source: { name: 'COMESTIBLES ALMACEN.txt', bytes: TXT_BYTES },
+    items: Object.freeze(toItems(TXT_SOURCE)),
+  };
 }
 
 export async function seededRepository(): Promise<CountRepository> {

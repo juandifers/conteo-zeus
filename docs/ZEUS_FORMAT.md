@@ -123,7 +123,94 @@ Because Zeus keeps a separate balance per presentation, **there is no unit
 conversion to perform.**
 
 **`nombre` is stable per `codigo`** in the authoritative `.xls`: zero conflicts.
-Useful as an import integrity check.
+Useful as an import integrity check — see §4.1, which turns it into one.
+
+### 4.1 What the importer checks, and what it cannot
+
+A file that parses is not a file that means anything. The failure this guards
+against is §5's: `nombre`, `presentacion` and `existencia` sorted in Excel
+without extending the selection, so every row keeps its own `codigo`, `costo`
+and `idarticulo` and acquires somebody else's name and quantity. Every row still
+parses. Every price is still plausible. Every adjustment line is still
+well-formed. And the file posts quantities to the wrong articles.
+
+`importZeusFile` refuses on **two signals**, both of which the authoritative
+`.xls` passes and both of which the `.txt` beside it — same bodega, same corte —
+fails.
+
+**Signal one: the file contradicts itself.** Three invariants, all of which hold
+*exactly* on the `.xls` — 298 rows, 232 codes, 44 of them multi-row, zero
+violations of any kind:
+
+| Invariant | Why it must hold | `.xls` | `.txt` |
+|---|---|---|---|
+| one `nombre` per `codigo` | a code is one product, whatever its presentations | 0 | 43 |
+| one `codigo` per `nombre` | the mirror; still fires when every code is unique | 0 | 44 |
+| `(codigo, presentacion)` unique | two rows for one thing are two balances for it | 0 | 6 |
+
+**Signal two: a column is in an order the file is not.** Zeus writes its rows in
+ascending `idarticulo` — true of both samples, 0 inversions in 297 pairs — and
+that order has nothing to do with the alphabet. So the `nombre` column of a file
+still in it should be shuffled, and in the `.xls` it is:
+
+| Column, read down the rows | `.xls` | `.txt` |
+|---|---|---|
+| `nombre` pairs out of alphabetical order (`localeCompare(…, 'es')`) | 144 of 297 — **48.5%** | 0 of 297 — **0%** |
+| `idarticulo` pairs out of ascending order | 0 | 0 |
+
+A file whose rows are in Zeus's order and whose names are in the alphabet's has
+had that column put in order by somebody, separately, after the export. The
+threshold is **5%**, and the gap it sits in is 48 points wide, so nothing about
+it is finely tuned. Under 12 rows the signal is not read at all: 11 pairs and a
+5% allowance means *zero* inversions, which a real catalogue reaches by luck
+once in 12! — about one in 479 million — but a bodega with eight articles is a
+real thing, and blocking one over a coincidence is worse than the check is
+worth.
+
+The two signals do not overlap, and that is the point of having both. The first
+reads repetition and is blind to a catalogue that has none. The second reads
+order and does not care whether anything repeats. A displacement large enough to
+matter has to either break a repetition or leave a column suspiciously tidy.
+
+Refused, not warned. A count taken against a scrambled file cannot be
+un-uploaded, and the person who would see a warning is the person least able to
+judge it. The file is not persisted — `importZeusFile` throws before it returns
+a `Session`, so `createSession` is never reached. `generateAdjustment` refuses on
+the same check, because sessions imported before it existed are still in the
+database, and the count screen carries a banner for the same reason.
+
+Names are compared trimmed, whitespace-collapsed and upper-cased: a trailing
+space out of a spreadsheet is not a second article, and a check that blocked a
+count over one would be worse than no check.
+
+**Where signal two is wrong.** It cannot tell a scrambled file from a bodega
+whose articles were genuinely created in alphabetical order, where ascending
+`idarticulo` really is ascending `nombre` — a bodega set up in one sitting from
+an alphabetised list. Bodega 01 is not one, and no bodega built up over years
+will be, but such a bodega exists and this would refuse its export with a
+message telling it to do the thing it already did. There is no override. If one
+turns up, the fix is a per-bodega exemption recorded against the session, not a
+looser threshold.
+
+It also says nothing about the case where somebody sorts by name in Excel with
+the whole sheet selected. That moves the rows, so names and keys travel
+together, `idarticulo` comes out shuffled, and the file is fine.
+
+
+**What none of this does is verify that `idarticulo` 1960 is the product named
+beside it.** Nothing in a Zeus row cross-checks its own name against its own
+key — there is no checksum, no second copy, no reference catalogue. Both signals
+detect *scrambling*, and neither reads meaning. A file whose every `codigo`,
+`nombre` and `presentacion` were unique **and** whose names were left shuffled
+would pass both while being complete nonsense, and `costo` has no redundancy at
+all — nothing in one file can tell a right price from a wrong one.
+
+The second opinion the format lacks is **a previous session for the same
+bodega**, which the database has from the second import onward: if last month's
+import mapped `idarticulo` 1960 to `MARGARINA EXCLUSIVA DAGUSTO` and this one
+says `PECHUGA DE POLLO DESHUESADA`, one of them is wrong, and the same
+comparison catches a `costo` that moved by an order of magnitude. That check is
+not built. It is the obvious next one.
 
 ---
 

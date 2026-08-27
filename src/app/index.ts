@@ -9,6 +9,12 @@ export {
   importZeusBytes,
   parseZeusBytes,
   sourceHashOf,
+  catalogueFaults,
+  describeFaults,
+  inversionRate,
+  toItems,
+  CatalogueError,
+  type CatalogueFault,
   type ImportOptions,
 } from './importZeus';
 export {

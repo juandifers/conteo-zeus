@@ -11,6 +11,7 @@
  * over the ranking. Nothing on this screen has to change when one arrives.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { catalogueFaults } from '../../app';
 import type { Item } from '../../domain';
 import { EntryCard } from '../components/EntryCard';
 import { ResultRows } from '../components/ResultRows';
@@ -53,23 +54,18 @@ export function CountScreen({
 
   const hits = useMemo(() => searchItems(index, query), [index, query]);
 
-  // ZEUS_FORMAT.md §4 offers "nombre is stable per codigo" as an import
-  // integrity check, and §5 records the sample .txt failing it on 43 of 232
-  // codes because two differently-sorted blocks were pasted together by hand.
-  // A count taken against a file in that state lands on the wrong balances, so
-  // the screen says so up front rather than letting somebody find out at
-  // posting time. Non-blocking: it is the hotel's file, and refusing to open it
-  // helps nobody standing in the storeroom.
-  const mixedCodes = useMemo(() => {
-    const names = new Map<string, string>();
-    const bad = new Set<string>();
-    for (const item of items) {
-      const seen = names.get(item.codigo);
-      if (seen === undefined) names.set(item.codigo, item.nombre);
-      else if (seen !== item.nombre) bad.add(item.codigo);
-    }
-    return bad.size;
-  }, [items]);
+  // A file whose names have come loose from its keys (ZEUS_FORMAT.md §4.1) is
+  // refused at import now, and refused again before it can produce an
+  // adjustment. This banner is what is left for the sessions that were
+  // imported before the check existed: they are in the database, somebody may
+  // be halfway through counting one, and finding out at posting time that
+  // every quantity landed on the wrong article is too late.
+  //
+  // Asked of the same function the importer asks, so there is one definition of
+  // what a coherent catalogue is. Kind-agnostic on purpose: a legacy session
+  // can fail either signal, and a banner that counted only one of them would
+  // read `0 códigos` on a file caught by the other.
+  const faults = useMemo(() => catalogueFaults(items), [items]);
 
   // Opened once, on mount: arriving from the faltantes list means the item to
   // count has already been chosen, and re-choosing it on every render would
@@ -108,10 +104,11 @@ export function CountScreen({
         }}
       />
 
-      {mixedCodes > 0 && !open && (
-        <div className="banner" role="status">
-          {mixedCodes} códigos de este archivo tienen más de un nombre. Revisa la presentación
-          antes de guardar.
+      {faults.length > 0 && !open && (
+        <div className="banner" role="alert">
+          Este archivo no cuadra consigo mismo: sus nombres no corresponden a sus códigos.
+          Lo que cuentes aquí puede quedar en el artículo equivocado, y esta sesión no va a
+          poder generar un archivo. Vuelve a importar la bodega.
         </div>
       )}
 

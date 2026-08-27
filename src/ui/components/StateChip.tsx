@@ -1,35 +1,27 @@
 /**
  * What happened to this item, in one chip.
  *
- * The two axes of DOMAIN.md §2 are rendered as one label deliberately: a
- * counter does not need "counted, shortage", they need "faltan 12,5". The
- * axes stay apart in the model, where the distinction has consequences, and
- * collapse only at the glass.
+ * Three states and the counter's own quantity — never a variance, because a
+ * variance is `existencia` arrived at by subtraction and no counting surface
+ * may put that on screen (DOMAIN.md §2.1). `faltan 12,5` used to live here.
  *
- * Colour appears here only for a variance direction. `pendiente` and
- * `sin verificar` are shape and weight — a dashed border for a waiver — so
- * that red on this screen always means one thing.
+ * Which leaves this file with no colour at all: colour on a counting screen
+ * meant shortage or overage, and neither is a thing the counter is told. Red
+ * appears for the first time on the review screen, after the count is over.
  */
-import { itemVariance, type Item, type Resolution } from '../../domain';
+import type { Resolution } from '../../domain';
 import { formatQty } from '../format';
 
-export function StateChip({ item, resolution }: { item: Item; resolution: Resolution }) {
+export function StateChip({ resolution }: { resolution: Resolution }) {
   if (resolution.state === 'untouched') {
     return <span className="chip">pendiente</span>;
   }
   if (resolution.state === 'unchanged') {
     return <span className="chip chip--unchanged">sin verificar</span>;
   }
-
-  const variance = itemVariance(item, resolution);
-  if (!variance || variance.varianceClass === 'none') {
-    return <span className="chip chip--counted">cuadra</span>;
-  }
-  const short = variance.varianceClass === 'shortage';
   return (
-    <span className={`chip ${short ? 'chip--short' : 'chip--over'}`}>
-      {short ? 'faltan ' : 'sobran '}
-      <span className="num">{formatQty(Math.abs(variance.variance))}</span>
+    <span className="chip chip--counted">
+      contado <span className="num">{formatQty(resolution.qty ?? 0)}</span>
     </span>
   );
 }
