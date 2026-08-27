@@ -25,3 +25,8 @@ export {
   type ExportAdjustmentOptions,
   type GenerateAdjustmentOptions,
 } from './exportAdjustment';
+export {
+  verifyWriteBack,
+  PostingVerificationError,
+  type VerifyWriteBackOptions,
+} from './verifyWriteBack';

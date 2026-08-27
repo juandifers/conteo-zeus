@@ -16,6 +16,7 @@
  * somebody count a whole cava into a banner is worse than telling them to stop.
  */
 import {
+  assertNormalisedInstant,
   changesResolution,
   nowInstant,
   resolve,
@@ -89,7 +90,13 @@ export interface CountStoreOptions {
   nextSeq: number;
   zona: string;
   outbox: Outbox;
-  /** Injected so tests get a fixed `at`; production passes the real clock. */
+  /**
+   * Injected so tests get a fixed `at`; production passes the real clock.
+   *
+   * Whatever it returns is clamped to be non-decreasing for this device — see
+   * `stamp`. A pinned clock therefore yields the pinned value repeatedly,
+   * which is what a pinned clock should mean.
+   */
   clock?: () => string;
   /** Injected so tests get stable event ids. */
   newId?: () => string;
@@ -104,6 +111,8 @@ export class CountStore {
 
   private readonly byItem = new Map<number, CountEvent[]>();
   private seq: number;
+  /** The greatest `at` this device has already stamped. See `stamp`. */
+  private highWater: string;
   private failureStreak = 0;
   private snapshot: CountSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -130,6 +139,24 @@ export class CountStore {
     // the transaction that writes each event (DOMAIN.md §6), so it is correct
     // whether or not this session's log — or any log — is in memory.
     this.seq = options.nextSeq;
+
+    // The time watermark, seeded from this device's own stamps in the log.
+    //
+    // A fresh store starts with no memory of the last stamp, so without this a
+    // reload after a backward clock correction reintroduces exactly the bug
+    // `stamp` exists to prevent: the tablet drifts forward in a storeroom with
+    // no signal, reconnects, NTP pulls it back, somebody reloads, and the next
+    // correction they type sorts *before* the value they are correcting.
+    //
+    // Only this device's events. Another tablet's stamps are not this clock's
+    // to be bound by — cross-device ordering stays wall-clock (DOMAIN.md §3),
+    // and clamping to a peer whose clock ran fast would freeze this one's
+    // stamps at that peer's time for as long as the drift lasted.
+    let highWater = '';
+    for (const event of events) {
+      if (event.deviceId === this.deviceId && event.at > highWater) highWater = event.at;
+    }
+    this.highWater = highWater;
 
     const resolutions = resolveAll(events);
     this.snapshot = {
@@ -319,7 +346,7 @@ export class CountStore {
       idarticulo,
       usuario,
       zona,
-      at: this.clock(),
+      at: this.stamp(),
       deviceId: this.deviceId,
       seq: this.seq++,
     };
@@ -347,6 +374,45 @@ export class CountStore {
     if (!held && this.snapshot.protected) this.emit({ protected: false });
     this.persist(event, held);
     return event;
+  }
+
+  /**
+   * This device's clock, made non-decreasing.
+   *
+   * `compareEvents` orders by `at` first and only then by `deviceId` and
+   * `seq` (DOMAIN.md §3), so `seq` — which *is* monotonic — decides nothing
+   * but same-millisecond ties. A tablet whose clock corrects **backwards**
+   * mid-session therefore sorts everything after the correction before
+   * everything before it, and a `set` is last-writer-wins: an operator's
+   * correction silently loses to the value they were correcting, no screen
+   * shows it, and the wrong number reaches the file.
+   *
+   * A tablet spends the afternoon in a storeroom with no signal and then
+   * reconnects, which is when NTP pulls it back. This is not a hypothetical
+   * ordering concern.
+   *
+   * So this device never stamps an event earlier than one it has already
+   * stamped. Two events can now share an `at`, which is fine and already
+   * handled: same device, so `seq` breaks the tie in the order the taps
+   * actually happened — which is the true order, and better than the one a
+   * corrected clock would have claimed.
+   *
+   * String comparison rather than `Date.parse`: `assertNormalisedInstant`
+   * guarantees a fixed-width UTC instant, which is the same guarantee the fold
+   * relies on to compare these as strings at all. It is asserted here rather
+   * than left to `appendEvent`, because a malformed stamp would make the
+   * comparison below meaningless *before* the repository ever saw it.
+   *
+   * `compareEvents` itself is untouched. Cross-device ordering stays
+   * wall-clock, which is the right trade for a single-bodega pilot with no
+   * sync — clamping one device against another's stamps would be inventing a
+   * consensus clock for a system that has one device.
+   */
+  private stamp(): string {
+    const now = this.clock();
+    assertNormalisedInstant(now, `el reloj de esta tableta devolvió ${JSON.stringify(now)}`);
+    if (now > this.highWater) this.highWater = now;
+    return this.highWater;
   }
 
   /** In-memory first: this is what the screen re-renders from. */

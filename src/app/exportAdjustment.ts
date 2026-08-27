@@ -12,6 +12,7 @@ import { writeTxt, type WriteTxtOptions, type ZeusFile } from '../zeus';
 import { resolveSession, type CountEvent, type Session } from '../domain';
 import { sha256Hex } from '../lib/hash';
 import { CatalogueError, catalogueFaults, parseZeusBytes, sourceHashOf } from './importZeus';
+import { verifyWriteBack } from './verifyWriteBack';
 
 export interface ExportAdjustmentOptions
   extends Pick<WriteTxtOptions, 'countTargetColumn' | 'differenceColumn' | 'numberFormat'> {
@@ -77,7 +78,24 @@ export function exportAdjustment(
     }
   }
 
-  return writeTxt(file, counts, { ...writeOptions, uncountedPolicy: 'reject' });
+  const bytes = writeTxt(file, counts, { ...writeOptions, uncountedPolicy: 'reject' });
+
+  // The write-back check, on the real posting path and not only in a test
+  // (verifyWriteBack.ts). It parses what was just emitted and holds it against
+  // the file it came from: same articles, same order, every column outside the
+  // write set byte-identical, and every count landing as the number the fold
+  // produced. It throws rather than returning a verdict, and nothing here
+  // catches it — a file that fails this must not exist.
+  //
+  // Placed after `writeTxt` and before the bytes go anywhere, because the only
+  // useful moment for it is the one before somebody has a file in their
+  // downloads folder that they believe in.
+  verifyWriteBack(file, bytes, counts, {
+    countTargetColumn: writeOptions.countTargetColumn,
+    uncountedPolicy: 'reject',
+  });
+
+  return bytes;
 }
 
 /** A generated adjustment: the bytes, and the digest that identifies them. */

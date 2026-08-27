@@ -7,11 +7,23 @@
  *
  * The empty state invites the import. There is nothing to apologise for on a
  * tablet that has never been used.
+ *
+ * It is also where everything about *the tablet* lives, as opposed to the
+ * count: whether the browser has promised to keep the database, how full it
+ * is, which build this is, the install offer and the debug export. None of it
+ * belongs on the counting screen — a person mid-shelf can act on none of it —
+ * and all of it is worth seeing before a count starts rather than after one is
+ * lost.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { importZeusBytes } from '../../app';
 import { resolveAll, type CountRepository, type SessionMeta } from '../../domain';
+import { BUILD, buildLabel } from '../build';
+import { debugExportName, encodeCsv, eventLogCsv, type SessionLog } from '../debugExport';
+import type { Downloader } from '../download';
 import { loadUsuario, saveUsuario } from '../identity';
+import type { Install } from '../install';
+import { atRisk, describeSpace, spaceIsTight, type StorageReport } from '../storage';
 
 interface Progress extends SessionMeta {
   verificados: number;
@@ -20,17 +32,27 @@ interface Progress extends SessionMeta {
 export function SessionsScreen({
   repo,
   stranded,
+  storage,
+  install,
+  download,
   onOpen,
 }: {
   repo: CountRepository;
   /** Events the boot replay could not push into the database. */
   stranded: number;
+  /** What the browser promised about the database, and how full it is. */
+  storage: StorageReport;
+  install: Install;
+  download: Downloader;
   onOpen: (sessionId: string) => void;
 }) {
   const [sessions, setSessions] = useState<Progress[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [usuario, setUsuario] = useState(loadUsuario);
+  const [offered, setOffered] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
+
+  useEffect(() => install.subscribe(setOffered), [install]);
 
   /**
    * Read the list and, for each session, how far it has got.
@@ -44,7 +66,17 @@ export function SessionsScreen({
     const rows = await Promise.all(
       metas.map(async (meta) => {
         const events = await repo.eventsForSession(meta.id);
-        return { ...meta, verificados: resolveAll(events).size };
+        // Items whose events resolve to something, which is not the same as
+        // items that *have* events: a retraction leaves its log behind and
+        // returns the item to `untouched` (DOMAIN.md §3), so the size of the
+        // map counts a row nobody has counted. The counting screen's header
+        // tallies states, and two figures on two screens naming the same thing
+        // differently is worse than either of them being wrong.
+        let verificados = 0;
+        for (const resolution of resolveAll(events).values()) {
+          if (resolution.state !== 'untouched') verificados++;
+        }
+        return { ...meta, verificados };
       }),
     );
     // Newest first: the count somebody is in the middle of is the one they want.
@@ -80,9 +112,41 @@ export function SessionsScreen({
       setSessions(await reload());
       onOpen(session.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(`No se pudo importar: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
   }
+
+  /**
+   * Every event on this tablet, as a spreadsheet (debugExport.ts).
+   *
+   * Reads the sessions and their logs afresh rather than reusing the list
+   * above, which carries counts and not events. A tablet holds a handful of
+   * sessions of a few hundred events; this is a button somebody presses once
+   * at the end of a pilot day.
+   */
+  async function exportLog(): Promise<void> {
+    setError(null);
+    try {
+      const metas = await repo.listSessions();
+      const logs: SessionLog[] = await Promise.all(
+        metas.map(async (meta) => ({
+          sessionId: meta.id,
+          bodega: meta.bodega,
+          fechaCorte: meta.fechaCorte,
+          items: await repo.itemsForSession(meta.id),
+          events: await repo.eventsForSession(meta.id),
+        })),
+      );
+      const day = new Date().toISOString().slice(0, 10);
+      download.save(debugExportName(day), encodeCsv(eventLogCsv(logs)));
+    } catch (cause) {
+      setError(
+        `No se pudo exportar el registro: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+  }
+
+  const space = describeSpace(storage);
 
   return (
     <div className="screen">
@@ -109,9 +173,39 @@ export function SessionsScreen({
         </div>
       )}
 
+      {/*
+        The risk, and the action — in that order, because a warning somebody
+        cannot act on is a warning they learn to scroll past. The action is not
+        "free up space": it is "get the file out today", which is the only
+        thing that makes an eviction survivable.
+      */}
+      {/*
+        `status`, not `alert`. This is a standing condition of the tablet, true
+        from the moment the screen opens and until somebody installs the app or
+        frees some space — not an event. An assertive role would interrupt a
+        screen reader on every launch, and would compete with the import error
+        below it, which *is* an event and does deserve the interruption.
+      */}
+      {atRisk(storage) && (
+        <div className="banner" role="status">
+          El navegador no garantiza guardar este conteo: puede borrarlo si la tableta se
+          queda sin espacio.{' '}
+          {storage.persistence === 'denied'
+            ? 'Genera el archivo de ajuste el mismo día, e instala la aplicación en la pantalla de inicio — instalada, el navegador suele conceder la garantía.'
+            : 'Este navegador no ofrece la garantía. Genera el archivo de ajuste el mismo día.'}
+        </div>
+      )}
+
+      {spaceIsTight(storage) && (
+        <div className="banner" role="status">
+          La tableta está casi llena{space && <> ({space})</>}. Libera espacio antes de
+          empezar un conteo.
+        </div>
+      )}
+
       {error && (
         <div className="banner" role="alert">
-          No se pudo importar: {error}
+          {error}
         </div>
       )}
 
@@ -156,6 +250,28 @@ export function SessionsScreen({
             </button>
           ))
         )}
+
+        {/*
+          The tablet's own state, at the bottom of the list rather than the top.
+          It is read once when something has gone wrong or when a tester is
+          asked which build they are on — never during a count.
+        */}
+        <div className="colofon">
+          <div className="colofon__row">
+            <span>almacenamiento</span>
+            <span className="num">
+              {storage.persistence === 'granted' ? 'protegido' : 'sin garantía'}
+              {space && <> · {space}</>}
+            </span>
+          </div>
+          <div className="colofon__row">
+            <span>versión</span>
+            <span className="num">{buildLabel(BUILD)}</span>
+          </div>
+          <button type="button" className="btn btn--waiver" onClick={() => void exportLog()}>
+            Exportar registro de actividad
+          </button>
+        </div>
       </div>
 
       <div className="actions">
@@ -177,6 +293,17 @@ export function SessionsScreen({
         >
           Importar archivo de Zeus
         </button>
+        {/*
+          Only when the browser has an install to offer — which it does not once
+          the app is installed, and never in a browser that does not support it.
+          A button that explains it cannot do the thing it names is worse than
+          no button.
+        */}
+        {offered && (
+          <button type="button" className="btn btn--small" onClick={() => void install.prompt()}>
+            Instalar en la tableta
+          </button>
+        )}
       </div>
     </div>
   );

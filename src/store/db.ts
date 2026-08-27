@@ -112,5 +112,28 @@ export class ConteoDb extends Dexie {
       sources: 'sessionId',
       exports: 'id, sessionId, at',
     });
+
+    // ---- before adding v5 -------------------------------------------------
+    //
+    // From the pilot onwards this database is not empty when a new version
+    // arrives. Tablets in the field hold counts that have not been posted, and
+    // a count that has not been posted exists nowhere else — there is no
+    // backend and no sync, so a migration that drops a table drops the only
+    // copy of somebody's afternoon.
+    //
+    // So:
+    //
+    //   - Never delete or rewrite a store in a migration during a pilot. Add
+    //     tables and add indexes; both are non-destructive, and a session
+    //     written by an older version simply lacks the new field, which is how
+    //     v4 above is already handled.
+    //   - Verify against a *populated* profile, not a fresh one. An upgrade
+    //     path only has bugs when there is data to move; opening v5 on an
+    //     empty database proves nothing, which is why v3's index change was
+    //     checked against a profile that already held a session and its log.
+    //   - Never renumber or edit a version that has shipped. Dexie replays
+    //     them in order from whatever the browser has, so an edited v3 runs on
+    //     tablets that already ran the old one, and does not run on tablets
+    //     that skipped it.
   }
 }

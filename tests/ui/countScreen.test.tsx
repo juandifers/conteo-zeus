@@ -14,7 +14,7 @@ import type { CountEvent } from '../../src/domain';
 import { CountScreen } from '../../src/ui/screens/CountScreen';
 import { CountStore } from '../../src/ui/store';
 import { MemoryRepository } from '../../src/domain';
-import { ID, SESSION_ID, fakeIdentity, seededRepository, txtSession } from './harness';
+import { ID, PERSISTED, SESSION_ID, fakeIdentity, seededRepository, txtSession } from './harness';
 
 afterEach(cleanup);
 
@@ -29,6 +29,7 @@ function draw() {
   render(
     <CountScreen
       store={store}
+      storage={PERSISTED}
       onBack={() => {}}
       onFaltantes={() => {}}
       onRevision={() => {}}

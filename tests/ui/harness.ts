@@ -7,6 +7,7 @@
  */
 import { importZeusFile, sourceHashOf, toItems } from '../../src/app';
 import { localOutbox } from '../../src/ui/outbox';
+import type { StorageReport } from '../../src/ui/storage';
 import { MemoryRepository, type CountRepository, type Session } from '../../src/domain';
 import { parseTxt, parseXls } from '../../src/zeus';
 import { SAMPLE_TXT, SAMPLE_XLS, readSample } from '../helpers';
@@ -159,3 +160,24 @@ export const ID = {
   /** EMPANADA DE MAIZ CARNE — contains "pan", mid-word. */
   empanada: 1195,
 } as const;
+
+/**
+ * A browser that has promised to keep the database.
+ *
+ * The default for screens under test, because the storage warning is about the
+ * tablet rather than the count and every screen that asserts on its own
+ * banners would otherwise be asserting on this one too. The refusal is
+ * exercised on purpose in tests/ui/storage.test.ts and in the offline suite.
+ */
+export const PERSISTED: StorageReport = {
+  persistence: 'granted',
+  usage: 4_000_000,
+  quota: 2_000_000_000,
+};
+
+/** A browser that said no — what a tablet low on space, or a plain tab, gets. */
+export const NOT_PERSISTED: StorageReport = {
+  persistence: 'denied',
+  usage: 4_000_000,
+  quota: 2_000_000_000,
+};

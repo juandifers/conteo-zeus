@@ -291,6 +291,126 @@ describe('reopening', () => {
   });
 });
 
+describe('the clock only ever moves forward (§2)', () => {
+  /** A clock that returns each of these in turn, then repeats the last. */
+  function scriptedClock(stamps: readonly string[]): () => string {
+    let index = 0;
+    return () => stamps[Math.min(index++, stamps.length - 1)];
+  }
+
+  const AT = {
+    drifted: '2026-08-25T14:05:00.000Z',
+    corrected: '2026-08-25T14:00:00.000Z',
+    later: '2026-08-25T14:10:00.000Z',
+  };
+
+  it('never stamps an event earlier than one it has already stamped', async () => {
+    const store = await CountStore.open(await seededRepository(), SESSION_ID, {
+      ...fakeIdentity(),
+      clock: scriptedClock([AT.drifted, AT.corrected]),
+    });
+
+    const first = store.setCount(ID.melon, 10);
+    const second = store.setCount(ID.melon, 20);
+
+    expect(first.at).toBe(AT.drifted);
+    // NTP pulled the tablet back five minutes between the two taps. The second
+    // event is not stamped in the past.
+    expect(second.at).toBe(AT.drifted);
+    expect(second.seq).toBeGreaterThan(first.seq);
+  });
+
+  /**
+   * The failure this exists to stop, stated as the thing a person would
+   * notice: somebody types 10, sees it is wrong, types 20, and the file
+   * carries 10.
+   */
+  it('keeps a correction winning over the value it corrected', async () => {
+    const store = await CountStore.open(await seededRepository(), SESSION_ID, {
+      ...fakeIdentity(),
+      clock: scriptedClock([AT.drifted, AT.corrected]),
+    });
+
+    store.setCount(ID.melon, 10);
+    store.setCount(ID.melon, 20);
+
+    // Asked of the fold, not of the array: `resolve` sorts by
+    // (at, deviceId, seq) and array order means nothing to it.
+    expect(store.resolutionFor(ID.melon)).toEqual({ state: 'counted', qty: 20 });
+  });
+
+  it('survives a reload, which is where a fresh store would forget', async () => {
+    const repo = await seededRepository();
+    const identity = fakeIdentity();
+    const first = await CountStore.open(repo, SESSION_ID, {
+      ...identity,
+      clock: () => AT.drifted,
+    });
+    first.setCount(ID.melon, 10);
+    await first.settled();
+
+    // A reload: a new store, the same device, and a clock that has since been
+    // corrected backwards. The high-water mark comes from the log.
+    const second = await CountStore.open(repo, SESSION_ID, {
+      ...identity,
+      nextSeq: 1,
+      clock: () => AT.corrected,
+    });
+    const corrected = second.setCount(ID.melon, 20);
+
+    expect(corrected.at).toBe(AT.drifted);
+    expect(second.resolutionFor(ID.melon)).toEqual({ state: 'counted', qty: 20 });
+  });
+
+  it('seeds the mark from this device only, not from another tablet', async () => {
+    const repo = await seededRepository();
+    const identity = fakeIdentity();
+    const peer = await CountStore.open(repo, SESSION_ID, {
+      ...identity,
+      deviceId: 'tablet-2',
+      clock: () => AT.later,
+    });
+    peer.setCount(ID.panTajado, 4);
+    await peer.settled();
+
+    // `tablet-1` opens the same session. Its own clock reads earlier than the
+    // stamp `tablet-2` left, and it is not this store's job to be bound by it:
+    // cross-device ordering stays wall-clock (DOMAIN.md §3).
+    const mine = await CountStore.open(repo, SESSION_ID, {
+      ...identity,
+      clock: () => AT.corrected,
+    });
+    expect(mine.setCount(ID.melon, 1).at).toBe(AT.corrected);
+  });
+
+  it('gives a pinned clock the pinned value, repeatedly', async () => {
+    const store = await CountStore.open(await seededRepository(), SESSION_ID, {
+      ...fakeIdentity(),
+      clock: () => AT.corrected,
+    });
+
+    const events = [store.setCount(ID.melon, 1), store.setCount(ID.melon, 2)];
+
+    expect(events.map((event) => event.at)).toEqual([AT.corrected, AT.corrected]);
+    // Same instant, same device — so `seq` is what orders them, which is the
+    // tie-break's whole job (DOMAIN.md §3).
+    expect(events.map((event) => event.seq)).toEqual([0, 1]);
+    expect(store.resolutionFor(ID.melon)).toEqual({ state: 'counted', qty: 2 });
+  });
+
+  it('refuses a clock that does not return a normalised instant', async () => {
+    const store = await CountStore.open(await seededRepository(), SESSION_ID, {
+      ...fakeIdentity(),
+      // Local time with an offset. It is the same instant as 15:00Z and sorts
+      // after it, which is precisely the silent failure DOMAIN.md §3 names —
+      // and the comparison the clamp makes would be meaningless on it.
+      clock: () => '2026-08-25T10:00:00.000-05:00',
+    });
+
+    expect(() => store.setCount(ID.melon, 1)).toThrowError(/normalised UTC instant/);
+  });
+});
+
 describe('the supervisor bulk waiver (§3, §4)', () => {
   it('appends one unchanged event per item, each carrying the motivo', async () => {
     const store = await open();

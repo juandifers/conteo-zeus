@@ -132,6 +132,37 @@ describe('coming back to a session', () => {
     // Folded from the log, not from a counter kept alongside it.
     expect(card.textContent).toContain('1 verificados');
   });
+
+  /**
+   * Found by the offline round trip (tests/offline/roundtrip.spec.ts), where
+   * the counting screen read `2/298` and this card read `3 verificados` for
+   * the same session at the same moment.
+   *
+   * A retraction is an append, not a delete: the item keeps its log and
+   * returns to `untouched` (DOMAIN.md §3). Counting the items that have events
+   * therefore counts a row nobody has counted — and it is the figure somebody
+   * decides whether the bodega is finished by.
+   */
+  it('does not count a retracted item as progress', async () => {
+    const repo = new MemoryRepository();
+    const { container } = render(<App repo={repo} outbox={localOutbox(memoryStorage())} />);
+    await screen.findByText('Trae un archivo de Zeus y empieza');
+    upload(container, zeusFile(SAMPLE_XLS, 'COMESTIBLES ALMACEN.xls'));
+    await screen.findByLabelText('buscar artículo');
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('buscar artículo'), '0111020{Enter}');
+    await user.type(screen.getByLabelText(/^cantidad contada de/), '5');
+    await user.click(screen.getByRole('button', { name: /^Guardar/ }));
+
+    await user.type(screen.getByLabelText('buscar artículo'), '0111020{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Descartar conteo' }));
+    await user.click(screen.getByRole('button', { name: 'volver a buscar' }));
+    await user.click(screen.getByRole('button', { name: 'sesiones' }));
+
+    const card = await screen.findByRole('button', { name: /Bodega/ });
+    expect(card.textContent).toContain('0 verificados');
+  });
 });
 
 describe('the way through to the review', () => {

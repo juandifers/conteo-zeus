@@ -13,6 +13,11 @@
  *      is worse than a count that never started (DOMAIN.md §6).
  *   2. `replayOutbox()` — flush whatever the last run could not, *before* a
  *      session is loaded, so the session opens against a complete log.
+ *
+ * `requestPersistence()` runs alongside rather than inside that chain. It asks
+ * the browser not to evict the database (storage.ts), which matters a great
+ * deal — but a refusal is something to *say*, not something to stop for, and
+ * on a browser where the call hangs it must not hold the boot open.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
@@ -21,14 +26,18 @@ import type {
   ExportRepository,
   Item,
 } from '../domain';
+import { UpdateNotice } from './components/UpdateNotice';
 import { browserDownload, type Downloader } from './download';
 import { loadUsuario, loadZona } from './identity';
+import { noInstall, type Install } from './install';
 import { localOutbox, replayOutbox, type Outbox } from './outbox';
 import { CountScreen } from './screens/CountScreen';
 import { FaltantesScreen } from './screens/FaltantesScreen';
 import { ReviewScreen } from './screens/ReviewScreen';
 import { SessionsScreen } from './screens/SessionsScreen';
+import { requestPersistence, UNKNOWN_STORAGE, type StorageReport } from './storage';
 import { CountStore } from './store';
+import { noUpdates, type Updates } from './updates';
 
 type Route =
   | { name: 'sessions' }
@@ -45,11 +54,20 @@ export function App({
   repo,
   outbox: injected,
   download: injectedDownload,
+  updates: injectedUpdates,
+  install: injectedInstall,
+  persistence = requestPersistence,
 }: {
   repo: CountRepository & DeviceRepository & ExportRepository;
   outbox?: Outbox;
   /** Injected so a test can catch the bytes that would have reached the disk. */
   download?: Downloader;
+  /** The waiting service worker, if any. Absent everywhere but the real app. */
+  updates?: Updates;
+  /** The captured `beforeinstallprompt`, if the browser offered one. */
+  install?: Install;
+  /** Injected so a test can refuse persistence without a real StorageManager. */
+  persistence?: () => Promise<StorageReport>;
 }) {
   // Memoised, not defaulted in the signature: a fresh `localOutbox()` on every
   // render is a new identity in the effects' dependency arrays below, and both
@@ -57,12 +75,15 @@ export function App({
   // blank screen and no error, because nothing actually failed.
   const outbox = useMemo(() => injected ?? localOutbox(), [injected]);
   const download = useMemo(() => injectedDownload ?? browserDownload(), [injectedDownload]);
+  const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
+  const install = useMemo(() => injectedInstall ?? noInstall(), [injectedInstall]);
 
   const [boot, setBoot] = useState<Boot>({ phase: 'starting' });
   const [attempt, setAttempt] = useState(0);
   const [route, setRoute] = useState<Route>({ name: 'sessions' });
   const [store, setStore] = useState<CountStore | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [storage, setStorage] = useState<StorageReport>(UNKNOWN_STORAGE);
 
   const sessionId = route.name === 'sessions' ? null : route.sessionId;
 
@@ -89,6 +110,26 @@ export function App({
       live = false;
     };
   }, [repo, outbox, attempt]);
+
+  // Asked on every launch, not once. Chrome decides from heuristics rather than
+  // by prompting, and installing the app to the home screen changes its mind —
+  // so a tablet that was refused on Monday should be asked again on Tuesday
+  // (storage.ts). `requestPersistence` never rejects; the guard is for an
+  // injected one that might.
+  useEffect(() => {
+    let live = true;
+    persistence().then(
+      (report) => {
+        if (live) setStorage(report);
+      },
+      () => {
+        if (live) setStorage(UNKNOWN_STORAGE);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [persistence, attempt]);
 
   useEffect(() => {
     if (sessionId === null || boot.phase !== 'ready') return;
@@ -123,11 +164,18 @@ export function App({
     setAttempt((n) => n + 1);
   }, []);
 
-  if (boot.phase === 'starting') return <div className="app" />;
+  /**
+   * Whichever screen the route names.
+   *
+   * A function rather than a chain of early returns from the component, so
+   * that the shell — and the update notice in it — is written once and appears
+   * on every screen, including the two blank ones.
+   */
+  function screen() {
+    if (boot.phase === 'starting') return null;
 
-  if (boot.phase === 'refused') {
-    return (
-      <div className="app">
+    if (boot.phase === 'refused') {
+      return (
         <div className="screen">
           <div className="empty" role="alert">
             <div className="empty__title">No se puede contar en esta tableta</div>
@@ -143,65 +191,74 @@ export function App({
             </button>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (route.name === 'sessions') {
-    return (
-      <div className="app">
+    if (route.name === 'sessions') {
+      return (
         <SessionsScreen
           repo={repo}
           stranded={boot.stranded}
+          storage={storage}
+          install={install}
+          download={download}
           onOpen={(id) => setRoute({ name: 'count', sessionId: id })}
         />
-      </div>
-    );
-  }
+      );
+    }
 
-  if (error) {
-    return (
-      <div className="app">
+    if (error) {
+      return (
         <div className="banner" role="alert">
           {error}
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  // Never render a screen against the previous session's store: opening B
-  // while A is still loaded would show A's items under B's header for a tick.
-  if (!store || store.getSnapshot().session.id !== sessionId) {
-    return <div className="app" />;
-  }
+    // Never render a screen against the previous session's store: opening B
+    // while A is still loaded would show A's items under B's header for a tick.
+    if (!store || store.getSnapshot().session.id !== sessionId) return null;
 
-  return (
-    <div className="app">
-      {route.name === 'count' ? (
+    if (route.name === 'count') {
+      return (
         <CountScreen
           key={route.sessionId}
           store={store}
+          storage={storage}
           initial={route.focus}
           onBack={() => setRoute({ name: 'sessions' })}
           onFaltantes={() => setRoute({ name: 'faltantes', sessionId: route.sessionId })}
           onRevision={() => setRoute({ name: 'revision', sessionId: route.sessionId })}
         />
-      ) : route.name === 'revision' ? (
+      );
+    }
+
+    if (route.name === 'revision') {
+      return (
         <ReviewScreen
           store={store}
           repo={repo}
           download={download}
           onBack={() => setRoute({ name: 'count', sessionId: route.sessionId })}
         />
-      ) : (
-        <FaltantesScreen
-          store={store}
-          onBack={() => setRoute({ name: 'count', sessionId: route.sessionId })}
-          onCount={(item) =>
-            setRoute({ name: 'count', sessionId: route.sessionId, focus: item })
-          }
-        />
-      )}
+      );
+    }
+
+    return (
+      <FaltantesScreen
+        store={store}
+        onBack={() => setRoute({ name: 'count', sessionId: route.sessionId })}
+        onCount={(item) =>
+          setRoute({ name: 'count', sessionId: route.sessionId, focus: item })
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="app">
+      {screen()}
+      <UpdateNotice updates={updates} />
     </div>
   );
 }

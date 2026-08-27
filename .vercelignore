@@ -3,3 +3,6 @@ samples/
 tests/
 docs/
 .claude/
+tools/
+test-results/
+playwright-report/

@@ -166,6 +166,19 @@ export function ReviewScreen({
       const record: ExportRecord = {
         id: crypto.randomUUID(),
         sessionId: session.id,
+        // The raw clock, deliberately, and the only place in the app that
+        // still reads it directly.
+        //
+        // `CountStore.stamp` clamps event stamps to be non-decreasing per
+        // device, because `compareEvents` orders the log by `at` and a
+        // backwards clock correction would let an operator's correction lose
+        // to the value it corrected. This is not that. An `ExportRecord` is
+        // not a `CountEvent`, never reaches the fold, and orders nothing: it
+        // is a record of when a file was produced, sorted only to show the
+        // list newest-first and to name the previous file. Clamping it would
+        // make it agree with the count log about a time neither of them knows,
+        // and would quietly overstate when a file was actually generated —
+        // which is the one thing this field is asked in an audit.
         at: nowInstant(),
         usuario: usuario.trim(),
         filename: filename.trim(),
