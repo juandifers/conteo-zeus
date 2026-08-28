@@ -665,28 +665,6 @@ export function ReviewScreen({
               {formatMoney(summary.netVarianceValue)}
             </span>
           </div>
-          <div className="reviewbar__figure">
-            <span className="total__label">diferencia bruta</span>
-            <span className="reviewbar__value num">
-              {formatMoney(summary.grossVarianceValue)}
-            </span>
-          </div>
-          <div className="reviewbar__figure">
-            <span className="total__label">cobertura</span>
-            <span className="reviewbar__value num">
-              {formatCoverage(summary.cobertura.fraccionValor)}{' '}
-              <span className="reviewbar__aside">
-                valor · {formatCoverage(summary.cobertura.fraccionFilas)} filas
-              </span>
-            </span>
-          </div>
-          <div className="reviewbar__figure">
-            <span className="total__label">se moverán</span>
-            <span className="reviewbar__value">
-              <span className="num">{figures.changed}</span> de{' '}
-              <span className="num">{summary.itemCount}</span>
-            </span>
-          </div>
         </div>
         <div className="reviewbar__action">
           {blocked && <p className="hint">{blocked}</p>}

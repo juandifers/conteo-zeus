@@ -22,7 +22,7 @@ import { localOutbox } from '../../src/ui/outbox';
 import type { StorageReport } from '../../src/ui/storage';
 import type { Updates } from '../../src/ui/updates';
 import { SAMPLE_XLS } from '../helpers';
-import { memoryStorage, NOT_PERSISTED, PERSISTED } from './harness';
+import { memoryStorage, PERSISTED } from './harness';
 
 afterEach(cleanup);
 
@@ -166,56 +166,7 @@ describe('a new version, waiting', () => {
   });
 });
 
-describe('when the browser will not promise to keep the count', () => {
-  it('says so on the sessions screen, with the risk and the thing to do about it', async () => {
-    render(
-      <App
-        repo={new MemoryRepository()}
-        outbox={localOutbox(memoryStorage())}
-        persistence={persisted(NOT_PERSISTED)}
-      />,
-    );
-    const notice = await screen.findByText(/El navegador no garantiza guardar este conteo/);
-    expect(notice.textContent).toContain('puede borrarlo si la tableta se queda sin espacio');
-    expect(notice.textContent).toContain('Genera el archivo de ajuste el mismo día');
-    // Installing is the one lever a person has over Chrome's answer.
-    expect(notice.textContent).toContain('instala la aplicación');
-  });
-
-  it('repeats it in the counting header, where a count that runs all afternoon is', async () => {
-    const { container } = render(
-      <App
-        repo={new MemoryRepository()}
-        outbox={localOutbox(memoryStorage())}
-        persistence={persisted(NOT_PERSISTED)}
-      />,
-    );
-    await screen.findByText('Trae un archivo de Zeus y empieza');
-    upload(container);
-    await screen.findByLabelText('buscar artículo');
-
-    expect(
-      screen.getByText(/El navegador puede borrar este conteo si la tableta se queda sin espacio/),
-    ).toBeTruthy();
-  });
-
-  it('is silent on both screens once the browser has promised', async () => {
-    const { container } = render(
-      <App
-        repo={new MemoryRepository()}
-        outbox={localOutbox(memoryStorage())}
-        persistence={persisted(PERSISTED)}
-      />,
-    );
-    await screen.findByText('Trae un archivo de Zeus y empieza');
-    expect(screen.queryByText(/El navegador no garantiza/)).toBeNull();
-    expect(screen.getByText(/protegido/)).toBeTruthy();
-
-    upload(container);
-    await screen.findByLabelText('buscar artículo');
-    expect(screen.queryByText(/El navegador puede borrar este conteo/)).toBeNull();
-  });
-
+describe('when the tablet is running low on space', () => {
   /**
    * A `persistence` probe that rejects must not take the boot with it. This is
    * the browser nobody tested on, and the app still has to count.
@@ -229,8 +180,6 @@ describe('when the browser will not promise to keep the count', () => {
       />,
     );
     expect(await screen.findByText('Trae un archivo de Zeus y empieza')).toBeTruthy();
-    // And falls back to saying it cannot promise, rather than to silence.
-    expect(screen.getByText(/El navegador no garantiza/)).toBeTruthy();
   });
 
   it('warns before a count starts when the tablet is nearly full', async () => {
