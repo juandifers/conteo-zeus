@@ -549,15 +549,6 @@ export function ReviewScreen({
                     estimación
                   </div>
                 </div>
-                <div>
-                  <div className="total__label">pendiente · valor en libros</div>
-                  <div className="total__value num">
-                    {formatMoney(summary.pendiente.valor)}
-                  </div>
-                  <div className="total__note">
-                    existencia × costo — la cifra contable
-                  </div>
-                </div>
               </div>
               {(() => {
                 const invisible = summary.byExposicion.filter(
