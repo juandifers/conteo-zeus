@@ -23,7 +23,7 @@ import { debugExportName, encodeCsv, eventLogCsv, type SessionLog } from '../deb
 import type { Downloader } from '../download';
 import { loadUsuario, saveUsuario } from '../identity';
 import type { Install } from '../install';
-import { atRisk, describeSpace, spaceIsTight, type StorageReport } from '../storage';
+import { describeSpace, spaceIsTight, type StorageReport } from '../storage';
 
 interface Progress extends SessionMeta {
   verificados: number;
@@ -170,29 +170,6 @@ export function SessionsScreen({
         <div className="banner" role="alert">
           {stranded} registros de una sesión anterior siguen sin guardarse. Se
           reintentan cada vez que abres la aplicación.
-        </div>
-      )}
-
-      {/*
-        The risk, and the action — in that order, because a warning somebody
-        cannot act on is a warning they learn to scroll past. The action is not
-        "free up space": it is "get the file out today", which is the only
-        thing that makes an eviction survivable.
-      */}
-      {/*
-        `status`, not `alert`. This is a standing condition of the tablet, true
-        from the moment the screen opens and until somebody installs the app or
-        frees some space — not an event. An assertive role would interrupt a
-        screen reader on every launch, and would compete with the import error
-        below it, which *is* an event and does deserve the interruption.
-      */}
-      {atRisk(storage) && (
-        <div className="banner" role="status">
-          El navegador no garantiza guardar este conteo: puede borrarlo si la tableta se
-          queda sin espacio.{' '}
-          {storage.persistence === 'denied'
-            ? 'Genera el archivo de ajuste el mismo día, e instala la aplicación en la pantalla de inicio — instalada, el navegador suele conceder la garantía.'
-            : 'Este navegador no ofrece la garantía. Genera el archivo de ajuste el mismo día.'}
         </div>
       )}
 

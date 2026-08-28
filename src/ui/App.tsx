@@ -224,7 +224,6 @@ export function App({
         <CountScreen
           key={route.sessionId}
           store={store}
-          storage={storage}
           initial={route.focus}
           onBack={() => setRoute({ name: 'sessions' })}
           onFaltantes={() => setRoute({ name: 'faltantes', sessionId: route.sessionId })}

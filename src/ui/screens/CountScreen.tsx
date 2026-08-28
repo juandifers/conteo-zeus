@@ -18,7 +18,6 @@ import { ResultRows } from '../components/ResultRows';
 import { Topbar } from '../components/Topbar';
 import { saveZona } from '../identity';
 import { buildIndex, groupByCodigo, resolveEnter, searchItems } from '../search';
-import { atRisk, type StorageReport } from '../storage';
 import type { CountStore } from '../store';
 
 /** Enough rows to scroll, few enough to stay a list rather than a catalogue. */
@@ -31,15 +30,12 @@ interface Open {
 
 export function CountScreen({
   store,
-  storage,
   initial,
   onBack,
   onFaltantes,
   onRevision,
 }: {
   store: CountStore;
-  /** What the browser promised about the database (storage.ts). */
-  storage: StorageReport;
   /** Open straight onto this item — how the faltantes list hands work over. */
   initial?: Item;
   onBack: () => void;
@@ -123,22 +119,6 @@ export function CountScreen({
         </div>
       )}
 
-      {/*
-        A different failure from the one above, and both can be true at once.
-        That one is about the seconds between a tap and a write; this one is
-        about the browser deleting the whole database later, under storage
-        pressure, without asking (storage.ts). Said here as well as on the
-        sessions screen because a count that runs all afternoon is a count
-        nobody went back to the sessions screen during, and the instruction —
-        generate the file today — is one the counter can act on.
-      */}
-      {atRisk(storage) && !snapshot.halted && (
-        <div className="banner" role="status">
-          El navegador puede borrar este conteo si la tableta se queda sin espacio. Genera
-          el archivo de ajuste hoy mismo.
-        </div>
-      )}
-
       {snapshot.failures.length > 0 && !snapshot.halted && (
         <div className="banner" role="alert">
           {snapshot.failures.length} registros no se guardaron todavía.{' '}
@@ -219,8 +199,7 @@ export function CountScreen({
               <div className="empty">
                 <div className="empty__title">Busca el artículo que tienes enfrente</div>
                 <div className="empty__body">
-                  Escribe parte del nombre, la presentación o el código. Un lector de código de
-                  barras también sirve: teclea y da Enter.
+                  Escribe parte del nombre, la presentación o el código y da Enter.
                 </div>
               </div>
             ) : hits.length === 0 ? (
