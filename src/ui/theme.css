@@ -870,6 +870,33 @@ select {
   max-width: 1180px;
 }
 
+/* A mouse-driven header on a screen that is mostly table: the two lines of
+   `topbar__where` fold into one, and the padding that gave a thumb room to
+   land shrinks back to what a pointer needs — the table is what this screen
+   is for, and every row it steals is a row of the table that scrolls off. */
+.screen--desk .topbar {
+  padding: 6px 16px;
+}
+
+.screen--desk .topbar__where {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.screen--desk .topbar__corte::before {
+  content: '· ';
+}
+
+.screen--desk .chips {
+  padding: 8px 16px 4px;
+}
+
+.screen--desk .chipbtn {
+  min-height: 0;
+  padding: 4px 12px;
+}
+
 .section {
   padding: 18px 16px 8px;
   border-top: 1px solid var(--rule);
@@ -1159,9 +1186,9 @@ select {
 .reviewbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: 16px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
   border-top: 2px solid var(--ink);
   background: var(--paper-raised);
 }
@@ -1170,6 +1197,7 @@ select {
   display: flex;
   flex: 1;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 24px;
 }
 
@@ -1195,6 +1223,13 @@ select {
 
 .reviewbar__action .hint {
   max-width: 34ch;
+}
+
+/* `--tap-primary` is sized for a thumb; this bar is read with a mouse, and a
+   64px button here is height the table doesn't get back. */
+.screen--desk .reviewbar__action .btn {
+  min-height: 44px;
+  padding: 8px 16px;
 }
 
 /* The secondary half of a rail figure: same line, quieter, not mono — a
