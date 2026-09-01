@@ -623,3 +623,10 @@
   color: var(--ink);
   text-decoration: underline;
 }
+
+/* A banner in the rail is a paragraph, not a strip. `.banner`'s flex layout
+   splits its inline pieces into columns at this width — «con wifi» floating
+   in the middle of the sentence it belongs to. */
+.desksplit__rail .banner {
+  display: block;
+}
