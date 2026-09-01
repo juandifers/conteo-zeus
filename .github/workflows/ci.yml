@@ -1,0 +1,145 @@
+# CI for conteo-zeus.
+#
+# Two things here are not routine and are the reason this file exists:
+#
+#   - **G1 runs on every commit.** It is the byte-equality freeze over
+#     `samples/golden/`, and one of the two files it checks is the .txt Zeus
+#     actually posted. When it fails, the default assumption is that the change
+#     is wrong, not that the golden file is stale.
+#   - **Migrations run here and nowhere else.** Never on a cold start: a
+#     serverless function that migrated on boot would run DDL from however many
+#     concurrent cold starts a deploy produced, against a database several of
+#     them are already reading. `/api/health` refuses to be green when the
+#     schema is behind, and this job is the only thing that moves it.
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck, lint, tests (G1 included)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - name: Typecheck
+        run: npx tsc -b
+      - name: Unit tests
+        # Includes G1/G2/G3 (tests/golden.test.ts), the P1 fold migration proof
+        # (tests/domain/migration.test.ts) and the schema checks
+        # (tests/backend/migrations.test.ts).
+        run: npm test
+      - run: npm run build
+
+  migrations:
+    name: migrations apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # A throwaway Postgres, not the Neon branch. The migrations are plain
+        # SQL and must stay that way — a schema that only applies against one
+        # provider is a schema nobody can test against.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: conteo_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations to a throwaway database
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/conteo_test
+        run: node tools/migrate.mjs
+      - name: Re-run to prove they are idempotent
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/conteo_test
+        run: node tools/migrate.mjs --check
+      - name: Exercise the schema and the endpoints against it
+        # Every `*.pg.test.ts` skips itself without DATABASE_URL, so this is the
+        # only job that runs them.
+        #
+        #   schema.pg    `raw_row text[]`, `cantidad text` and `source_bytes
+        #                bytea` surviving a round trip through the driver, which
+        #                reading the DDL cannot tell you.
+        #   sessions.pg  the catalogue reassembling out of Postgres to bytes
+        #                identical to `source_bytes`, the dispatch gate, and the
+        #                counter payload's allowlist over a real response.
+        #   push.pg      replay, gap and fork as three distinct outcomes; the
+        #                finish manifest; device binding; and the `bigserial`
+        #                cursor. `unique (counter_id, seq)` is what makes a
+        #                replay idempotent and a fork detectable, so none of it
+        #                means anything without a real constraint behind it.
+        #
+        # These run the handlers' own SQL against a real database rather than a
+        # stub: a mock proves a handler calls a function, this proves the query
+        # is a query.
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/conteo_test
+        run: >-
+          npx vitest run
+          tests/backend/schema.pg.test.ts
+          tests/backend/sessions.pg.test.ts
+          tests/backend/push.pg.test.ts
+
+  offline:
+    name: offline (Playwright)
+    runs-on: ubuntu-latest
+    # Added in P2.2, and the reason is in the diff that added it: two specs here
+    # had been silently stale since the review bar was trimmed and the eviction
+    # banners were removed, because nothing ran them. A suite whose entire job is
+    # to be believed about offline cannot be one nobody runs.
+    #
+    # It is the only place a service worker, a real IndexedDB and a network that
+    # is actually absent come together. jsdom cannot stage any of the three.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:offline
+
+  deploy-migrations:
+    name: migrate the Neon database
+    # Only on the default branch, and only after the checks pass. A migration
+    # applied from a feature branch would move the schema under a production
+    # deploy that has not shipped yet.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [check, migrations, offline]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply pending migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node tools/migrate.mjs

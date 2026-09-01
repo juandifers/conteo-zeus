@@ -69,8 +69,30 @@ export interface CountEventBase {
   /** UUID, generated on the device. Events are created offline, so no server can allocate it. */
   id: string;
   sessionId: string;
-  /** The primary key (ZEUS_FORMAT.md §4). */
-  idarticulo: number;
+  /**
+   * Which counter this is anchored to — **not** `usuario`.
+   *
+   * A name is a label a person typed into a box; two counters can type the
+   * same one, and one counter can retype theirs differently after lunch. The
+   * id is what the hash chain is built over (chain.ts) and what the server's
+   * `unique (counter_id, seq)` constraint keys on, so it has to be an identity
+   * rather than a label.
+   *
+   * Optional because **P1 events do not have one**. Those sessions stay local,
+   * read-only and unchained; `canonicalEvent` refuses to hash an event without
+   * it rather than inventing one, which would mint a chain that never existed.
+   * See docs/MIGRATION-P1-P2.md.
+   */
+  counterId?: string;
+  /**
+   * The primary key (ZEUS_FORMAT.md §4).
+   *
+   * `null` only on the three session-scoped kinds — `note` (when the note is
+   * not about one article), `finish` and `reopen`. Every kind that asserts
+   * something about an item's stock narrows this back to `number`, so the fold
+   * never has to ask.
+   */
+  idarticulo: number | null;
   /** Who. DOMAIN.md §4: a waiver is attributable or it is not a waiver. */
   usuario: string;
   /** Where in the warehouse. Destined for the `ubicacion` column, empty in Zeus today. */
@@ -93,12 +115,14 @@ export interface CountEventBase {
 /** Replace the running value: what a keypad entry means. */
 export interface SetCountEvent extends CountEventBase {
   kind: 'set';
+  idarticulo: number;
   qty: number;
 }
 
 /** Add to the running value: what one tap in tally mode means. */
 export interface AddCountEvent extends CountEventBase {
   kind: 'add';
+  idarticulo: number;
   qty: number;
 }
 
@@ -112,6 +136,7 @@ export interface AddCountEvent extends CountEventBase {
  */
 export interface UnchangedEvent extends CountEventBase {
   kind: 'unchanged';
+  idarticulo: number;
   motivo?: string;
 }
 
@@ -131,6 +156,68 @@ export interface UnchangedEvent extends CountEventBase {
  */
 export interface RetractEvent extends CountEventBase {
   kind: 'retract';
+  idarticulo: number;
+  /**
+   * The event this withdraws. Absent only on events written by P1, whose
+   * whole-item semantics are preserved for them and for them alone.
+   *
+   * **Why this became event-scoped.** Under one counter, "return the item to
+   * untouched" is right. Under several it is a data-loss bug: Ana retracting
+   * her own mis-tap on article 4471 would silently discard Luis's count of the
+   * same article, and neither of them would see a mark that it happened.
+   *
+   * Scoped retraction is **order-independent** — it names its target rather
+   * than relying on position — which is what keeps merging several offline
+   * logs a sort rather than a conflict resolution. No event kind may be
+   * introduced that breaks this.
+   */
+  retractsEventId?: string;
+}
+
+/**
+ * A remark. The one place an observation can go (DOMAIN.md §4).
+ *
+ * It exists because there is physically nowhere else to put it: `Observacion`
+ * is dropped in the `.txt` and `Grupo1..5` are forbidden by ZEUS_FORMAT.md §9,
+ * so an article found on the floor that is not in the catalogue can be recorded
+ * in the log or not at all.
+ *
+ * Asserts nothing about stock, so it folds to nothing. `idarticulo` is `null`
+ * when the note is not about one article.
+ */
+export interface NoteEvent extends CountEventBase {
+  kind: 'note';
+  /** Control characters are rejected at append — see `validateEvent`. */
+  texto: string;
+  idarticulo: number | null;
+}
+
+/**
+ * "I am done" — and, crucially, a **manifest** rather than a bare marker.
+ *
+ * With no connectivity in the bodega, a server cannot distinguish a counter who
+ * recorded nothing for an hour from a counter whose tablet is holding 200
+ * queued events in a cold room. Absence of data looks identical either way, so
+ * a bare marker would let a session be sealed over a chain with a hole in it.
+ *
+ * `finalSeq` and `headHash` let the server verify it holds a complete,
+ * gap-free, hash-consistent chain before believing the claim. That check is
+ * what P2.4 gates sealing on — and it is why `counters.estado` has no
+ * `terminado_local`: the server knows only what arrived.
+ */
+export interface FinishEvent extends CountEventBase {
+  kind: 'finish';
+  idarticulo: null;
+  /** This counter's last content event. */
+  finalSeq: number;
+  /** This counter's chain head at that seq (chain.ts). */
+  headHash: string;
+}
+
+/** Withdraws a `finish`: this counter is counting again. */
+export interface ReopenEvent extends CountEventBase {
+  kind: 'reopen';
+  idarticulo: null;
 }
 
 /**
@@ -140,10 +227,26 @@ export interface RetractEvent extends CountEventBase {
  * count means appending another one; the fold decides which wins. That is what
  * makes offline merge a sort rather than a conflict resolution.
  */
-export type CountEvent = SetCountEvent | AddCountEvent | UnchangedEvent | RetractEvent;
+export type CountEvent =
+  | SetCountEvent
+  | AddCountEvent
+  | UnchangedEvent
+  | RetractEvent
+  | NoteEvent
+  | FinishEvent
+  | ReopenEvent;
 
 /** The events that carry a quantity. */
 export type QuantityEvent = SetCountEvent | AddCountEvent;
+
+/**
+ * The kinds that are about the session rather than about one item.
+ *
+ * `idarticulo` may be `null` on exactly these. `resolveAll` drops them before
+ * grouping, because a fold keyed on the primary key has no bucket for an event
+ * that has no key (ZEUS_FORMAT.md §4).
+ */
+export type SessionScopedEvent = NoteEvent | FinishEvent | ReopenEvent;
 
 /**
  * An event minus its identity — what to append, before anything stamps it.
@@ -159,7 +262,50 @@ export type CountEventDraft =
   | { kind: 'set'; qty: number }
   | { kind: 'add'; qty: number }
   | { kind: 'unchanged'; motivo?: string }
-  | { kind: 'retract' };
+  /**
+   * `retractsEventId` absent is the P1 whole-item withdrawal, kept so that a
+   * P1 log folds to the same numbers after the upgrade as before it. New code
+   * naming a target is the rule; see `RetractEvent`.
+   */
+  | { kind: 'retract'; retractsEventId?: string }
+  | { kind: 'note'; texto: string; idarticulo: number | null }
+  | { kind: 'finish'; finalSeq: number; headHash: string }
+  | { kind: 'reopen' };
+
+/**
+ * What a **P2 counter** may append. The same union, minus one thing.
+ *
+ * `retract` requires `retractsEventId`. That is the gate P2.2 opens with, and
+ * it is a compile error rather than a review convention because the next person
+ * to add a withdrawal button will not have read the document that explains it:
+ *
+ *     Ana y Luis cuentan secciones distintas.
+ *     Por error Ana registra 5 en el artículo 4471, que es de Luis.
+ *
+ *       Ana  add 5      (4471)
+ *       Luis add 8      (4471)   ← su sección, su conteo real
+ *       Ana  retract    (4471)   ← sin scope: "este artículo vuelve a untouched"
+ *
+ *       fold → untouched.  Los 8 de Luis desaparecieron.
+ *
+ * Nothing catches it downstream. The chain is intact — nothing was tampered
+ * with. The export is well-formed. `verifyWriteBack` passes, because the file
+ * faithfully reflects a fold that is quietly wrong. It surfaces as a variance
+ * nobody can explain, weeks later.
+ *
+ * So the whole-item withdrawal is not merely discouraged in the P2 path, it is
+ * unspellable there. `CountEventDraft` keeps it for the P1 app, whose sessions
+ * have one counter and whose logs must fold to the same numbers after the
+ * upgrade as before it (docs/MIGRATION-P1-P2.md).
+ */
+export type CounterEventDraft =
+  | { kind: 'set'; qty: number }
+  | { kind: 'add'; qty: number }
+  | { kind: 'unchanged'; motivo?: string }
+  | { kind: 'retract'; retractsEventId: string }
+  | { kind: 'note'; texto: string; idarticulo: number | null }
+  | { kind: 'finish'; finalSeq: number; headHash: string }
+  | { kind: 'reopen' };
 
 /**
  * The file a session was imported from, kept whole.

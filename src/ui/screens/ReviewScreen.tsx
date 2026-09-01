@@ -37,6 +37,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { catalogueFaults, generateAdjustment, sourceIntact } from '../../app';
 import {
   compareEvents,
+  isItemEvent,
   nowInstant,
   summarizeSession,
   type CountEvent,
@@ -129,6 +130,9 @@ export function ReviewScreen({
   const lastEvents = useMemo(() => {
     const map = new Map<number, CountEvent>();
     for (const event of events) {
+      // "Who last touched this row" is a question about a row, so the
+      // session-scoped kinds have no answer to contribute.
+      if (!isItemEvent(event)) continue;
       const current = map.get(event.idarticulo);
       if (!current || compareEvents(current, event) < 0) map.set(event.idarticulo, event);
     }

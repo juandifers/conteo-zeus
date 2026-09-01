@@ -1,0 +1,93 @@
+/*
+ * The admin side, and the printed sheet.
+ *
+ * The counting screens are an instrument held in one hand in a cooler; this is
+ * a desk, a keyboard and a printer. It reuses the same tokens and the same
+ * panel vocabulary rather than a second design — the two are the same product
+ * and the person switching between them should not have to relearn anything —
+ * and adds only what the counting app has no use for: a section table, a QR
+ * code and a page that prints.
+ */
+
+.qr {
+  display: block;
+  /* Its own white ground. A QR code inverted by a dark theme is one most
+     readers refuse, so the symbol paints its own background (QrCode.tsx) and
+     this only stops the layout from tinting it. */
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+.sheet {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.sheet__counter {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1rem;
+  background: var(--paper-raised);
+}
+
+.sheet__nombre {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.sheet__meta {
+  color: var(--ink-quiet);
+  margin-bottom: 0.75rem;
+}
+
+.sheet__body {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.sheet__link {
+  display: block;
+  font-family: var(--mono, 'JetBrains Mono', monospace);
+  font-size: 0.8125rem;
+  word-break: break-all;
+  margin-bottom: 0.5rem;
+  /* Selectable and selected in one gesture: somebody is going to copy this into
+     a chat message, and a link that breaks across a line is a link that arrives
+     broken. */
+  user-select: all;
+}
+
+/*
+ * The printed reparto sheet.
+ *
+ * One counter per page, so the sheet can be torn up and handed out. Everything
+ * that is not the sheet is gone: a printout carrying the app's chrome is a
+ * printout somebody has to read around.
+ */
+@media print {
+  .masthead,
+  .panel,
+  .actions,
+  .updatebar {
+    display: none !important;
+  }
+
+  .sheet__counter {
+    break-inside: avoid;
+    break-after: page;
+    border: none;
+    padding: 0;
+  }
+
+  .sheet__counter:last-child {
+    break-after: auto;
+  }
+
+  .qr {
+    border: none;
+  }
+}

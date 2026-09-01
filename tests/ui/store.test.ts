@@ -111,14 +111,30 @@ describe('undo appends', () => {
     expect(store.resolutionFor(ID.melon).qty).toBe(5);
   });
 
-  it('walks a tally back one tap at a time, as an add', async () => {
+  it('walks a tally back one tap at a time, as a targeted withdrawal', async () => {
+    // Was `['add', 'add', 'add']`: undo used to append `add(-q)`. That restored
+    // the prior *value* and not the prior *state*, so undoing a first tap
+    // landed on `counted 0` — a write-off of the whole book figure. Now that a
+    // withdrawal can name its target it is strictly better, and the running
+    // value comes out the same (DOMAIN.md §3).
     const store = await open();
     store.addCount(ID.melon, 1);
-    store.addCount(ID.melon, 1);
+    const second = store.addCount(ID.melon, 1);
     store.undo(ID.melon);
 
-    expect(kinds(store.getSnapshot().events, ID.melon)).toEqual(['add', 'add', 'add']);
+    const events = store.getSnapshot().events.filter((e) => e.idarticulo === ID.melon);
+    expect(kinds(events, ID.melon)).toEqual(['add', 'add', 'retract']);
+    expect(events[2]).toMatchObject({ kind: 'retract', retractsEventId: second.id });
     expect(store.resolutionFor(ID.melon).qty).toBe(1);
+  });
+
+  it('undoes the first tap of a tally to untouched, not to a count of zero', () => {
+    // The reason `add(-q)` is gone, stated as its own case.
+    return open().then((store) => {
+      store.addCount(ID.melon, 1);
+      store.undo(ID.melon);
+      expect(store.resolutionFor(ID.melon)).toEqual({ state: 'untouched' });
+    });
   });
 
   it('restores a waiver that a later count replaced', async () => {

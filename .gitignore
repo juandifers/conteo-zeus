@@ -28,3 +28,9 @@ test-results
 playwright-report
 
 .vercel
+
+# Local connection strings. DATABASE_URL points at a real database and must
+# never reach the repository (docs/BACKEND.md).
+.env
+.env.local
+.env.*.local

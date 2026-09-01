@@ -99,7 +99,11 @@ export function eventLogCsv(
       // An event whose item is not in the session is not a reason to fail an
       // export: it means a session was imported, counted, and re-imported, and
       // the row is more useful with empty name columns than absent.
-      const item = named.get(event.idarticulo);
+      // `null` on the session-scoped kinds, which are about the session and
+      // not about an article. The row still belongs in the export — a `finish`
+      // is exactly the sort of thing somebody reads a debug log to find — so it
+      // is emitted with the article columns empty rather than dropped.
+      const item = event.idarticulo === null ? undefined : named.get(event.idarticulo);
       lines.push(
         [
           log.sessionId,
@@ -111,7 +115,7 @@ export function eventLogCsv(
           number(event.seq),
           event.id,
           event.zona,
-          number(event.idarticulo),
+          event.idarticulo === null ? '' : number(event.idarticulo),
           item?.codigo ?? '',
           item?.nombre ?? '',
           event.kind,

@@ -13,14 +13,23 @@ premise.
 ## 1. Dependency direction
 
 ```
-        src/lib/decimal.ts, hash.ts
+        src/lib/  decimal.ts, hash.ts, token.ts, base64.ts
            ↑            ↑
     src/zeus/      src/domain/       ← neither imports the other, ever
            ↑            ↑
            └─ src/app/ ─┘            ← the only place they meet
                   ↑
-             src/store/
+        ┌─────────┴─────────┐
+    src/store/            api/       ← the serverless functions
+        ↑                            ← never src/zeus/, never src/store/
+    src/ui/
 ```
+
+`api/` sits beside `src/store/` rather than inside `src/app/`: it is a consumer,
+not a layer. It reaches the domain — `chain.ts` in particular must have exactly
+one implementation, on both sides — and it reaches the file format only through
+`src/app/`, which is why the server can re-run the §4.1 integrity check without
+a second copy of it existing.
 
 Enforced by `tests/boundaries.test.ts`, including type-only imports. When Zeus
 access moves to ODBC, `src/zeus/` is replaced and `src/domain/` does not change.
@@ -108,7 +117,11 @@ on the review screen under `pendiente · en riesgo`.
 #### Where the rule lives
 
 In the code, and asserted by reading the code — `tests/blindCount.test.ts`,
-in the spirit of `tests/boundaries.test.ts`. The counting surfaces may not
+in the spirit of `tests/boundaries.test.ts`. **From P2 it also lives in what the
+server sends** (§6.1): the counter endpoint is built from an allowlist, so the
+figures are not on the device to be rendered at all. The rendering rule stays,
+because the device holds `nombre` and `presentacion` and a screen can still be
+made to show something it should not — but the figures themselves are gone. The counting surfaces may not
 mention `existencia`, `costo`, `ultimoConteo`, `valor`, `exposicion`,
 `itemVariance` or `formatMoney`; a variance is the book figure arrived at by
 subtraction and a peso total is the book figure arrived at by multiplication,
@@ -164,9 +177,16 @@ Counts are an append-only log. Nothing updates or deletes a `CountEvent`;
 correcting a count means appending another. `appendEvent` is the only write path.
 
     set(qty)      replaces the running value
-    add(qty)      accumulates (tally mode); negative qty undoes a mis-tap
+    add(qty)      accumulates (tally mode)
     unchanged     withdraws any running value and records a waiver; carries no qty
-    retract       returns the item to `untouched`; carries no qty
+    retract       withdraws one named event; carries no qty
+    note          a remark; asserts nothing about stock, so it folds to nothing
+    finish        "I am done", with `finalSeq` and `headHash` — a manifest, not a marker
+    reopen        withdraws a `finish`
+
+The last three are **session-scoped**: their `idarticulo` may be `null`, and
+`resolveAll` drops them before grouping. Everything else narrows it back to a
+number, so the fold never has to ask.
 
 `retract` exists because the other three are one-way: every one of them moves an
 item into a state that posts, so without it a mis-tap on the wrong row is a
@@ -183,25 +203,55 @@ withdrawn at 14:35". Retracting returns the item to blocking a post, which is
 correct: a withdrawn count should force someone to deal with it rather than
 quietly resolving.
 
-**Undo is a domain function, not UI logic**, because undoing a `set` must
-restore the *previous* resolution rather than jumping to untouched:
+**Retraction is event-scoped.** `RetractEvent.retractsEventId` names the event
+being withdrawn. Under one counter, "return the item to untouched" was right;
+under several it is a data-loss bug — Ana retracting her own mis-tap on article
+4471 would silently discard Luis's count of the same article, and neither would
+see a mark that it happened. Scoped retraction is **order-independent**: it
+names its target rather than relying on position, which is what keeps merging
+several offline logs a sort rather than a conflict resolution. No event kind may
+be introduced that breaks this.
 
-    last event is add(q)    → append add(-q), but only where the prior
-                              resolution is itself a quantity; otherwise the
-                              rule below. `add(-q)` restores the prior *value*,
-                              which is the prior *state* only when there was a
-                              value to go back to — undoing a first tap with
-                              `add(-1)` lands on `counted 0`, a write-off of the
-                              whole book figure
-    last event is set(q)    → prior resolution: counted p → set(p)
-                                                unchanged → unchanged
-                                                untouched → retract
-    last event is unchanged → same rule against the prior resolution
-    last event is retract   → same rule against the prior resolution
+A retraction with **no** `retractsEventId` is a P1 event and keeps P1's
+whole-item meaning, for those events and for them alone. That is not politeness
+toward old data: a P1 log has to fold to the same numbers after the upgrade as
+before it, or the count somebody took on Tuesday changed on Wednesday
+(`docs/MIGRATION-P1-P2.md`).
 
-Every case is an append; `undoLast` returns the event to append, or `null` — on
-an empty log, and whenever the event it would produce would leave the resolution
-unchanged. The second case is what stops a retraction of an untouched item from
+**No P2 path may construct one** (P2.2). It is closed in four places, because
+the failure is silent everywhere else:
+
+| Where | How |
+|---|---|
+| the type | `CounterEventDraft` requires `retractsEventId`; the P2 store takes only that |
+| the store | `CountStore.retract` throws when a `counterId` is present, and `canRetract`/`offersWholeItemDiscard` are false, which is what takes «Descartar conteo» off the screen rather than greying it out |
+| the server | `POST /api/c/:token/events` answers `422 RETRACT_SIN_SCOPE` — the client is a PWA whose cached build may be weeks old |
+| a test | `tests/gate.test.ts` reads the P2 sources and asserts none of them writes the kind at all |
+
+Nothing downstream catches it if it slips through. The chain is intact, because
+nothing was tampered with. The export is well-formed. `verifyWriteBack` passes,
+because the file faithfully reflects a fold that is quietly wrong. It surfaces
+weeks later as a variance nobody can explain.
+
+**Undo is a domain function, not UI logic.** It is now one rule:
+
+    undo = retract(the last standing event this counter wrote)
+
+where *standing* means "not itself already withdrawn". `undoLast` returns the
+draft to append, or `null` — on an empty log, and whenever the event it would
+produce would leave the resolution unchanged.
+
+There is no `add(-q)` case any more. It restored the prior *value*, which is the
+prior *state* only when there was a value to go back to: undoing the first tap
+of a tally with `add(-1)` landed on `counted 0`, a write-off of the whole book
+figure. Withdrawing that tap by name returns the row to `untouched`, which is
+what happened.
+
+An **unscoped** retraction is a legitimate undo target and a scoped one is not.
+The fold drops a scoped retraction along with its target, so there is nothing to
+withdraw; an unscoped one is a decision a person made, and withdrawing it by
+name restores what it took. §6's rule — that no clock may reverse a decision —
+rules out a *tie-break* undoing a withdrawal, not a person naming their own. The second case is what stops a retraction of an untouched item from
 being written as a no-op, and it is the *only* rule a UI may derive a disabled
 undo from: a component that decides for itself when there is nothing to undo has
 reimplemented the fold. There is no state in which undo is unavailable because
@@ -214,7 +264,14 @@ bulk-waiver flow, where a single action covers many rows and friction is
 appropriate.
 
 Every event carries `id` (client-generated uuid), `sessionId`, `idarticulo`,
-`usuario`, `zona`, `at`, `deviceId`, `seq`.
+`usuario`, `zona`, `at`, `deviceId`, `seq`, and — from P2 — `counterId`.
+
+`counterId` is **not** `usuario`. A name is a label somebody typed into a box;
+two counters can type the same one and one counter can retype theirs
+differently after lunch. The id is what the hash chain is built over
+(`src/domain/chain.ts`) and what the server's `unique (counter_id, seq)`
+constraint keys on, so it has to be an identity rather than a label. It is
+optional on the type because P1 events do not have one.
 
 **Fold ordering** is `(at, deviceId, seq, id)`. All four keys are required:
 `(at, deviceId, seq)` is not a total order, and stage 2 merges logs from offline
@@ -392,45 +449,176 @@ matching both the shelf and the printed list the counters know.
 
 `canPost` is true when no item is `untouched`.
 
-**Anticipated, not yet modelled:** `usuario`, `deviceId` and `zona` are stamped
-on every event and owned by no entity, so "what did Ana verify on Tuesday" is a
-filter rather than a lookup. A `CountingSession` — who is responsible for which
-zone, on which device, over what period — earns its place in the multi-device
-stage, where the question becomes assignment rather than attribution. Modelling
-it now would be guessing at a shape we cannot see. Leave the fields on events.
+**Modelled in P2.1: assignment.** `usuario` and `deviceId` are still stamped on
+every event and owned by no entity, so "what did Ana verify on Tuesday" is still
+a filter rather than a lookup — but `counterId` is now an identity, and `zona`
+has stopped being a preference. See §6.1.
 
 `deviceId` and `seq` are persisted in the store, not in `localStorage`: the fold
 breaks ties on `deviceId`, so a regenerated id silently reorders a tablet's own
 history, and `seq` resumption must not depend on the whole log being in memory.
 
-**`zona` cannot describe an untouched item.** It is stamped on events, and an
-untouched item has no events — so the rows the gap is made of are exactly the
-rows carrying no zone. Anything scoped to a zone *over the gap* is therefore
-not expressible: "waive everything left in the CAVA", "who still has to walk
-the NEVERA", "how much exposure is sitting in the BAR". The supervisor's bulk
-waiver selects over the whole untouched set for this reason, ordered by
-exposure, and not by zone.
+**`zona` used to be unable to describe an untouched item.** It was stamped on
+events, and an untouched item has no events — so the rows the gap was made of
+were exactly the rows carrying no zone, and nothing scoped to a zone *over the
+gap* was expressible: "waive everything left in the CAVA", "who still has to
+walk the NEVERA", "how much exposure is sitting in the BAR". P1's supervisor
+bulk waiver selects over the whole untouched set for that reason, ordered by
+exposure and not by zone.
 
-The fix is not a better query. `zona` would have to become **item data** — an
-assignment made at import or by a supervisor, before anybody counts — at which
-point it describes a shelf rather than a keystroke, and the questions above
-have answers. That is the same modelling move `CountingSession` above waits
-for, and it should be made once, in the multi-device stage, rather than twice.
+§6.1 is the fix, and it is the one this section said to make: `zona` became item
+data.
 
-**Precondition on the multi-device stage: wall-clock last-writer-wins is not an
-acceptable merge strategy.** For two colliding `set`s it merely picks a number,
-and either number is a count somebody took. For a `retract` it *reverses a
-decision*: a tablet whose clock runs a minute fast resurrects a count another
-counter deliberately withdrew, and the fold leaves no mark that anything was
-overridden. The asymmetry is the point — withdrawal is an intent, not an
-observation, and no clock skew should be able to undo one.
+---
 
-The direction to evaluate is **scoped retraction**: a counter may withdraw only
-events their own device wrote, which needs no cross-device agreement and no
-clock at all. Withdrawing somebody else's count becomes a supervisor action,
-where the two-person step is the safeguard rather than an ordering rule. Nothing
-here is settled; what is settled is that shipping LWW over `retract` is not an
-option.
+## 6.1 Sections, counters and assignment (P2.1)
+
+A **section** is an admin-created named bucket of articles. Sections are ours;
+the ERP has no concept of one, and nothing about a section is written back into
+a Zeus file — `ubicacion` stays empty, because ZEUS_FORMAT.md §9 forbids the
+adapter carrying markers into the file and the posting path is proven only for
+the exact triple in §7.1.
+
+One counter per section; a counter may hold several. `Section.nombre` **is**
+`zona` on every event emitted for the articles in it, which is the modelling
+move §6 was waiting for: a zone now describes a shelf somebody was sent to,
+decided before anybody counted, rather than a dropdown somebody last touched.
+
+**The resolved per-article assignment is what is stored, never the rule that
+produced it.** The admin builds sections by moving whole families in, splitting
+one across two people, then moving individual articles — but one row per
+`idarticulo` is written down. A rule ("everything with prefix 09") re-evaluated
+later against a changed catalogue would be a silent reassignment nobody
+authorised, and the person it moved work away from would have no way to see it
+happened.
+
+**Coverage is a hard gate.** Dispatch is refused unless every article in the
+catalogue is assigned to exactly **one** counter (`dispatchBlockers`). The
+schema permits several counters per article on purpose — blind double-counting,
+two people covering one section independently and their numbers compared rather
+than summed, is a legitimate audit technique this architecture supports
+naturally, counters being unable to see each other's figures (§2.1). P2 does not
+have that feature, so the check lives in the application where it can be lifted
+deliberately rather than discovered. If it starts wanting an exception, that is
+the double-count feature asking to exist.
+
+**Families are derived, and are only a proposal.** `codigo` is `BBFFNNN` and
+digits 2–3 are a product family; over bodega 01 that yields eleven coherent
+groups. The partition is corroborated from an unrelated direction — all 31 rows
+with `existencia = 0` fall in one of them, the perishables group §5 identified
+from Zeus booking produce at zero between purchases. Two routes to one split is
+the only reason to trust a structure inferred from one file. **No family list is
+hardcoded**: `deriveFamilies` returns prefixes, counts and example names, the
+admin types the labels, and the guards return `null` — "partition by hand" —
+when a catalogue is not numbered this way.
+
+Family and gap figures are ranked on `exposicion`, never on `valor`, for §5's
+reason: the produce family is 54 rows of which 31 are booked at zero, and a
+value-ordered list would report the shelf most likely to be holding unrecorded
+stock as worth nothing.
+
+**A counter's device is served an allowlist.** In P1, blindness (§2.1) was a
+property of what the screens drew, asserted by reading the source. From P2 it is
+a property of what the server sends: `GET /api/c/:token` is built field by field
+from `src/domain/counterView.ts` and carries `idarticulo`, `codigo`, `nombre`,
+`presentacion` and `unidad` — and nothing else. A screen can be changed by
+anybody; a figure that never left the database cannot be rendered by accident. A
+denylist would fail open the first time somebody added a column, and this
+mistake has to fail closed.
+
+**The precondition on the multi-device stage is met** (P2.2). Wall-clock
+last-writer-wins was never an acceptable merge strategy for `retract`: for two
+colliding `set`s it merely picks a number, and either number is a count somebody
+took, but for a withdrawal it *reverses a decision* — a tablet whose clock runs
+a minute fast resurrects a count another counter deliberately withdrew, and the
+fold leaves no mark. The answer shipped is the one §6.1 named: retraction is
+event-scoped, a counter may withdraw only what they wrote, and no clock is
+involved in either.
+
+---
+
+## 6.2 Sync (P2.2)
+
+**Counter sync is push-only.** Counters never see totals, so a counter's device
+never needs anybody else's events: it pushes, the server accumulates, the admin
+pulls. There is no merge on the device, no conflict resolution and no CRDT. If a
+design step here starts to require a counter's tablet to know what another
+counter recorded, something upstream has gone wrong — go back and find it rather
+than building the merge.
+
+### The totals cannot come out wrong
+
+Under P2 rules the fold over counter-emitted events is **commutative**:
+
+- counters emit only `add`, `unchanged`, scoped `retract` and `note`;
+- scoped retraction names its target by id, so it does not depend on position;
+- `add` is decimal addition;
+- `unchanged` clears the running value and *is* order-sensitive — but a
+  counter's own events are strictly ordered by `seq`, and §6.1's dispatch gate
+  guarantees **no two counters share an article**.
+
+So arrival order cannot change a total and clock skew cannot change a total: a
+device that syncs three hours late produces the same numbers as one that synced
+instantly. That is what makes offline-first safe here, and it is asserted rather
+than argued (`tests/domain/commutativity.test.ts`).
+
+> **If blind double-counting is ever built, this reasoning must be redone before
+> it ships.** Two counters over one article is exactly the premise removed, and
+> `unchanged` is order-sensitive the moment it goes.
+
+One caveat inside the argument, because "a counter's own events are strictly
+ordered by `seq`" is not automatic: the fold orders by `at` **before** `deviceId`
+and `seq` (§3), so a counter who moves to a spare tablet with a slower clock
+would stamp events that sort before the ones they continue. The replacement path
+therefore seeds the spare's clock watermark from `GET /api/c/:token/resume`
+(`lastClientAt`), so no device ever stamps earlier than the counter has already
+been stamped.
+
+### Two state machines, and they are not the same machine
+
+    DISPOSITIVO (Dexie)                    SERVIDOR (Postgres)
+    ────────────────────                    ──────────────────
+    contando                                asignado           sin eventos
+       │ toca "Terminar"                     │
+    terminado_local                          contando           eventos, sin finish
+       │ ack del servidor                    │
+    terminado_confirmado                     terminado_incompleto
+       │ toca "Reabrir"                      │   finish presente, cadena incompleta
+    contando                                 terminado_confirmado
+                                             │   finish presente, cadena completa
+                                            contando  (tras reopen)
+
+`terminado_local` exists **only on the device** and is never stored: a claim a
+device makes about itself is not a fact the server can assert. With no signal in
+the bodega, a counter who recorded nothing looks exactly like a counter whose
+tablet is holding two hundred events in a cold room.
+
+`FinishEvent` carries `finalSeq` and `headHash`, both redundant with the chain,
+and that redundancy is the point — it is what lets the server *check* the claim.
+Four rules, each failing for a different reason and each reported separately
+(`checkFinishManifest`): `finish.seq === finalSeq + 1`; the finish's `prevHash`
+equals the claimed `headHash`; the server holds every `seq` in `1..finalSeq` with
+no hole; and the stored hash at `finalSeq` equals `headHash`. All four →
+`terminado_confirmado`. Any failure → `terminado_incompleto` with the reason
+recorded («faltan seq 88–91»).
+
+**`seq` is one-based.** A counter who recorded nothing finishes with
+`finalSeq = 0`, `headHash = genesisHash(...)` and `finish.seq = 1` — assigned a
+section, walked over, found it already counted by receiving. The push protocol
+resumes from `storedMaxSeq + 1` and the manifest states `finish.seq = finalSeq + 1`;
+both need a value meaning "nothing yet", and both spell it `0`.
+
+`sessionReadyToSeal` gates on `terminado_confirmado` and nothing weaker. "Everyone
+clicked done" is a claim; "the server holds a complete, gap-free,
+hash-consistent chain for every counter" is a proof.
+
+### The amendment log
+
+Every event after the first `finish` is flagged post-finish for the admin, and is
+**derived from the log** — the position of `kind === 'finish'` within that
+counter's own sequence — rather than stored as a boolean. A stored flag is a
+second copy of a fact the events already carry, and the two drift the first time
+a batch arrives late.
 
 ---
 

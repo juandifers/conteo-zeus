@@ -100,10 +100,19 @@ export default defineConfig({
         // `clientsClaim` only ever runs on activation, which a waiting worker
         // by definition has not reached.
         clientsClaim: true,
-        // No runtime caching and no network handlers: there is no backend to
-        // talk to, so anything not in the precache is a mistake, and a runtime
-        // cache would hide it until the day it mattered.
+        // No runtime caching and no network handlers. The count itself is
+        // still entirely local — P2's backend does not serve a single byte the
+        // counting screens read — so anything not in the precache is a mistake,
+        // and a runtime cache would hide it until the day it mattered.
+        //
+        // `/api/*` is denied the navigation fallback. It only ever intercepts
+        // *navigations*, so `fetch('/api/health')` was never affected; typing
+        // the URL into the address bar was, and a health endpoint that answers
+        // `index.html` to the person checking whether the deploy is up is worse
+        // than one that is missing. Caching it is separately forbidden by
+        // `vercel.json`.
         navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//],
       },
       devOptions: {
         // Off in `vite dev`. A service worker holding a stale module graph

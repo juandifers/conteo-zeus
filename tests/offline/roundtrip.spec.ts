@@ -122,7 +122,12 @@ test('counts a bodega with no signal and hands over a file Zeus can read', async
   // make somebody deal with the row, not quietly resolve it.
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2')
 
-  const cobertura = page.locator('.reviewbar__figure', { hasText: 'cobertura' })
+  // The coverage figure lives in the review body, not in the bottom bar: that
+  // bar was trimmed to counts, net variance and the post button. `.total__` is
+  // the block it sits in now.
+  const cobertura = page
+    .locator('.panel__figures > div')
+    .filter({ has: page.locator('.total__label', { hasText: 'cobertura' }) })
   const before = await coverage(page, cobertura)
 
   // ---- the tablet screen-locks, or somebody swipes the tab away ----------

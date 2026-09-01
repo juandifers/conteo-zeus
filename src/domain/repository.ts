@@ -52,6 +52,98 @@ export interface ExportRepository {
   exportsForSession(sessionId: string): Promise<ExportRecord[]>;
 }
 
+/**
+ * Where a counter's own event stands on the way to the server (P2.2 §1a).
+ *
+ * `pendiente` is the outbox. It is a **flag on the event**, not a second table:
+ * two stores that can disagree about what happened is the bug this whole
+ * architecture exists to avoid, so "what is unsynced" is a query rather than a
+ * copy.
+ *
+ * `rechazado_sesion_sellada` is the ugly case and it is a state rather than a
+ * deletion. A tablet that was offline when the admin sealed will eventually
+ * push events that can no longer be accepted; the counter's afternoon still
+ * happened, and it has to remain on the device where somebody can export it and
+ * attach it to the acta.
+ */
+export type SyncState = 'pendiente' | 'confirmado' | 'rechazado_sesion_sellada';
+
+/** One event and where it sits in its counter's chain (src/domain/chain.ts). */
+export interface ChainedEvent {
+  event: CountEvent;
+  prevHash: string;
+  hash: string;
+}
+
+/**
+ * The device side of sync — a second port, for the same reason `DeviceRepository`
+ * is one: it answers a different question.
+ *
+ * `CountRepository` is "what happened in this bodega". This is "what of it has
+ * reached the server", which only a counting *device* has, and which a merge
+ * server would not implement at all.
+ *
+ * Nothing here deletes. An event leaves the outbox by having its flag moved,
+ * and only ever on a **definite** ack naming the sequence range accepted — never
+ * on a timeout, a 5xx, or an aborted request. Over-delivery is free, since
+ * events are immutable and keyed by a device-generated uuid, and under-delivery
+ * is a lost morning of counting.
+ */
+export interface CounterChainRepository {
+  /**
+   * Append a chained event and its flag in **one** transaction.
+   *
+   * One transaction and not two: an event whose chain metadata did not land is
+   * an event that can never be pushed, and an event that landed without its
+   * flag is an event that will never be pushed. Neither is recoverable by
+   * looking at the row afterwards, because both look exactly like a row that
+   * was never written.
+   */
+  appendChained(link: ChainedEvent): Promise<void>;
+
+  /**
+   * Where this counter's chain stands **on this device**, or `null` when this
+   * device holds none of it.
+   *
+   * `null` is not "the counter has nothing". A replacement tablet — the spare
+   * somebody picks up when the first one dies mid-shift — holds nothing and the
+   * counter has forty events on the server, so the device asks the server where
+   * to resume rather than assuming it is at the beginning. Starting over at seq
+   * 1 would be a fork, and a fork is the one failure in this system that does
+   * not resolve itself.
+   */
+  localChain(sessionId: string, counterId: string): Promise<{ maxSeq: number; head: string } | null>;
+
+  /**
+   * The outbox: unsynced events, ascending `seq`, contiguous from the lowest.
+   *
+   * Contiguous because the push protocol requires it — a batch with a hole in it
+   * is a batch the server refuses as a gap — and ascending because the chain is.
+   */
+  unsynced(sessionId: string, counterId: string, limit: number): Promise<ChainedEvent[]>;
+
+  /** A definite ack: everything up to and including `throughSeq` is on the server. */
+  markSynced(sessionId: string, counterId: string, throughSeq: number): Promise<void>;
+
+  /**
+   * Put everything from `fromSeq` on back into the outbox.
+   *
+   * The answer to `SEQUENCE_GAP`: the server says it holds nothing past
+   * `expectedFrom - 1`, and this device believes otherwise. The device is the
+   * one that is wrong — the server is the record — so it resends. Safe in the
+   * direction that matters: over-delivery is a no-op, since events are
+   * immutable and keyed by a device-generated uuid, and the alternative is a
+   * hole nobody ever fills.
+   */
+  resetFrom(sessionId: string, counterId: string, fromSeq: number): Promise<void>;
+
+  /** The session was sealed before these arrived. Kept, never deleted. */
+  markRejected(sessionId: string, counterId: string): Promise<void>;
+
+  /** Everything the server refused because the session was sealed, for export. */
+  rejected(sessionId: string, counterId: string): Promise<ChainedEvent[]>;
+}
+
 export interface CountRepository {
   /**
    * Persist a new session and its frozen items.
@@ -150,8 +242,54 @@ export class SequenceConflictError extends Error {
  * persistence changes.
  */
 export function validateEvent(event: CountEvent): void {
-  assertNormalisedInstant(event.at, `event ${event.id} (idarticulo ${event.idarticulo})`);
+  const where = `event ${event.id} (idarticulo ${String(event.idarticulo)})`;
+  assertNormalisedInstant(event.at, where);
+
+  // A non-finite quantity is caught here rather than at the fold or the hash.
+  // `chain.ts` would otherwise hash `String(NaN)` — `"NaN"` — which is a
+  // perfectly good chain input that no two NaNs can be told apart by, and the
+  // fold would throw somewhere far from the write that caused it.
+  if ('qty' in event && !Number.isFinite(event.qty)) {
+    throw new Error(`${where} carries a non-finite qty: ${String(event.qty)}`);
+  }
+
+  // A note is free text and its bytes go into the hash. Control characters
+  // cannot forge a field boundary — `canonicalEvent` escapes through
+  // `JSON.stringify` for exactly that reason — but they can make a note that
+  // renders as one thing and hashes as another, and there is no reason a person
+  // standing at a shelf needs one.
+  if (event.kind === 'note') {
+    const offending = [...event.texto].find(
+      (ch) => ch !== '\n' && ch.codePointAt(0)! < 0x20,
+    );
+    if (offending !== undefined) {
+      throw new Error(
+        `${where}: the note carries the control character ` +
+          `U+${offending.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}. ` +
+          'Notes are free text, and free text is the one field a person types ' +
+          'straight into the hash chain',
+      );
+    }
+  }
+
+  // A session-scoped kind may carry `idarticulo: null`; nothing else may.
+  //
+  // TypeScript proves this unreachable — the union says so — and that is
+  // exactly why it is here. The repository is where an event arrives from a
+  // merge or from a database row, and neither of those has been through the
+  // compiler. `kind` is read off a widened value for the same reason: at this
+  // point in the narrowing there is no type left to read it from.
+  const { kind, idarticulo } = event as { kind: string; idarticulo: number | null };
+  if (idarticulo === null && !SESSION_SCOPED_KINDS.has(kind)) {
+    throw new Error(
+      `${where}: a ${kind} event asserts something about one article and cannot ` +
+        'carry a null idarticulo (ZEUS_FORMAT.md §4)',
+    );
+  }
 }
+
+/** The kinds that are about the session rather than about one item — see `SessionScopedEvent`. */
+const SESSION_SCOPED_KINDS: ReadonlySet<string> = new Set(['note', 'finish', 'reopen']);
 
 /** True when two events are the same event — used to make `appendEvent` idempotent. */
 export function sameEvent(a: CountEvent, b: CountEvent): boolean {
@@ -259,5 +397,91 @@ export class MemoryRepository
     return this.exports
       .filter((record) => record.sessionId === sessionId)
       .map((record) => ({ ...record, counts: { ...record.counts } }));
+  }
+}
+
+
+/**
+ * In-memory `CounterChainRepository`.
+ *
+ * Deliberately in the domain, beside `MemoryRepository` and for the same
+ * reason: a port with one implementation is a port nobody has checked is
+ * expressible. This one is written against nothing but a `Map`, which is the
+ * proof that "the outbox is a flag on the event" needs no database feature to
+ * be true.
+ */
+export class MemoryChain implements CounterChainRepository {
+  private readonly rows = new Map<string, ChainedEvent & { sync: SyncState }>();
+
+  private mine(sessionId: string, counterId: string): (ChainedEvent & { sync: SyncState })[] {
+    return [...this.rows.values()]
+      .filter((row) => row.event.sessionId === sessionId && row.event.counterId === counterId)
+      .sort((a, b) => a.event.seq - b.event.seq);
+  }
+
+  async appendChained(link: ChainedEvent): Promise<void> {
+    validateEvent(link.event);
+    if (!link.event.counterId) {
+      throw new Error(`event ${link.event.id} has no counterId and so has no chain`);
+    }
+    const existing = this.rows.get(link.event.id);
+    if (existing) {
+      if (sameEvent(existing.event, link.event)) return;
+      throw new EventConflictError(link.event.id);
+    }
+    const slot = this.mine(link.event.sessionId, link.event.counterId).find(
+      (row) => row.event.seq === link.event.seq,
+    );
+    if (slot) throw new SequenceConflictError(link.event, slot.event.id);
+    this.rows.set(link.event.id, { ...link, sync: 'pendiente' });
+  }
+
+  async localChain(
+    sessionId: string,
+    counterId: string,
+  ): Promise<{ maxSeq: number; head: string } | null> {
+    const mine = this.mine(sessionId, counterId);
+    const last = mine[mine.length - 1];
+    return last ? { maxSeq: last.event.seq, head: last.hash } : null;
+  }
+
+  async unsynced(sessionId: string, counterId: string, limit: number): Promise<ChainedEvent[]> {
+    const pending = this.mine(sessionId, counterId).filter((row) => row.sync === 'pendiente');
+    const batch: ChainedEvent[] = [];
+    for (const row of pending) {
+      if (batch.length >= limit) break;
+      if (batch.length > 0 && row.event.seq !== batch[batch.length - 1].event.seq + 1) break;
+      batch.push({ event: row.event, prevHash: row.prevHash, hash: row.hash });
+    }
+    return batch;
+  }
+
+  async markSynced(sessionId: string, counterId: string, throughSeq: number): Promise<void> {
+    for (const row of this.mine(sessionId, counterId)) {
+      if (row.event.seq <= throughSeq && row.sync === 'pendiente') row.sync = 'confirmado';
+    }
+  }
+
+  async resetFrom(sessionId: string, counterId: string, fromSeq: number): Promise<void> {
+    for (const row of this.mine(sessionId, counterId)) {
+      if (row.event.seq >= fromSeq && row.sync === 'confirmado') row.sync = 'pendiente';
+    }
+  }
+
+  async markRejected(sessionId: string, counterId: string): Promise<void> {
+    for (const row of this.mine(sessionId, counterId)) {
+      if (row.sync === 'pendiente') row.sync = 'rechazado_sesion_sellada';
+    }
+  }
+
+  async rejected(sessionId: string, counterId: string): Promise<ChainedEvent[]> {
+    return this.mine(sessionId, counterId)
+      .filter((row) => row.sync === 'rechazado_sesion_sellada')
+      .map((row) => ({ event: row.event, prevHash: row.prevHash, hash: row.hash }));
+  }
+
+  /** Test-only view: every stored row with its flag. */
+  all(sessionId: string, counterId: string): (ChainedEvent & { sync: SyncState })[] {
+    return this.mine(sessionId, counterId).map((row) => ({ ...row }));
   }
 }

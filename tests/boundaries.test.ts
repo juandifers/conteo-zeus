@@ -36,7 +36,13 @@ const ALLOWED: Record<Layer, Layer[]> = {
   // import src/zeus/: a component that knew what a `rawRow` was would be the
   // end of the rule, and the UI has no business knowing a count arrives as
   // tab-separated CP850.
-  ui: ['domain', 'app', 'store'],
+  //
+  // `src/lib/` is on the list because it is the leaf every layer is allowed to
+  // use — it imports nothing and knows nothing, and the rule this file exists
+  // to protect is about `zeus` and `domain` not meeting, which a base64 codec
+  // has no bearing on. The upload screen needs one; `btoa` is not it
+  // (src/lib/base64.ts).
+  ui: ['lib', 'domain', 'app', 'store'],
 };
 
 /** Third-party packages each layer may import. */
@@ -46,7 +52,10 @@ const ALLOWED_PACKAGES: Record<Layer, string[]> = {
   domain: [],
   app: [],
   store: ['dexie'],
-  ui: ['react', 'react-dom'],
+  // `qrcode-generator` draws the counter links on the printed dispatch sheet.
+  // A dependency rather than 250 lines of Reed-Solomon written here, and it is
+  // bundled rather than fetched: this app has to work with no network.
+  ui: ['react', 'react-dom', 'qrcode-generator'],
 };
 
 function filesUnder(dir: string): string[] {
@@ -131,6 +140,47 @@ describe('layer boundaries', () => {
 
   it('src/lib/ is a leaf: it imports nothing at all', () => {
     expect(edgesFor('lib')).toEqual([]);
+  });
+
+  it('api/ shares the domain and the adapter rather than reimplementing either', () => {
+    // `api/` sits where `src/ui/` sits: a consumer above `src/app/`, not a
+    // layer inside it. It may reach the domain, the boundary and the leaf
+    // library, and it may reach nothing else.
+    //
+    // **It may not import src/zeus/ directly**, and that restriction survived
+    // P2.1 intact even though the server now parses a Zeus file. §1b requires
+    // the server to re-parse `source_bytes` and re-run the §4.1 check before
+    // committing a session — the client is a PWA whose cached build may be
+    // weeks old, and a file that parses is not a file that means anything. But
+    // it does that through `src/app/`, the one module where the two
+    // vocabularies meet, so there is still exactly one implementation of the
+    // check and exactly one place that knows what a CP850 tab-separated row is.
+    //
+    // It may not import src/store/ (Dexie, and a browser) or src/ui/ at all.
+    const allowed = new Set(['lib', 'domain', 'app']);
+    const files = filesUnder(join(SRC, '..', 'api'));
+    expect(files.length).toBeGreaterThan(0);
+
+    const forbidden: string[] = [];
+    let reachesTheDomain = false;
+    for (const file of files) {
+      for (const match of readFileSync(file, 'utf8').matchAll(IMPORT)) {
+        const specifier = match[1];
+        if (!specifier.startsWith('.')) continue;
+        const target = relative(SRC, resolvePath(dirname(file), specifier));
+        const head = target.split('/')[0];
+        // A relative import that stays inside api/ resolves above src/ and
+        // comes back with a leading `..`; those are the handler's own helpers.
+        if (head.startsWith('..')) continue;
+        if (head === 'domain') reachesTheDomain = true;
+        if (!allowed.has(head)) forbidden.push(`${relative(SRC, file)} -> ${specifier}`);
+      }
+    }
+    expect(forbidden).toEqual([]);
+    // The rule `src/domain/chain.ts` exists to enforce: there must not be a
+    // second implementation of the hash on the server, so the functions have to
+    // be importing the first one.
+    expect(reachesTheDomain).toBe(true);
   });
 
   it('the scanner actually sees imports — it would pass on an empty read', () => {

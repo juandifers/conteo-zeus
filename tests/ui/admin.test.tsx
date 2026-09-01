@@ -1,0 +1,311 @@
+// @vitest-environment jsdom
+/**
+ * The admin path, from a file to five tablets.
+ *
+ * Three things are worth a rendering test here, and they are the three that
+ * cannot be asserted anywhere else: that a refused file leaves nothing behind,
+ * that the coverage gate is a gate rather than a warning, and that the
+ * dispatch screen names the tablet nobody has loaded.
+ */
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(cleanup);
+
+// jsdom's `File` has no `arrayBuffer`. The upload path reads one, and reading a
+// file is not the thing under test here, so the gap is filled rather than
+// designed around: production code that carried a FileReader fallback for a
+// test environment would be worse than this line.
+if (typeof File !== 'undefined' && !File.prototype.arrayBuffer) {
+  Object.defineProperty(File.prototype, 'arrayBuffer', {
+    configurable: true,
+    value(this: Blob) {
+      return new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(this);
+      });
+    },
+  });
+}
+
+import { AdminApp } from '../../src/ui/admin/AdminApp';
+import { Reparto } from '../../src/ui/admin/Reparto';
+import { Dispatched } from '../../src/ui/admin/Dispatched';
+import { EMPTY_PLAN, savePlan } from '../../src/ui/admin/plan';
+import type { Api } from '../../src/ui/api';
+import { ApiError } from '../../src/ui/api';
+import { deriveFamilies } from '../../src/domain';
+import { toItems } from '../../src/app';
+import { parseXls } from '../../src/zeus';
+import { readSample, SAMPLE_TXT, SAMPLE_XLS } from '../helpers';
+
+const catalogue = toItems(parseXls(readSample(SAMPLE_XLS)));
+
+function detailFor(over: Partial<Parameters<typeof Reparto>[0]['detail']> = {}) {
+  return {
+    session: {
+      id: 'sesion-1',
+      bodega: '01',
+      fechaCorte: '2025/04/30',
+      nombre: null,
+      estado: 'borrador',
+      sourceName: 'COMESTIBLES ALMACEN.xls',
+      sourceHash: 'a'.repeat(64),
+      createdAt: '2026-08-31T12:00:00.000Z',
+      dispatchedAt: null,
+      itemCount: catalogue.length,
+      mostrarMarcaRegistrado: true,
+      parameters: {
+        countTargetColumn: 'toma',
+        uncountedPolicy: 'existencia',
+        differenceColumn: 'computed',
+      },
+      parametrosVerificados: true,
+      parametrosSinVerificar: [],
+    },
+    items: catalogue,
+    familias: deriveFamilies(catalogue),
+    counters: [],
+    sections: [],
+    assignments: [],
+    coverage: { assigned: 0, unassigned: [], duplicated: [], foreign: [], complete: false },
+    huecos: [],
+    blockers: [],
+    ...over,
+  } as Parameters<typeof Reparto>[0]['detail'];
+}
+
+function fakeApi(over: Partial<Api> = {}): Api {
+  return {
+    get: vi.fn(async () => ({}) as never),
+    post: vi.fn(async () => ({}) as never),
+    patch: vi.fn(async () => ({}) as never),
+    ...over,
+  };
+}
+
+describe('uploading a file', () => {
+  it('refuses a sheared catalogue in the browser and sends nothing', async () => {
+    // The sample `.txt` beside the `.xls`: same bodega, same corte, its `nombre`
+    // column sorted away from its keys. §4.1 refuses rather than warns, and the
+    // person holding the file is still standing in front of Zeus and can export
+    // it again — which is the whole reason the check runs here first.
+    const post = vi.fn();
+    const api = fakeApi({ get: vi.fn(async () => ({ sessions: [] }) as never), post });
+    render(<AdminApp api={api} hash="#/admin" navigate={() => {}} />);
+
+    const file = new File([readSample(SAMPLE_TXT)], 'COMESTIBLES ALMACEN.txt');
+    await userEvent.upload(
+      screen.getByLabelText(/Archivo exportado de Zeus/i) as HTMLInputElement,
+      file,
+    );
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/columna de nombres|se contradice/i);
+    expect(alert.textContent).toMatch(/No se creó ninguna sesión/);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('sends the file and our own reading of it, so the two can be compared', async () => {
+    const post = vi.fn(async () => ({ id: 'nueva' }) as never);
+    const api = fakeApi({ get: vi.fn(async () => ({ sessions: [] }) as never), post });
+    const navigate = vi.fn();
+    render(<AdminApp api={api} hash="#/admin" navigate={navigate} />);
+
+    await userEvent.upload(
+      screen.getByLabelText(/Archivo exportado de Zeus/i) as HTMLInputElement,
+      new File([readSample(SAMPLE_XLS)], 'COMESTIBLES ALMACEN.xls'),
+    );
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [path, body] = post.mock.calls[0] as [string, { rows: unknown[]; sourceBytesBase64: string }];
+    expect(path).toBe('/api/sessions');
+    expect(body.rows).toHaveLength(298);
+    expect(body.sourceBytesBase64.length).toBeGreaterThan(1000);
+    expect(navigate).toHaveBeenCalledWith('#/admin/nueva');
+  });
+
+  it('shows what the server saw when the two readings disagree', async () => {
+    const api = fakeApi({
+      get: vi.fn(async () => ({ sessions: [] }) as never),
+      post: vi.fn(async () => {
+        throw new ApiError(409, 'el navegador y el servidor leyeron el archivo distinto', {
+          differences: ['idarticulo 41: nombre "X" != "PECHUGA DE POLLO"'],
+        });
+      }),
+    });
+    render(<AdminApp api={api} hash="#/admin" navigate={() => {}} />);
+    await userEvent.upload(
+      screen.getByLabelText(/Archivo exportado de Zeus/i) as HTMLInputElement,
+      new File([readSample(SAMPLE_XLS)], 'x.xls'),
+    );
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/PECHUGA DE POLLO/);
+  });
+});
+
+describe('the coverage gate', () => {
+  it('refuses to dispatch while any article has no owner, and says which', async () => {
+    localStorage.clear();
+    const api = fakeApi();
+    render(
+      <Reparto detail={detailFor()} api={api} onDispatched={() => {}} onReload={() => {}} />,
+    );
+
+    const button = screen.getByRole('button', {
+      name: /Despachar y generar enlaces/,
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText(/298 artículos no están asignados a nadie/)).toBeTruthy();
+    expect(screen.getByText(/No hay contadores/)).toBeTruthy();
+  });
+
+  it('ranks the gap by exposure and names the families, not a count', async () => {
+    localStorage.clear();
+    render(
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
+    );
+    // Fresh produce is 54 rows of which 31 are booked at zero. It has to be
+    // visible in the gap list, which a value-ordered one would bury.
+    expect(screen.getAllByText(/PAPA CRIOLLA/).length).toBeGreaterThan(0);
+  });
+
+  it('opens the gate once every article is assigned to somebody', async () => {
+    // The plan is restored from the draft rather than built by 298 clicks; what
+    // is under test is the gate, and the draft is the same structure the
+    // screen writes.
+    localStorage.clear();
+    savePlan('sesion-1', {
+      ...EMPTY_PLAN,
+      sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Ana' }],
+      asignado: Object.fromEntries(catalogue.map((item) => [item.idarticulo, 's1'])),
+    });
+
+    const post = vi.fn(async () => ({ estado: 'abierto' }) as never);
+    render(
+      <Reparto
+        detail={detailFor()}
+        api={fakeApi({ post })}
+        onDispatched={() => {}}
+        onReload={() => {}}
+      />,
+    );
+
+    const button = screen.getByRole('button', {
+      name: /Despachar y generar enlaces/,
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    await userEvent.click(button);
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [path, body] = post.mock.calls[0] as [
+      string,
+      { counters: { nombre: string; secciones: { nombre: string; idarticulos: number[] }[] }[] },
+    ];
+    expect(path).toBe('/api/sesion-1/dispatch'.replace('/api/', '/api/sessions/'));
+    expect(body.counters).toHaveLength(1);
+    expect(body.counters[0].nombre).toBe('Ana');
+    expect(body.counters[0].secciones[0].idarticulos).toHaveLength(catalogue.length);
+  });
+
+  it('closes again when a section is removed, releasing its articles', async () => {
+    localStorage.clear();
+    savePlan('sesion-1', {
+      ...EMPTY_PLAN,
+      sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Ana' }],
+      asignado: Object.fromEntries(catalogue.map((item) => [item.idarticulo, 's1'])),
+    });
+    render(
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
+    );
+    expect((screen.getByRole('button', { name: /Despachar y generar/ }) as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(screen.getByRole('button', { name: 'quitar' }));
+
+    expect((screen.getByRole('button', { name: /Despachar y generar/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/298 artículos no están asignados/)).toBeTruthy();
+  });
+
+  it('splits a family into contiguous sections rather than dealing it round-robin', async () => {
+    // The order is the order Zeus exported, which is roughly shelf order.
+    // Dealing every third row to a different person sends three people down one
+    // aisle.
+    localStorage.clear();
+    render(
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
+    );
+    const abarrotes = screen.getByLabelText('Partes para la familia 09') as HTMLInputElement;
+    fireEvent.change(abarrotes, { target: { value: '3' } });
+    await userEvent.click(screen.getByRole('button', { name: /repartir en 3/ }));
+
+    const stored = JSON.parse(localStorage.getItem('conteo.reparto.sesion-1')!) as {
+      sections: { id: string; nombre: string }[];
+      asignado: Record<number, string>;
+    };
+    expect(stored.sections).toHaveLength(3);
+    const familia = deriveFamilies(catalogue)!.find((group) => group.prefix === '09')!;
+    expect(Object.keys(stored.asignado)).toHaveLength(familia.rows);
+    // Contiguous: the first chunk is the first 41 in catalogue order.
+    const first = familia.idarticulos.slice(0, 41);
+    expect(first.every((id) => stored.asignado[id] === stored.sections[0].id)).toBe(true);
+  });
+});
+
+describe('the dispatch sheet', () => {
+  const dispatched = detailFor({
+    session: { ...detailFor().session, estado: 'abierto', dispatchedAt: '2026-08-31T13:00:00.000Z' },
+    counters: [
+      {
+        id: 'c1',
+        nombre: 'Ana',
+        token: 'A'.repeat(22),
+        estado: 'asignado',
+        fetchedAt: '2026-08-31T13:20:00.000Z',
+        fetchCount: 1,
+      },
+      {
+        id: 'c2',
+        nombre: 'Luis',
+        token: 'B'.repeat(22),
+        estado: 'asignado',
+        fetchedAt: null,
+        fetchCount: 0,
+      },
+    ],
+    sections: [
+      { id: 's1', nombre: 'ALMACEN', counterId: 'c1' },
+      { id: 's2', nombre: 'NEVERA', counterId: 'c2' },
+    ],
+    assignments: catalogue.map((item, index) => ({
+      idarticulo: item.idarticulo,
+      counterId: index % 2 === 0 ? 'c1' : 'c2',
+      sectionId: index % 2 === 0 ? 's1' : 's2',
+    })),
+  });
+
+  it('names the tablet nobody has loaded, in the words that matter', () => {
+    render(<Dispatched detail={dispatched} onReload={() => {}} />);
+    const banner = screen.getByRole('status');
+    expect(banner.textContent).toMatch(/Todavía sin descargar: Luis/);
+    expect(banner.textContent).toMatch(/adentro no hay señal/);
+  });
+
+  it('shows each counter’s link, as text and as a QR code', () => {
+    render(<Dispatched detail={dispatched} onReload={() => {}} />);
+    const ana = screen.getByText('Ana').closest('section')!;
+    expect(within(ana).getByText(/#\/c\/A{22}/)).toBeTruthy();
+    expect(within(ana).getByRole('img', { name: 'Enlace de Ana' })).toBeTruthy();
+    expect(within(ana).getByText(/descargado/)).toBeTruthy();
+
+    const luis = screen.getByText('Luis').closest('section')!;
+    expect(within(luis).getByText('pendiente')).toBeTruthy();
+  });
+
+  it('counts the downloads rather than making somebody read the list', () => {
+    render(<Dispatched detail={dispatched} onReload={() => {}} />);
+    expect(screen.getByText('Descargas: 1 de 2')).toBeTruthy();
+  });
+});

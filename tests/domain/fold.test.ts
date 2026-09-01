@@ -253,63 +253,123 @@ describe('retract — the way back to untouched (§3)', () => {
 });
 
 describe('undoLast — the event to append (§3)', () => {
+  /** The one shape undo returns now: a withdrawal that names its target. */
+  const withdraws = (id: string) => ({ kind: 'retract', retractsEventId: id });
+
   it('is null on an empty log', () => {
     expect(undoLast([])).toBeNull();
   });
 
-  it('walks a tally back one tap, as an add', () => {
-    const log = [addCount(ITEM, 1), addCount(ITEM, 1)];
-    expect(undoLast(log)).toEqual({ kind: 'add', qty: -1 });
-    expect(resolve([...log, addCount(ITEM, -1)])).toEqual({ state: 'counted', qty: 1 });
+  it('withdraws the last event rather than restating the prior resolution', () => {
+    // The rule is one line now: retract the last standing event. Restoring the
+    // previous resolution falls out of the fold rather than being computed —
+    // with the last `set` withdrawn, the `set` before it is what the log says.
+    const first = setCount(ITEM, 5);
+    const second = setCount(ITEM, 50);
+    expect(undoLast([first, second])).toEqual(withdraws(second.id));
+    expect(resolve([first, second, retract(ITEM, { retractsEventId: second.id })])).toEqual({
+      state: 'counted',
+      qty: 5,
+    });
   });
 
-  it('restores the previous quantity after a set', () => {
-    const log = [setCount(ITEM, 5), setCount(ITEM, 50)];
-    expect(undoLast(log)).toEqual({ kind: 'set', qty: 5 });
+  it('walks a tally back one tap at a time, without add(-q)', () => {
+    // `add(-q)` is gone. It restored the prior *value* and not the prior
+    // *state*: undoing a first tap with `add(-1)` lands on `counted 0`, a full
+    // write-off of the book figure, which is what `retract` was introduced to
+    // end. A targeted withdrawal has no such failure mode, so the substitute is
+    // now strictly worse than the thing it substituted for.
+    const one = addCount(ITEM, 1);
+    const two = addCount(ITEM, 1);
+    expect(undoLast([one, two])).toEqual(withdraws(two.id));
+    expect(resolve([one, two, retract(ITEM, { retractsEventId: two.id })])).toEqual({
+      state: 'counted',
+      qty: 1,
+    });
+
+    // And the first tap, where `add(-1)` was actively wrong.
+    expect(undoLast([one])).toEqual(withdraws(one.id));
+    expect(resolve([one, retract(ITEM, { retractsEventId: one.id })])).toEqual({
+      state: 'untouched',
+    });
   });
 
   it('restores a waiver a later count replaced', () => {
-    const log = [markUnchanged(ITEM), setCount(ITEM, 3)];
-    expect(undoLast(log)).toEqual({ kind: 'unchanged' });
-  });
-
-  it('retracts when the prior resolution was untouched', () => {
-    expect(undoLast([setCount(ITEM, 5)])).toEqual({ kind: 'retract' });
-    expect(undoLast([markUnchanged(ITEM)])).toEqual({ kind: 'retract' });
+    const waiver = markUnchanged(ITEM);
+    const count = setCount(ITEM, 3);
+    expect(undoLast([waiver, count])).toEqual(withdraws(count.id));
+    expect(resolve([waiver, count, retract(ITEM, { retractsEventId: count.id })])).toEqual({
+      state: 'unchanged',
+    });
   });
 
   it('undoes a waiver back to the count it withdrew', () => {
-    const log = [setCount(ITEM, 97.5), markUnchanged(ITEM)];
-    expect(undoLast(log)).toEqual({ kind: 'set', qty: 97.5 });
-  });
-
-  it('undoes a retraction back to whatever it withdrew', () => {
-    expect(undoLast([setCount(ITEM, 97.5), retract(ITEM)])).toEqual({
-      kind: 'set',
+    const count = setCount(ITEM, 97.5);
+    const waiver = markUnchanged(ITEM);
+    expect(undoLast([count, waiver])).toEqual(withdraws(waiver.id));
+    expect(resolve([count, waiver, retract(ITEM, { retractsEventId: waiver.id })])).toEqual({
+      state: 'counted',
       qty: 97.5,
     });
-    expect(undoLast([markUnchanged(ITEM), retract(ITEM)])).toEqual({ kind: 'unchanged' });
   });
 
-  it('does not use add(-q) where it would restore the wrong state', () => {
-    // DOMAIN.md §3's table states the `add` case unconditionally. It restores
-    // the prior *value*, which is only the prior *state* when there was a
-    // quantity to go back to. A first tap has none, and an add after a waiver
-    // has none either — both would land on `counted 0`, a full write-off of
-    // the book figure, which is exactly what `retract` was introduced to end.
-    expect(undoLast([addCount(ITEM, 1)])).toEqual({ kind: 'retract' });
-    expect(undoLast([markUnchanged(ITEM), addCount(ITEM, 1)])).toEqual({
-      kind: 'unchanged',
-    });
+  it('is a stack: repeated undo walks back through the log', () => {
+    const one = addCount(ITEM, 1);
+    const two = addCount(ITEM, 2);
+    const undoTwo = retract(ITEM, { retractsEventId: two.id });
+    expect(undoLast([one, two])).toEqual(withdraws(two.id));
+    // Having withdrawn the second tap, the next undo reaches the first — it
+    // does not try to withdraw the withdrawal, which would resurrect the tap.
+    expect(undoLast([one, two, undoTwo])).toEqual(withdraws(one.id));
+    const undoOne = retract(ITEM, { retractsEventId: one.id });
+    expect(resolve([one, two, undoTwo, undoOne])).toEqual({ state: 'untouched' });
+    expect(undoLast([one, two, undoTwo, undoOne])).toBeNull();
   });
 
-  it('is null when the event it would append would change nothing', () => {
-    // A retraction of an already-untouched item used to come back as a
-    // legitimate answer: a no-op event written into an append-only log for the
-    // sake of a uniform table. `undoLast` now asks whether the candidate moves
-    // the item at all, which is also the only rule a disabled button may read.
+  it('never targets a scoped retraction', () => {
+    // The fold drops them before folding, so withdrawing one changes nothing —
+    // and "undo the undo by resurrection" would make the answer depend on the
+    // order two withdrawals arrived in.
+    const count = setCount(ITEM, 5);
+    const undone = retract(ITEM, { retractsEventId: count.id });
+    expect(undoLast([count, undone])).toBeNull();
+  });
+
+  it('does target an unscoped one, so discarding a count stays reversible', () => {
+    // The "descartar conteo" button writes P1's whole-item withdrawal. Undoing
+    // it has to bring the count back or the button is one-way, and withdrawing
+    // it *by name* is not the clock-driven reversal DOMAIN.md §6 rules out: it
+    // is the person who made the decision naming it, order-independently.
+    const count = setCount(ITEM, 5);
+    const discard = retract(ITEM);
+    expect(undoLast([count, discard])).toEqual(withdraws(discard.id));
+    expect(
+      resolve([count, discard, retract(ITEM, { retractsEventId: discard.id })]),
+    ).toEqual({ state: 'counted', qty: 5 });
+
+    // But not when there was nothing to bring back.
     expect(undoLast([retract(ITEM)])).toBeNull();
-    expect(undoLast([setCount(ITEM, 5), retract(ITEM), retract(ITEM)])).toBeNull();
+  });
+
+  it('scopes to one counter when asked, and finds nothing when they wrote nothing', () => {
+    // DOMAIN.md §6: a counter may withdraw only what they wrote, which needs no
+    // cross-device agreement and no clock at all.
+    const ana = setCount(ITEM, 5, { counterId: 'ana' });
+    const luis = addCount(ITEM, 2, { counterId: 'luis' });
+    expect(undoLast([ana, luis], 'luis')).toEqual(withdraws(luis.id));
+    expect(undoLast([ana, luis], 'nobody')).toBeNull();
+    // Unscoped is the P1 single-counter case and still reaches the last event.
+    expect(undoLast([ana, luis])).toEqual(withdraws(luis.id));
+  });
+
+  it("is null when withdrawing this counter's event would not move the number", () => {
+    // Ana counted 5; Luis later counted 7 over the top of it. Withdrawing Ana's
+    // event changes the log and not the resolution, and undo is about the
+    // resolution — the documented meaning of `null`, and the only thing a
+    // disabled undo button may be derived from.
+    const ana = setCount(ITEM, 5, { counterId: 'ana' });
+    const luis = setCount(ITEM, 7, { counterId: 'luis' });
+    expect(undoLast([ana, luis], 'ana')).toBeNull();
   });
 
   it('is null when undoing a repeat that changed nothing', () => {

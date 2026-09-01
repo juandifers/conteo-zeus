@@ -165,15 +165,15 @@ test.describe('when the browser refuses to keep the database', () => {
 
     await page.goto('/')
 
-    await expect(page.getByText(/El navegador no garantiza guardar este conteo/)).toBeVisible()
-    await expect(page.getByText(/Genera el archivo de ajuste el mismo día/)).toBeVisible()
+    // The chip, and not the two paragraphs that used to sit beside it: the
+    // eviction banners were taken off the sessions and count screens
+    // deliberately (they were on screen permanently, said nothing anybody could
+    // act on in the moment, and were the first thing to be read past). What has
+    // to survive is that the *refusal reaches the screen at all* rather than
+    // being swallowed by a call whose result nobody reads — which is the whole
+    // point of this test, and is what the chip carries.
     await expect(page.getByText('sin garantía')).toBeVisible()
 
-    // And it follows the count onto the screen where the afternoon is spent.
-    await importBodega(page)
-    await expect(
-      page.getByText(/El navegador puede borrar este conteo si la tableta se queda sin espacio/),
-    ).toBeVisible()
   })
 
   /**

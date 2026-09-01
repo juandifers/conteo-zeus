@@ -163,6 +163,10 @@ export function resolveSession(
         `event ${event.id} belongs to session ${event.sessionId}, not ${session.id}`,
       );
     }
+    // Session-scoped kinds — `finish`, `reopen`, a `note` about no particular
+    // article — carry no primary key and so cannot reference an item that is
+    // missing from the session. `resolveAll` drops them.
+    if (event.idarticulo === null) continue;
     if (!known.has(event.idarticulo)) {
       throw new Error(
         `event ${event.id} references idarticulo ${event.idarticulo}, which is not ` +

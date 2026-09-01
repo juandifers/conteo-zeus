@@ -30,3 +30,19 @@ export {
   PostingVerificationError,
   type VerifyWriteBackOptions,
 } from './verifyWriteBack';
+export {
+  ingestZeusBytes,
+  ingestZeusFile,
+  toWire,
+  catalogueDifferences,
+  sourceHashOfBytes,
+  type CatalogueRow,
+  type CatalogueRowWire,
+  type IngestedFile,
+} from './ingest';
+export {
+  VERIFIED_PARAMETERS,
+  isVerifiedTriple,
+  unverifiedParameters,
+  type PostingParameters,
+} from './parameters';

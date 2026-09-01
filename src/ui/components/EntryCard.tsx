@@ -315,14 +315,24 @@ export function EntryCard({
           where `Listo` had just been.
         */}
         <div className="corrections">
-          <button
-            type="button"
-            className="btn btn--small"
-            disabled={!canDiscard}
-            onClick={() => store.retract(active.idarticulo)}
-          >
-            Descartar conteo
-          </button>
+          {/*
+            Rendered at all only where the action exists. In a session with
+            several counters it does not: "this article returns to untouched"
+            withdraws whatever another counter recorded against it too, which is
+            never what the person tapping it intends (P2.2's gate). A
+            permanently disabled button would be an action somebody keeps
+            trying, so it is absent rather than dead.
+          */}
+          {store.offersWholeItemDiscard && (
+            <button
+              type="button"
+              className="btn btn--small"
+              disabled={!canDiscard}
+              onClick={() => store.retract(active.idarticulo)}
+            >
+              Descartar conteo
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--small"

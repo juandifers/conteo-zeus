@@ -13,6 +13,9 @@
  */
 import type {
   AddCountEvent,
+  FinishEvent,
+  NoteEvent,
+  ReopenEvent,
   RetractEvent,
   SetCountEvent,
   UnchangedEvent,
@@ -33,6 +36,12 @@ export function resetFactory(): void {
 interface Overrides {
   id?: string;
   sessionId?: string;
+  /**
+   * Absent by default, because that is the shape of every event already in the
+   * database: P1 did not have one. A test about the chain, or about scoping
+   * undo to a counter, says so by passing it.
+   */
+  counterId?: string;
   usuario?: string;
   zona?: string;
   at?: string;
@@ -40,11 +49,12 @@ interface Overrides {
   seq?: number;
 }
 
-function base(idarticulo: number, over: Overrides) {
+function base(idarticulo: number | null, over: Overrides) {
   const n = counter++;
   return {
     id: over.id ?? `e${n}`,
     sessionId: over.sessionId ?? SESSION_ID,
+    ...(over.counterId === undefined ? {} : { counterId: over.counterId }),
     idarticulo,
     usuario: over.usuario ?? 'ana',
     zona: over.zona ?? 'A1',
@@ -62,9 +72,47 @@ export function addCount(idarticulo: number, qty: number, over: Overrides = {}):
   return { ...base(idarticulo, over), kind: 'add', qty };
 }
 
-/** A withdrawal: back to `untouched`, nothing deleted (DOMAIN.md §3). */
-export function retract(idarticulo: number, over: Overrides = {}): RetractEvent {
-  return { ...base(idarticulo, over), kind: 'retract' };
+/**
+ * A withdrawal (DOMAIN.md §3).
+ *
+ * With `retractsEventId`, it withdraws that one event. Without, it is P1's
+ * whole-item withdrawal — which is what the default builds, because that is
+ * what is already in the database and what the migration test has to keep
+ * folding the same way.
+ */
+export function retract(
+  idarticulo: number,
+  over: Overrides & { retractsEventId?: string } = {},
+): RetractEvent {
+  const { retractsEventId, ...rest } = over;
+  return {
+    ...base(idarticulo, rest),
+    kind: 'retract',
+    ...(retractsEventId === undefined ? {} : { retractsEventId }),
+  };
+}
+
+/** A remark. Folds to nothing; `idarticulo` is null when it is not about one article. */
+export function note(
+  idarticulo: number | null,
+  texto: string,
+  over: Overrides = {},
+): NoteEvent {
+  return { ...base(idarticulo, over), kind: 'note', texto, idarticulo };
+}
+
+/** "I am done", with the manifest that makes the claim checkable. */
+export function finish(
+  finalSeq: number,
+  headHash: string,
+  over: Overrides = {},
+): FinishEvent {
+  return { ...base(null, over), kind: 'finish', idarticulo: null, finalSeq, headHash };
+}
+
+/** Withdraws a `finish`. */
+export function reopen(over: Overrides = {}): ReopenEvent {
+  return { ...base(null, over), kind: 'reopen', idarticulo: null };
 }
 
 export function markUnchanged(
