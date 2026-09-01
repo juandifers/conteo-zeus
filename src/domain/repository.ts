@@ -6,8 +6,8 @@
  * depend on a browser database. `MemoryRepository` below is the second
  * implementation, which is what keeps the port honest.
  */
-import { assertNormalisedInstant } from './time';
-import type { CountEvent, ExportRecord, Item, Session, SessionMeta } from './types';
+import { assertNormalisedInstant } from './time.js';
+import type { CountEvent, ExportRecord, Item, Session, SessionMeta } from './types.js';
 
 /** What a device needs to know about itself before it may stamp an event. */
 export interface DeviceIdentity {

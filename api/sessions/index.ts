@@ -22,9 +22,9 @@ import {
   VERIFIED_PARAMETERS,
   type CatalogueRowWire,
   type PostingParameters,
-} from '../../src/app';
-import { deriveFamilies, familyPrefix } from '../../src/domain';
-import { dbFromEnv, NoDatabaseError, type Db } from '../_db';
+} from '../../src/app/index.js';
+import { deriveFamilies, familyPrefix } from '../../src/domain/index.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../_db.js';
 import {
   created,
   fail,
@@ -34,8 +34,8 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../_http';
-import { fromBase64, insertSessionStatements, listSessionRows } from '../_store';
+} from '../_http.js';
+import { fromBase64, insertSessionStatements, listSessionRows } from '../_store.js';
 
 /** What a browser posts. Every quantity is a string; see `CatalogueRowWire`. */
 export interface CreateSessionBody {

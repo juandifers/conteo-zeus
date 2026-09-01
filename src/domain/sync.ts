@@ -28,8 +28,8 @@
  * `deriveCounterEstado`, and P2.4/P2.5 ask `sessionReadyToSeal` the same
  * question from the other end.
  */
-import { checkFinishManifest, type StoredLink } from './chain';
-import type { CounterEstado } from './assignment';
+import { checkFinishManifest, type StoredLink } from './chain.js';
+import type { CounterEstado } from './assignment.js';
 
 /**
  * What a *device* believes about itself.

@@ -32,10 +32,10 @@
  * If this check ever starts wanting an exception, that is the double-count
  * feature asking to exist, and it should be built rather than let in sideways.
  */
-import { addDecimal } from '../lib/decimal';
-import { familyPrefix } from './families';
-import type { Item } from './types';
-import { exposureValue } from './variance';
+import { addDecimal } from '../lib/decimal.js';
+import { familyPrefix } from './families.js';
+import type { Item } from './types.js';
+import { exposureValue } from './variance.js';
 
 /** Where a session is. Only `borrador -> abierto` is implemented (P2.1). */
 export type SessionEstado = 'borrador' | 'abierto' | 'revision' | 'sellado' | 'cerrado';

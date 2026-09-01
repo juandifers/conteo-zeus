@@ -18,8 +18,8 @@ import {
   type CounterEstado,
   type CounterSyncState,
   type SessionActionRecord,
-} from '../../../src/domain';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -29,13 +29,13 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   loadCounterSync,
   loadEventsAfter,
   loadSessionActions,
   loadSessionRow,
-} from '../../_store';
+} from '../../_store.js';
 
 export interface SyncView {
   session: {

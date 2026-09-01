@@ -33,8 +33,8 @@
  * exists to prevent (ZEUS_FORMAT.md §3). A verifier is the last place a value
  * should arrive already changed.
  */
-import { canonicalJson, type EventWire } from '../domain';
-import type { CatalogueRowWire } from './ingest';
+import { canonicalJson, type EventWire } from '../domain/index.js';
+import type { CatalogueRowWire } from './ingest.js';
 
 /** The bundle's own format tag. A future shape is a different string, not a surprise. */
 export const BUNDLE_FORMAT = 'conteo-zeus/bundle/v1';

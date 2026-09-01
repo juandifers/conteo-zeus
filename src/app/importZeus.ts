@@ -12,9 +12,9 @@ import {
   reencode,
   type ZeusFile,
   type ZeusItem,
-} from '../zeus';
-import { sha256Hex } from '../lib/hash';
-import type { Item, Session, SessionSource } from '../domain';
+} from '../zeus/index.js';
+import { sha256Hex } from '../lib/hash.js';
+import type { Item, Session, SessionSource } from '../domain/index.js';
 
 export interface ImportOptions {
   /** Session id. Defaults to a fresh uuid; injectable so tests are deterministic. */

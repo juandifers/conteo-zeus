@@ -26,7 +26,7 @@
  */
 import { neon } from '@neondatabase/serverless';
 
-import { EXPECTED_MIGRATION_VERSION } from './_schemaVersion';
+import { EXPECTED_MIGRATION_VERSION } from './_schemaVersion.js';
 
 export interface HealthBody {
   ok: boolean;

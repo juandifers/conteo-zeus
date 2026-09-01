@@ -25,7 +25,7 @@ export type {
   SessionMeta,
   SessionSource,
   ExportRecord,
-} from './types';
+} from './types.js';
 export {
   resolve,
   resolveAll,
@@ -35,7 +35,7 @@ export {
   undoLast,
   type ItemEvent,
   type Resolution,
-} from './fold';
+} from './fold.js';
 export {
   itemVariance,
   bookValue,
@@ -43,13 +43,13 @@ export {
   exposureValue,
   type Variance,
   type VarianceClass,
-} from './variance';
+} from './variance.js';
 export {
   isNormalisedInstant,
   assertNormalisedInstant,
   nowInstant,
   INSTANT_PATTERN,
-} from './time';
+} from './time.js';
 export {
   summarizeSession,
   resolveSession,
@@ -60,7 +60,7 @@ export {
   type Exposure,
   type Coverage,
   type SummaryOptions,
-} from './session';
+} from './session.js';
 export {
   canonicalEvent,
   genesisHash,
@@ -84,7 +84,7 @@ export {
   type ManifestVerdict,
   type StoredAction,
   type StoredLink,
-} from './chain';
+} from './chain.js';
 export {
   REASSIGNABLE,
   actaLines,
@@ -112,7 +112,7 @@ export {
   type SellarSinRegistrosPayload,
   type SessionActionKind,
   type SessionActionRecord,
-} from './actions';
+} from './actions.js';
 export {
   deriveCounterEstado,
   postFinishSeqs,
@@ -123,7 +123,7 @@ export {
   type SealBlocker,
   type SealOverride,
   type StoredCounterEvent,
-} from './sync';
+} from './sync.js';
 export {
   MemoryRepository,
   MemoryChain,
@@ -139,12 +139,12 @@ export {
   type DeviceRepository,
   type DeviceIdentity,
   type ExportRepository,
-} from './repository';
+} from './repository.js';
 export {
   deriveFamilies,
   familyPrefix,
   type FamilyGroup,
-} from './families';
+} from './families.js';
 export {
   assignmentCoverage,
   unassignedByFamily,
@@ -158,7 +158,7 @@ export {
   type DispatchInput,
   type Section,
   type SessionEstado,
-} from './assignment';
+} from './assignment.js';
 export {
   counterItem,
   counterPayload,
@@ -174,8 +174,8 @@ export {
   type CounterSection,
   type CounterSessionView,
   type CounterView,
-} from './counterView';
-export { eventFromRow, type EventWire } from './wire';
+} from './counterView.js';
+export { eventFromRow, type EventWire } from './wire.js';
 export {
   annullable,
   reviewChecklist,
@@ -197,7 +197,7 @@ export {
   type ReviewRow,
   type SupersededWaiver,
   type TrailingRetraction,
-} from './review';
+} from './review.js';
 export {
   ownLog,
   ownNotes,
@@ -208,4 +208,4 @@ export {
   type OwnEntry,
   type OwnSummary,
   type SectionProgress,
-} from './ownWork';
+} from './ownWork.js';

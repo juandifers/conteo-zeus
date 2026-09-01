@@ -17,7 +17,7 @@
 import {
   isVerifiedTriple,
   type PostingParameters,
-} from '../../../src/app';
+} from '../../../src/app/index.js';
 import {
   counterPayload,
   dispatchBlockers,
@@ -25,9 +25,9 @@ import {
   type Counter,
   type Section,
   type SessionEstado,
-} from '../../../src/domain';
-import { newToken } from '../../../src/lib/token';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { newToken } from '../../../src/lib/token.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -37,14 +37,14 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   dispatchStatements,
   loadCatalogue,
   loadSessionRow,
   type DispatchPlan,
-} from '../../_store';
-import { fileIsIntact, parametersOf } from './index';
+} from '../../_store.js';
+import { fileIsIntact, parametersOf } from './index.js';
 
 /**
  * The partition, as the admin built it.

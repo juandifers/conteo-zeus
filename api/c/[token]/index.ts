@@ -28,9 +28,9 @@ import {
   registeredArticles,
   type Assignment,
   type Section,
-} from '../../../src/domain';
-import { isTokenShaped } from '../../../src/lib/token';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { isTokenShaped } from '../../../src/lib/token.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -40,7 +40,7 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   findByToken,
   loadAssignments,
@@ -49,7 +49,7 @@ import {
   loadSections,
   loadSessionRow,
   recordFetch,
-} from '../../_store';
+} from '../../_store.js';
 
 /** Sessions a counter may pull. A draft has no counters, so it cannot be reached. */
 const OPEN_TO_COUNTERS = new Set(['abierto', 'revision']);

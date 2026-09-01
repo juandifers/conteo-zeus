@@ -2,10 +2,10 @@
  * Session summary — the numbers a supervisor sees before deciding to post
  * (DOMAIN.md §5, §6).
  */
-import { addDecimal } from '../lib/decimal';
-import { resolveAll, type Resolution } from './fold';
-import { bookValue, exposureValue, itemVariance, type Variance } from './variance';
-import type { CountEvent, Item, ItemState, Session } from './types';
+import { addDecimal } from '../lib/decimal.js';
+import { resolveAll, type Resolution } from './fold.js';
+import { bookValue, exposureValue, itemVariance, type Variance } from './variance.js';
+import type { CountEvent, Item, ItemState, Session } from './types.js';
 
 /** How many unverified items are named alongside the waived total, by default. */
 const DEFAULT_TOP_N = 10;

@@ -13,8 +13,8 @@
  * Posting goes through `writeTxt`, which has no identity mode and requires
  * every row to be explicitly resolved.
  */
-import { encodeCp850 } from './cp850';
-import { ZEUS_FIELD_COUNT, type ZeusFile } from './types';
+import { encodeCp850 } from './cp850.js';
+import { ZEUS_FIELD_COUNT, type ZeusFile } from './types.js';
 
 /**
  * Re-emit a parsed file byte-for-byte as it was read.

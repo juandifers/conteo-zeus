@@ -35,9 +35,9 @@ import {
   type ChainedEvent,
   type CountEvent,
   type StoredCounterEvent,
-} from '../../../src/domain';
-import { isTokenShaped } from '../../../src/lib/token';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { isTokenShaped } from '../../../src/lib/token.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -47,7 +47,7 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   findByToken,
   insertEventsStatements,
@@ -56,7 +56,7 @@ import {
   markForked,
   type EventWire,
   type StoredEventRow,
-} from '../../_store';
+} from '../../_store.js';
 
 /** Sessions a counter may push into. */
 const OPEN_TO_PUSH = new Set(['abierto', 'revision']);

@@ -8,7 +8,7 @@
  * which is the same division of labour as everywhere else here: the adapter
  * knows what a column is, the domain knows what a count is.
  */
-import type { WriteTxtOptions } from '../zeus';
+import type { WriteTxtOptions } from '../zeus/index.js';
 
 /** The three settings that decide what the posted file says. */
 export interface PostingParameters {

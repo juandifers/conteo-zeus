@@ -17,9 +17,9 @@
  * a separate route precisely so that the leak test next door keeps asserting
  * exactly what it asserted before, over exactly the same object.
  */
-import { deriveCounterEstado, genesisHash } from '../../../src/domain';
-import { isTokenShaped } from '../../../src/lib/token';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+import { deriveCounterEstado, genesisHash } from '../../../src/domain/index.js';
+import { isTokenShaped } from '../../../src/lib/token.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -29,8 +29,8 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
-import { findByToken, lastClientAt, loadCounterChain, loadSessionRow } from '../../_store';
+} from '../../_http.js';
+import { findByToken, lastClientAt, loadCounterChain, loadSessionRow } from '../../_store.js';
 
 export interface ResumePoint {
   sessionId: string;

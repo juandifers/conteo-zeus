@@ -33,18 +33,18 @@ import type {
   SessionActionRecord,
   StandingWaiver,
   WaiverPayload,
-} from './actions';
-import { standingWaivers } from './actions';
-import type { CounterEstado } from './assignment';
-import { compareEvents, isItemEvent, resolve, resolveAll, type Resolution } from './fold';
+} from './actions.js';
+import { standingWaivers } from './actions.js';
+import type { CounterEstado } from './assignment.js';
+import { compareEvents, isItemEvent, resolve, resolveAll, type Resolution } from './fold.js';
 import {
   summarizeSession,
   type Coverage,
   type Exposure,
   type ItemSummary,
-} from './session';
-import type { CountEvent, Item, ItemState, NoteEvent, UnchangedEvent } from './types';
-import { bookValue, exposureValue } from './variance';
+} from './session.js';
+import type { CountEvent, Item, ItemState, NoteEvent, UnchangedEvent } from './types.js';
+import { bookValue, exposureValue } from './variance.js';
 
 /** What the review needs to know about one counter. Names and state, no chain. */
 export interface ReviewCounter {

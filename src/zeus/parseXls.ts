@@ -9,8 +9,8 @@
  * field by one.
  */
 import * as XLSX from 'xlsx';
-import { itemFromRawRow } from './parseTxt';
-import { formatExcelGeneral, parseNumber } from './formatNumber';
+import { itemFromRawRow } from './parseTxt.js';
+import { formatExcelGeneral, parseNumber } from './formatNumber.js';
 import {
   BODEGA_WIDTH,
   CODIGO_WIDTH,
@@ -19,7 +19,7 @@ import {
   ZEUS_COLUMNS,
   type ZeusFile,
   type ZeusItem,
-} from './types';
+} from './types.js';
 
 /** Columns whose textual form must be preserved verbatim, padding included. */
 const STRING_COLUMNS = new Set<number>([

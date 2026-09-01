@@ -11,10 +11,10 @@
  * `uncountedPolicy`. The library default throws. Verbatim re-emission lives in
  * `reencode`, which takes no counts and is not a posting path (§8).
  */
-import { encodeCp850 } from './cp850';
-import { subtractDecimal } from '../lib/decimal';
-import { formatExcelGeneral, formatNumber } from './formatNumber';
-import { COL, ZEUS_FIELD_COUNT, type ZeusFile } from './types';
+import { encodeCp850 } from './cp850.js';
+import { subtractDecimal } from '../lib/decimal.js';
+import { formatExcelGeneral, formatNumber } from './formatNumber.js';
+import { COL, ZEUS_FIELD_COUNT, type ZeusFile } from './types.js';
 
 /** How many idarticulos an uncounted-items error lists before summarising. */
 const MAX_REPORTED_UNCOUNTED = 20;

@@ -1,0 +1,16 @@
+{
+  /* This file exists for Vercel, not for us.
+     `tsc -b` builds the projects referenced from the root tsconfig.json, and
+     the functions are covered there by ../tsconfig.api.json. But Vercel's
+     builder does not know about project references: for each entrypoint it
+     walks *up* from the file looking for a `tsconfig.json`, writes a temporary
+     config that `extends` whatever it finds, and compiles with that. Without
+     this file the walk reached the root tsconfig.json — a solution file with
+     `"files": []` and no compilerOptions — so every function compiled under
+     TypeScript's defaults (`moduleResolution: nodenext`, no `node` types) and
+     emitted broken ESM. The build printed the errors and deployed anyway,
+     because the builder logs diagnostics without failing the build.
+     Extending the real config is what keeps the deployed functions compiled
+     the same way the repository checks them. */
+  "extends": "../tsconfig.api.json"
+}

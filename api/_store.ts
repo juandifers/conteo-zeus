@@ -15,10 +15,10 @@
  *     number. They are display and ranking figures only — never a posting
  *     input — but "never a posting input" is not a reason to let them drift.
  */
-import { eventFromRow, type CountEvent, type EventWire, type Item } from '../src/domain';
-import type { CatalogueRowWire } from '../src/app';
-import { fromBase64, toBase64 } from '../src/lib/base64';
-import type { Db, Row, Statement } from './_db';
+import { eventFromRow, type CountEvent, type EventWire, type Item } from '../src/domain/index.js';
+import type { CatalogueRowWire } from '../src/app/index.js';
+import { fromBase64, toBase64 } from '../src/lib/base64.js';
+import type { Db, Row, Statement } from './_db.js';
 
 /** A session as the database holds it, before anything is derived from it. */
 export interface SessionRow {

@@ -18,7 +18,7 @@
  * the client last saw and the query starts before it. A client that wants no
  * overlap has to ask for a cursor it never had.
  */
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -28,8 +28,8 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
-import { loadEventsSince, loadSessionRow, type AdminEventRow } from '../../_store';
+} from '../../_http.js';
+import { loadEventsSince, loadSessionRow, type AdminEventRow } from '../../_store.js';
 
 /**
  * How far back of the client's cursor to re-read.

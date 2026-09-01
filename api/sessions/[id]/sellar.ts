@@ -44,8 +44,8 @@ import {
   type SealOverride,
   type SessionActionRecord,
   type SessionEstado,
-} from '../../../src/domain';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -55,9 +55,9 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
-import { loadCounterSync, loadSessionActions, loadSessionRow, sealStatements } from '../../_store';
-import { chainPoint, link, planSealWithout, rowToRecord } from './acciones';
+} from '../../_http.js';
+import { loadCounterSync, loadSessionActions, loadSessionRow, sealStatements } from '../../_store.js';
+import { chainPoint, link, planSealWithout, rowToRecord } from './acciones.js';
 
 /** Sessions that may still be sealed. The two states that are not yet frozen. */
 const SEALABLE: SessionEstado[] = ['abierto', 'revision'];

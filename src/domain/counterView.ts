@@ -30,8 +30,8 @@
  * serialised payload's key set *equals* them at every level of nesting rather
  * than merely containing them.
  */
-import type { Assignment, Counter, Section } from './assignment';
-import type { Item } from './types';
+import type { Assignment, Counter, Section } from './assignment.js';
+import type { Item } from './types.js';
 
 /**
  * One article, as the tablet sees it.

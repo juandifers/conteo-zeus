@@ -15,7 +15,7 @@ import {
   sourceHashOfBytes,
   unverifiedParameters,
   type PostingParameters,
-} from '../../../src/app';
+} from '../../../src/app/index.js';
 import {
   assignmentCoverage,
   deriveFamilies,
@@ -25,8 +25,8 @@ import {
   type Counter,
   type Section,
   type SessionEstado,
-} from '../../../src/domain';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -36,7 +36,7 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   loadAssignments,
   loadCatalogue,
@@ -45,7 +45,7 @@ import {
   loadSessionRow,
   loadSourceBytes,
   type SessionRow,
-} from '../../_store';
+} from '../../_store.js';
 
 export function parametersOf(session: SessionRow): PostingParameters {
   return {

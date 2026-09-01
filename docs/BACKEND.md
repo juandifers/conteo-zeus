@@ -475,10 +475,23 @@ independently and a direct endpoint exhausts Neon's connection limit under any
 real concurrency. The HTTP driver is what keeps that manageable, and the pooler
 is what keeps it correct.
 
-`DATABASE_URL` is also a GitHub Actions secret, used by the `deploy-migrations`
-job. That job runs only on `main`, only on push, and only after the checks pass:
-a migration applied from a feature branch would move the schema under a
-production deploy that has not shipped yet.
+`DATABASE_URL` is also a GitHub Actions secret, on the `Production`
+environment, used by the `deploy-migrations` job. That job runs only on the
+repository's **default branch**, only on push, and only after the checks pass: a
+migration applied from a feature branch would move the schema under a production
+deploy that has not shipped yet.
+
+The branch is read from `github.event.repository.default_branch` rather than
+named. It was pinned to `main`, this repository's default branch is `master`,
+and the job therefore never ran once — silently, because a skipped job still
+shows a green tick. The schema fell behind the deploy and the only thing that
+said so was `/api/health`.
+
+The same pooled string serves both. If the migration runner ever objects to the
+pooler — `pg` over a transaction-mode pooler can trip over prepared statements
+that plain queries do not — give the GitHub secret Neon's **unpooled** host
+instead and leave Vercel on the pooled one. The functions are the side that
+needs pooling; a migration is one connection, once.
 
 ### Routing
 
@@ -488,6 +501,39 @@ navigation fallback for the same reason (`vite.config.ts`) — that only ever
 affected typing the URL into the address bar rather than `fetch`, but a health
 endpoint that answers `index.html` to the person checking whether the deploy is
 up is worse than one that is missing.
+
+### How the functions get compiled, and why every import carries `.js`
+
+Nothing bundles the serverless functions. Vercel's builder transpiles each
+`api/**/*.ts` to a standalone `.js`, traces the graph with `nft`, and ships the
+files with their import specifiers exactly as written. `package.json` says
+`"type": "module"`, so what runs is real ESM — no extension search, no directory
+index. Every relative import in `api/` and in the four `src/` subtrees it reaches
+therefore ends in `.js`, and a directory import is spelled `/index.js`.
+
+`tests/moduleSpecifiers.test.ts` holds that, over exactly `tsconfig.api.json`'s
+`include` list. `src/ui/` and the tests are outside it deliberately: those are
+resolved by Vite, which does search, and the rule there would be a convention
+rather than a constraint.
+
+`api/tsconfig.json` exists for the same reason and does nothing else. The builder
+does not read project references — for each entrypoint it walks *up* looking for
+a `tsconfig.json` and extends the first one it finds. Left alone the walk reached
+the root `tsconfig.json`, a solution file with `"files": []` and no
+`compilerOptions`, so the functions compiled under TypeScript's defaults:
+`moduleResolution: nodenext`, no `node` types. `api/tsconfig.json` extends
+`../tsconfig.api.json`, which is what makes the deployed functions compile the
+way the repository checks them.
+
+Both were one outage. Every route answered `FUNCTION_INVOCATION_FAILED`, because
+every function threw `ERR_MODULE_NOT_FOUND` before its first line ran. The build
+was green: the builder prints TypeScript diagnostics and deploys anyway. The
+frontend was fine, the migrations were applied, `/api/health` was a 500 with no
+body, and nothing in CI had an opinion — the checks run under Vite and Vitest,
+where extensionless specifiers resolve. That is the whole reason the guard is a
+test and not a fixed commit.
+
+---
 
 ---
 

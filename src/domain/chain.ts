@@ -18,8 +18,8 @@
  *
  * It lives in src/domain/ and imports only src/lib/, like everything here.
  */
-import { sha256Hex } from '../lib/hash';
-import type { CountEvent } from './types';
+import { sha256Hex } from '../lib/hash.js';
+import type { CountEvent } from './types.js';
 
 /**
  * The domain separator, versioned.

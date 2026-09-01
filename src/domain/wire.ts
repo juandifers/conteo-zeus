@@ -13,7 +13,7 @@
  * exactly one piece of code decides that a `cantidad` of `'8.5'` is the number
  * 8.5.
  */
-import type { CountEvent } from './types';
+import type { CountEvent } from './types.js';
 
 /**
  * The columns of `events`, in the names the queries alias them to.

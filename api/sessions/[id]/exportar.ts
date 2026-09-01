@@ -42,7 +42,7 @@ import {
   sourceHashOf,
   writeAdjustment,
   type PostingParameters,
-} from '../../../src/app';
+} from '../../../src/app/index.js';
 import {
   eventFromRow,
   resolveSession,
@@ -51,9 +51,9 @@ import {
   type CountEvent,
   type Item,
   type SessionActionRecord,
-} from '../../../src/domain';
-import { toBase64 } from '../../../src/lib/base64';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { toBase64 } from '../../../src/lib/base64.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -63,7 +63,7 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   exportStatements,
   loadCatalogue,
@@ -73,9 +73,9 @@ import {
   loadSessionRow,
   loadSourceBytes,
   type SessionRow,
-} from '../../_store';
-import { parametersOf } from './index';
-import { rowToRecord } from './acciones';
+} from '../../_store.js';
+import { parametersOf } from './index.js';
+import { rowToRecord } from './acciones.js';
 
 /** What a download answers with. Base64 because `send` writes JSON and only JSON. */
 export interface ExportFile {

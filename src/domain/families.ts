@@ -27,9 +27,9 @@
  * partition by hand", and the screen must be able to say that without treating
  * it as an error.
  */
-import type { Item } from './types';
-import { addDecimal } from '../lib/decimal';
-import { bookValue, exposureValue } from './variance';
+import type { Item } from './types.js';
+import { addDecimal } from '../lib/decimal.js';
+import { bookValue, exposureValue } from './variance.js';
 
 /** Where the family digits sit in a `codigo` (ZEUS_FORMAT.md §4: `BBFFNNN`). */
 const FAMILY_START = 2;

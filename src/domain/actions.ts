@@ -46,7 +46,7 @@ import {
   type AssignmentCoverage,
   type Section,
   type SessionEstado,
-} from './assignment';
+} from './assignment.js';
 
 /**
  * The kinds on the admin's chain: P2.3.5's four, and P2.4's two.

@@ -15,8 +15,8 @@
  * were zeros — which §2.1 admits explicitly. None of them is anything the ERP
  * believes, and none of them is per-article.
  */
-import { compareEvents, isItemEvent, resolve } from './fold';
-import type { CountEvent } from './types';
+import { compareEvents, isItemEvent, resolve } from './fold.js';
+import type { CountEvent } from './types.js';
 
 /** The shape of an assignment, as much of it as progress needs. */
 export interface AssignedSection {

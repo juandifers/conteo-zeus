@@ -26,7 +26,7 @@
  * moment worth catching it is the moment before the bytes reach somebody's
  * downloads folder.
  */
-import { parseTxt, ZEUS_COLUMNS, type ZeusFile, type ZeusItem } from '../zeus';
+import { parseTxt, ZEUS_COLUMNS, type ZeusFile, type ZeusItem } from '../zeus/index.js';
 
 /** Column indices, by name, from the adapter's own list. */
 const COLUMN = Object.fromEntries(

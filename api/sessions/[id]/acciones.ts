@@ -57,9 +57,9 @@ import {
   type SessionEstado,
   type StoredAction,
   type WaiverPayload,
-} from '../../../src/domain';
-import { newToken } from '../../../src/lib/token';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+} from '../../../src/domain/index.js';
+import { newToken } from '../../../src/lib/token.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -69,7 +69,7 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   actionStatements,
   loadAssignments,
@@ -83,7 +83,7 @@ import {
   retireStatements,
   type ActionWire,
   type SessionActionRow,
-} from '../../_store';
+} from '../../_store.js';
 
 /** What the browser sends. Discriminated on `kind`, like the chain it writes to. */
 export type ActionBody =

@@ -4,9 +4,9 @@
  * CP850, tab-delimited, CRLF-terminated including the final row, no header,
  * no trailer, exactly 24 fields per row.
  */
-import { decodeCp850 } from './cp850';
-import { parseNumber } from './formatNumber';
-import { COL, ZEUS_FIELD_COUNT, type ZeusFile, type ZeusItem } from './types';
+import { decodeCp850 } from './cp850.js';
+import { parseNumber } from './formatNumber.js';
+import { COL, ZEUS_FIELD_COUNT, type ZeusFile, type ZeusItem } from './types.js';
 
 /** Build a ZeusItem from 24 already-split raw fields. Shared with parseXls. */
 export function itemFromRawRow(fields: string[], rowLabel: string): ZeusItem {

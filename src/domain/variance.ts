@@ -1,9 +1,9 @@
 /**
  * Variance and exposure — DOMAIN.md §2 and §5.
  */
-import { multiplyDecimal, subtractDecimal } from '../lib/decimal';
-import type { Item } from './types';
-import type { Resolution } from './fold';
+import { multiplyDecimal, subtractDecimal } from '../lib/decimal.js';
+import type { Item } from './types.js';
+import type { Resolution } from './fold.js';
 
 /**
  * Which way a counted item moved (DOMAIN.md §2).

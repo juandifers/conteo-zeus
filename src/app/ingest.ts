@@ -17,10 +17,10 @@
  * later. So `importZeusFile` runs on both sides, unchanged, and this file is
  * the seam that lets it.
  */
-import { sha256Hex } from '../lib/hash';
-import type { Item, Session } from '../domain';
-import { reencode, type ZeusFile } from '../zeus';
-import { importZeusFile, parseZeusBytes, type ImportOptions } from './importZeus';
+import { sha256Hex } from '../lib/hash.js';
+import type { Item, Session } from '../domain/index.js';
+import { reencode, type ZeusFile } from '../zeus/index.js';
+import { importZeusFile, parseZeusBytes, type ImportOptions } from './importZeus.js';
 
 /**
  * One catalogue row: the domain's view of it, and the source bytes it came from.

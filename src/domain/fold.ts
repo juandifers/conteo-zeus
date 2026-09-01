@@ -4,8 +4,8 @@
  * The log is append-only, so this fold is the *only* place a "current count"
  * exists. Nothing is stored resolved; a correction is another event.
  */
-import { addDecimal } from '../lib/decimal';
-import type { CountEvent, CountEventDraft, ItemState } from './types';
+import { addDecimal } from '../lib/decimal.js';
+import type { CountEvent, CountEventDraft, ItemState } from './types.js';
 
 /** What an item's events add up to. `qty` is absent unless the item is counted. */
 export interface Resolution {

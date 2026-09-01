@@ -22,9 +22,9 @@
  * identifies people by name and the chain identifies them by `counterId`, and
  * neither needs the string that would let somebody push events as them.
  */
-import { bundleJson, type BundleAction, type SessionBundle } from '../../../src/app';
-import { actionGenesisHash, genesisHash } from '../../../src/domain';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
+import { bundleJson, type BundleAction, type SessionBundle } from '../../../src/app/index.js';
+import { actionGenesisHash, genesisHash } from '../../../src/domain/index.js';
+import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
   messageOf,
@@ -34,15 +34,15 @@ import {
   type ApiRequest,
   type ApiResponse,
   type ApiResult,
-} from '../../_http';
+} from '../../_http.js';
 import {
   loadCatalogue,
   loadCounterSync,
   loadSessionActions,
   loadSessionEvents,
   loadSessionRow,
-} from '../../_store';
-import { parametersOf } from './index';
+} from '../../_store.js';
+import { parametersOf } from './index.js';
 
 export async function sessionBundle(db: Db, id: string | null): Promise<ApiResult> {
   if (!id) return fail(400, 'falta el id de la sesión');

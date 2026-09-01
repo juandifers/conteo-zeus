@@ -8,12 +8,12 @@
  * the only place they can live: `Grupo1..5` must stay empty and `Observacion`
  * does not survive the `.txt` at all.
  */
-import { writeTxt, type WriteTxtOptions, type ZeusFile } from '../zeus';
-import { resolveSession, type CountEvent, type Session } from '../domain';
-import { sha256Hex } from '../lib/hash';
-import { CatalogueError, catalogueFaults, parseZeusBytes, sourceHashOf } from './importZeus';
-import type { PostingParameters } from './parameters';
-import { verifyWriteBack } from './verifyWriteBack';
+import { writeTxt, type WriteTxtOptions, type ZeusFile } from '../zeus/index.js';
+import { resolveSession, type CountEvent, type Session } from '../domain/index.js';
+import { sha256Hex } from '../lib/hash.js';
+import { CatalogueError, catalogueFaults, parseZeusBytes, sourceHashOf } from './importZeus.js';
+import type { PostingParameters } from './parameters.js';
+import { verifyWriteBack } from './verifyWriteBack.js';
 
 export interface ExportAdjustmentOptions
   extends Pick<WriteTxtOptions, 'countTargetColumn' | 'differenceColumn' | 'numberFormat'> {

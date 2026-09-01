@@ -16,7 +16,7 @@ export {
   CatalogueError,
   type CatalogueFault,
   type ImportOptions,
-} from './importZeus';
+} from './importZeus.js';
 export {
   adjustmentFilename,
   exportAdjustment,
@@ -27,12 +27,12 @@ export {
   type Adjustment,
   type ExportAdjustmentOptions,
   type GenerateAdjustmentOptions,
-} from './exportAdjustment';
+} from './exportAdjustment.js';
 export {
   verifyWriteBack,
   PostingVerificationError,
   type VerifyWriteBackOptions,
-} from './verifyWriteBack';
+} from './verifyWriteBack.js';
 export {
   ingestZeusBytes,
   ingestZeusFile,
@@ -42,13 +42,13 @@ export {
   type CatalogueRow,
   type CatalogueRowWire,
   type IngestedFile,
-} from './ingest';
+} from './ingest.js';
 export {
   VERIFIED_PARAMETERS,
   isVerifiedTriple,
   unverifiedParameters,
   type PostingParameters,
-} from './parameters';
+} from './parameters.js';
 export {
   BUNDLE_FORMAT,
   bundleJson,
@@ -56,4 +56,4 @@ export {
   type BundleCounter,
   type BundleSeals,
   type SessionBundle,
-} from './bundle';
+} from './bundle.js';
