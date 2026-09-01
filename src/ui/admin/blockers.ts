@@ -44,7 +44,10 @@ export function describeBlocker(
         'a propósito y con quién lo autorizó por escrito.'
       );
     case 'sin-contadores':
-      return 'No hay contadores. Agrega al menos uno antes de despachar.';
+      return (
+        'No hay contadores. En cada sección, escribe en «quién la cuenta» el nombre de la ' +
+        'persona que la va a caminar.'
+      );
     case 'sin-asignar':
       return (
         `${blocker.idarticulos.length} artículos no están asignados a nadie: ` +
@@ -66,7 +69,10 @@ export function describeBlocker(
         'Asígnale una sección o quítalo del reparto.'
       );
     case 'seccion-sin-contador':
-      return `${blocker.sectionIds.map(sectionName).join(', ')} no tiene contador asignado.`;
+      return (
+        `${blocker.sectionIds.map(sectionName).join(', ')} no dice quién la cuenta: ` +
+        'escribe el nombre en la sección.'
+      );
     case 'seccion-desconocida':
       return `El reparto nombra secciones que no existen: ${list(blocker.sectionIds)}.`;
     case 'contador-desconocido':

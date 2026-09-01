@@ -361,3 +361,184 @@
     display: block !important;
   }
 }
+
+/* ---- the reparto desk -------------------------------------------------- */
+
+/*
+ * Two columns because the task is two-sided: the catalogue on the left is
+ * what there is to walk, the plan on the right is who walks it. The rail is
+ * sticky so that every move made on the left lands somewhere the admin can
+ * see without scrolling — before this the sections lived above the families,
+ * and checking one meant losing the other.
+ */
+.reparto {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 0 24px;
+  align-items: start;
+}
+
+.reparto__plan {
+  position: sticky;
+  top: 0;
+  max-height: 100dvh;
+  overflow-y: auto;
+  border-left: 1px solid var(--rule);
+}
+
+/* One column again when the window cannot hold two; the plan goes back on
+   top, because the gate it carries is the first thing to understand. */
+@media (max-width: 1000px) {
+  .reparto {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reparto__plan {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    border-left: 0;
+    order: -1;
+  }
+}
+
+/*
+ * A desk-sized text input. The counting screens have `readout__input`, which
+ * is a number readable across a cooler — 52px and up. Reusing it here once
+ * rendered every family name at headline size; this is the same input at the
+ * size a desk needs, and nothing on the admin side should ever borrow the
+ * tablet's readout.
+ */
+.tinput {
+  min-height: var(--tap);
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  font-size: 17px;
+}
+
+.tinput:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: -1px;
+  border-color: var(--ink);
+}
+
+.tinput--num {
+  width: 7ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the plan rail ----------------------------------------------------- */
+
+.secrows {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.secrow {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--paper-raised);
+}
+
+.secrow__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.secrow__field {
+  display: block;
+  min-width: 0;
+}
+
+.secrow__label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 15px;
+  color: var(--ink-quiet);
+}
+
+.secrow__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+/* Actions inside the rail: no top rule, no full-bleed padding — the rail is
+   already a bordered column and a second frame reads as a second screen. */
+.actions--flat {
+  border-top: 0;
+  padding: 4px 0 0;
+}
+
+/* ---- family rows -------------------------------------------------------- */
+
+.fam {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.fam__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.fam__label {
+  flex: 0 1 22ch;
+  font-weight: 600;
+}
+
+.fam__stats {
+  font-size: 16px;
+  color: var(--ink-quiet);
+  white-space: nowrap;
+}
+
+.fam__ejemplos {
+  margin-top: 4px;
+}
+
+.fam__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fam__controls select {
+  min-height: var(--tap);
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  font-size: 17px;
+}
+
+/* ---- the way back ------------------------------------------------------- */
+
+.backlink {
+  color: var(--ink-quiet);
+  font-size: 17px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.backlink:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}

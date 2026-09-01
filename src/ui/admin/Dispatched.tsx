@@ -71,6 +71,9 @@ export function Dispatched({
   return (
     <div className="screen screen--desk">
       <div className="masthead">
+        <a className="backlink" href="#/admin">
+          ← Conteos
+        </a>
         <div className="masthead__title">
           Bodega {detail.session.bodega} · corte {detail.session.fechaCorte} · despachada
         </div>

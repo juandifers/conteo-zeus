@@ -525,20 +525,33 @@ export function Cambios({
         </ul>
       </div>
 
-      {sync && sync.session.readyToSeal.length > 0 && (
-        <div className="panel">
-          <div className="panel__title">Para poder sellar</div>
-          <div className="panel__body">
-            <ul className="checklist">
-              {sync.session.readyToSeal.map((blocker, index) => (
-                <li className="checkrow" key={index}>
-                  <span>{describeSeal(blocker)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+      {/* The routine «Para poder sellar» list is the Monitor's, a few panels up
+          on this same tab; repeating all of it here taught people to read
+          neither copy. What *is* repeated — on purpose, in a second voice — is
+          the one blocker this screen's own gravest action answers: a retired
+          counter whose records are missing, which is the line
+          «sellar sin sus registros» would put in the acta. */}
+      {sync &&
+        (() => {
+          const graves = sync.session.readyToSeal.filter(
+            (blocker) => blocker.kind === 'contador-retirado-incompleto',
+          );
+          if (graves.length === 0) return null;
+          return (
+            <div className="panel">
+              <div className="panel__title">Para poder sellar</div>
+              <div className="panel__body">
+                <ul className="checklist">
+                  {graves.map((blocker, index) => (
+                    <li className="checkrow" key={index}>
+                      <span>{describeSeal(blocker)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          );
+        })()}
 
       <Bitacora acciones={sync?.acciones ?? []} />
     </>

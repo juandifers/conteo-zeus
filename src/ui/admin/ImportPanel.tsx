@@ -88,7 +88,7 @@ export function ImportPanel({
         <label className="field">
           <span className="field__label">Nombre (opcional)</span>
           <input
-            className="readout__input"
+            className="tinput"
             value={nombre}
             placeholder="Corte de abril"
             onChange={(event) => setNombre(event.target.value)}
@@ -110,6 +110,10 @@ export function ImportPanel({
             }}
           />
         </label>
+        <div className="hint">
+          El archivo se revisa aquí mismo. Si pasa, la sesión queda creada como borrador y
+          sigues a repartir la bodega; si no, no queda nada.
+        </div>
 
         {phase.name === 'reading' && <div className="hint">Leyendo «{phase.file}»…</div>}
         {phase.name === 'sending' && (

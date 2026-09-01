@@ -79,6 +79,11 @@ function SessionList({ api, navigate }: { api: Api; navigate: (to: string) => vo
         }}
       />
 
+      {load.phase === 'loading' && (
+        <div className="empty">
+          <div className="empty__body">Cargando las sesiones…</div>
+        </div>
+      )}
       {load.phase === 'failed' && (
         <div className="banner" role="alert">
           {load.message}
@@ -100,13 +105,20 @@ function SessionList({ api, navigate }: { api: Api; navigate: (to: string) => vo
                 onClick={() => navigate(`#/admin/${session.id}`)}
               >
                 <div className="row__nombre">
-                  {session.nombre ?? `Bodega ${session.bodega}`} · {session.estado}
+                  {session.nombre ?? `Bodega ${session.bodega}`}
                 </div>
                 <div className="row__meta">
-                  corte {session.fechaCorte} · {session.itemCount} artículos · creada{' '}
-                  {formatInstant(session.createdAt)}
+                  Bodega {session.bodega} · corte {session.fechaCorte} · {session.itemCount}{' '}
+                  artículos · creada {formatInstant(session.createdAt)}
                 </div>
               </button>
+              <div className="row__right">
+                {/* The state as a chip rather than folded into the title: which
+                    sessions are still drafts is the question this list answers. */}
+                <span className={session.estado === 'borrador' ? 'chip' : 'chip chip--counted'}>
+                  {session.estado}
+                </span>
+              </div>
             </li>
           ))}
         </ul>
@@ -143,7 +155,20 @@ function SessionScreen({
     };
   }, [api, id, attempt]);
 
-  if (load.phase === 'loading') return null;
+  // Never a blank screen: on a slow function cold-start the void reads as a
+  // crash, and the person who just clicked a session has no way to tell.
+  if (load.phase === 'loading') {
+    return (
+      <div className="screen screen--desk">
+        <div className="masthead">
+          <a className="backlink" href="#/admin">
+            ← Conteos
+          </a>
+          <div className="masthead__title">Cargando…</div>
+        </div>
+      </div>
+    );
+  }
   if (load.phase === 'failed') {
     return (
       <div className="screen screen--desk">

@@ -249,6 +249,16 @@ select {
   display: block;
   flex: 1;
   min-width: 0;
+  /* `row__main` is sometimes a <button> (the session list), and a button's UA
+     defaults — centred text, its own border and fill — would make that row
+     read as a giant grey control instead of a row. */
+  text-align: left;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
 
 .row__nombre {
