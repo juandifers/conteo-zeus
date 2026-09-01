@@ -75,6 +75,7 @@ export interface Api {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
   patch<T>(path: string, body: unknown): Promise<T>;
+  del<T>(path: string): Promise<T>;
 }
 
 export function httpApi(fetcher: Fetcher = fetch.bind(globalThis)): Api {
@@ -82,5 +83,6 @@ export function httpApi(fetcher: Fetcher = fetch.bind(globalThis)): Api {
     get: (path) => request(fetcher, 'GET', path),
     post: (path, body) => request(fetcher, 'POST', path, body ?? {}),
     patch: (path, body) => request(fetcher, 'PATCH', path, body),
+    del: (path) => request(fetcher, 'DELETE', path),
   };
 }

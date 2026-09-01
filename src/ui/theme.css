@@ -856,7 +856,9 @@ select {
  * height, not small type. */
 
 .app:has(.screen--desk) {
-  max-width: 1180px;
+  /* Wide enough for the work column and the 400px rail to both breathe. The
+     counting app keeps its 900px: a tablet held in one hand is not a desk. */
+  max-width: 1400px;
 }
 
 /* A mouse-driven header on a screen that is mostly table: the two lines of

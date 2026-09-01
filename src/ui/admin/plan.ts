@@ -38,9 +38,18 @@ export interface Plan {
   asignado: Record<number, string>;
   /** What the admin decided a family prefix is called. Prefix -> label. */
   etiquetas: Record<string, string>;
+  /**
+   * The people counting today, written down before any of them holds a
+   * section. Purely the screen's: `countersIn` — what dispatch keys on — still
+   * derives from the sections, so a name on the roster nobody assigned is not
+   * a counter, and a section naming somebody off-roster still counts. The
+   * roster exists because «who is here today» is the admin's first thought,
+   * and the old screen had nowhere to put it.
+   */
+  roster: string[];
 }
 
-export const EMPTY_PLAN: Plan = { sections: [], asignado: {}, etiquetas: {} };
+export const EMPTY_PLAN: Plan = { sections: [], asignado: {}, etiquetas: {}, roster: [] };
 
 const KEY = 'conteo.reparto';
 
@@ -49,10 +58,21 @@ export function loadPlan(sessionId: string): Plan {
     const raw = globalThis.localStorage?.getItem(`${KEY}.${sessionId}`);
     if (!raw) return EMPTY_PLAN;
     const parsed = JSON.parse(raw) as Partial<Plan>;
+    const sections = Array.isArray(parsed.sections) ? parsed.sections : [];
+    const stored = Array.isArray(parsed.roster) ? parsed.roster : [];
+    // A draft saved before the roster existed still has its counters — in the
+    // sections. Folding them in means an old draft opens with its people
+    // already on the list instead of with a screen that claims nobody counts.
+    const roster = [...stored];
+    for (const section of sections) {
+      const nombre = section.counterNombre?.trim() ?? '';
+      if (nombre !== '' && !roster.includes(nombre)) roster.push(nombre);
+    }
     return {
-      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+      sections,
       asignado: parsed.asignado ?? {},
       etiquetas: parsed.etiquetas ?? {},
+      roster,
     };
   } catch {
     // A corrupt draft is a partition to rebuild, not a screen that will not

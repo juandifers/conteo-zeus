@@ -45,8 +45,8 @@ export function describeBlocker(
       );
     case 'sin-contadores':
       return (
-        'No hay contadores. En cada sección, escribe en «quién la cuenta» el nombre de la ' +
-        'persona que la va a caminar.'
+        'No hay contadores. Agrega los nombres en «Quiénes cuentan hoy» y elige uno en ' +
+        'cada sección.'
       );
     case 'sin-asignar':
       return (
@@ -71,7 +71,7 @@ export function describeBlocker(
     case 'seccion-sin-contador':
       return (
         `${blocker.sectionIds.map(sectionName).join(', ')} no dice quién la cuenta: ` +
-        'escribe el nombre en la sección.'
+        'elige a alguien de la lista en la sección.'
       );
     case 'seccion-desconocida':
       return `El reparto nombra secciones que no existen: ${list(blocker.sectionIds)}.`;

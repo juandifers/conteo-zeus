@@ -9,10 +9,17 @@
  *
  * The layout is two columns because the task is two-sided: the **catalogue**
  * (families, articles — what there is to walk) on the left, and the **plan**
- * (sections, who counts each, coverage, the gate) in a rail on the right that
- * stays put while the left side scrolls. Every move made on the left is
- * visible in the rail the moment it happens; before this the sections lived
- * above the families and checking one meant losing the other.
+ * in a rail on the right that stays put while the left side scrolls. The rail
+ * is three numbered steps because the plan really is a sequence: who is here
+ * today, which pieces the bodega breaks into, and the gate that opens when
+ * every article has exactly one owner.
+ *
+ * **Counters are people first.** The roster (step 1) is where names go, and a
+ * section takes its counter from a select over that roster — before this, the
+ * only place a counter existed was a free-text field inside a section that
+ * did not exist yet, and nobody found it. Dispatch still keys on what the
+ * sections say (`countersIn`); the roster is the screen's way of asking the
+ * right first question.
  *
  * The families are a **proposal**. They are derived from `codigo` digits
  * (`deriveFamilies`) and the labels are the admin's; nothing in the file says
@@ -62,17 +69,23 @@ export function Reparto({
   api,
   onDispatched,
   onReload,
+  onDeleted = () => {
+    if (globalThis.location) globalThis.location.hash = '#/admin';
+  },
 }: {
   detail: SessionDetail;
   api: Api;
   onDispatched: () => void;
   onReload: () => void;
+  /** After the draft is deleted. Injected so a test does not drive `location`. */
+  onDeleted?: () => void;
 }) {
   const sessionId = detail.session.id;
   const [plan, setPlan] = useState<Plan>(() => loadPlan(sessionId));
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState('');
 
   useEffect(() => {
     savePlan(sessionId, plan);
@@ -113,6 +126,29 @@ export function Reparto({
         sections: [...current.sections, { id, nombre, counterNombre }],
       };
     });
+  }, []);
+
+  const addToRoster = useCallback(() => {
+    const nombre = nuevoNombre.trim();
+    if (nombre === '') return;
+    setPlan((current) =>
+      current.roster.includes(nombre)
+        ? current
+        : { ...current, roster: [...current.roster, nombre] },
+    );
+    setNuevoNombre('');
+  }, [nuevoNombre]);
+
+  const removeFromRoster = useCallback((nombre: string) => {
+    // Their sections do not vanish — they lose their counter and come back as
+    // «no dice quién la cuenta», which is the truth of the matter.
+    setPlan((current) => ({
+      ...current,
+      roster: current.roster.filter((name) => name !== nombre),
+      sections: current.sections.map((section) =>
+        section.counterNombre.trim() === nombre ? { ...section, counterNombre: '' } : section,
+      ),
+    }));
   }, []);
 
   /**
@@ -174,7 +210,7 @@ export function Reparto({
   }, [api, sessionId, plan, onDispatched, onReload, counterNames, sectionNames]);
 
   const ready = state.blockers.length === 0;
-  const counters = countersIn(plan);
+  const roster = plan.roster;
 
   return (
     <div className="screen screen--desk">
@@ -190,8 +226,8 @@ export function Reparto({
         </div>
       </div>
 
-      <div className="reparto">
-        <div className="reparto__catalogo">
+      <div className="desksplit">
+        <div className="desksplit__main">
           <div className="panel">
             <div className="panel__title">
               {familias === null ? 'Artículos' : `Familias propuestas (${familias.length})`}
@@ -278,29 +314,111 @@ export function Reparto({
           </div>
 
           <SessionSettings detail={detail} api={api} onSaved={onReload} />
+
+          <DeleteSession
+            api={api}
+            sessionId={sessionId}
+            estado={detail.session.estado}
+            onDeleted={onDeleted}
+          />
         </div>
 
-        <aside className="reparto__plan" aria-label="El plan del reparto">
+        <aside className="desksplit__rail" aria-label="El plan del reparto">
           <div className="panel">
             <div className="panel__title">El reparto</div>
             <div className="panel__body">
-              <div className="hint">
-                Una sección es un pedazo de la bodega; quien la cuenta se escribe en ella. El
-                mismo nombre en dos secciones es la misma persona con dos zonas.
+              <div className="progressbar">
+                <div
+                  className="progressbar__fill"
+                  style={{
+                    width: `${(state.coverage.assigned / Math.max(1, items.length)) * 100}%`,
+                  }}
+                />
               </div>
+              <div className="hint">
+                {state.coverage.assigned} de {items.length} artículos con dueño. Se despacha
+                cuando estén todos.
+              </div>
+            </div>
 
-              {plan.sections.length === 0 && (
+            <div className="panel__section">
+              <div className="panel__subtitle">
+                <span className="stepno">1</span> Quiénes cuentan hoy
+              </div>
+              {roster.length === 0 && (
                 <div className="hint">
-                  Todavía no hay secciones. Mueve una familia a «sección nueva», reparte una
-                  grande en varias, o crea una vacía aquí.
+                  Escribe los nombres de las personas que van a contar — una por tableta. Cada
+                  una recibe su enlace al despachar.
                 </div>
               )}
+              {roster.length > 0 && (
+                <ul className="roster">
+                  {roster.map((nombre) => {
+                    const held = plan.sections.filter(
+                      (section) => section.counterNombre.trim() === nombre,
+                    );
+                    return (
+                      <li className="roster__row" key={nombre}>
+                        <span className="roster__nombre">{nombre}</span>
+                        <span className="roster__meta">
+                          {held.length === 0
+                            ? 'todavía sin sección'
+                            : held.map((section) => section.nombre).join(' · ')}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn--small"
+                          aria-label={`Quitar a ${nombre}`}
+                          onClick={() => removeFromRoster(nombre)}
+                        >
+                          quitar
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <form
+                className="roster__add"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  addToRoster();
+                }}
+              >
+                <input
+                  aria-label="Nombre de un contador nuevo"
+                  className="tinput"
+                  placeholder="nombre, p. ej. Ana"
+                  value={nuevoNombre}
+                  onChange={(event) => setNuevoNombre(event.target.value)}
+                />
+                <button type="submit" className="btn btn--small">
+                  Agregar
+                </button>
+              </form>
+            </div>
+
+            <div className="panel__section">
+              <div className="panel__subtitle">
+                <span className="stepno">2</span> Secciones
+              </div>
+              <div className="hint">
+                Una sección es un pedazo de la bodega y la cuenta una persona de la lista de
+                arriba. Nacen solas al mover o repartir familias; aquí se nombran y se asignan.
+              </div>
 
               <ul className="secrows">
                 {plan.sections.map((section) => {
                   const ids = Object.entries(plan.asignado)
                     .filter(([, id]) => id === section.id)
                     .map(([idarticulo]) => Number(idarticulo));
+                  const current = section.counterNombre.trim();
+                  // An off-roster name — a draft from before the roster, or a
+                  // removed person — stays selectable rather than silently
+                  // becoming somebody else.
+                  const options = roster.includes(current) || current === ''
+                    ? roster
+                    : [...roster, current];
                   return (
                     <li className="secrow" key={section.id}>
                       <div className="secrow__fields">
@@ -322,10 +440,9 @@ export function Reparto({
                         </label>
                         <label className="secrow__field">
                           <span className="secrow__label">quién la cuenta</span>
-                          <input
+                          <select
                             aria-label={`Contador de ${section.nombre}`}
                             className="tinput"
-                            placeholder="nombre del contador"
                             value={section.counterNombre}
                             onChange={(event) =>
                               setPlan((current) => ({
@@ -337,7 +454,14 @@ export function Reparto({
                                 ),
                               }))
                             }
-                          />
+                          >
+                            <option value="">— falta —</option>
+                            {options.map((nombre) => (
+                              <option key={nombre} value={nombre}>
+                                {nombre}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                       </div>
                       <div className="secrow__meta">
@@ -377,17 +501,9 @@ export function Reparto({
 
             <div className="panel__section">
               <div className="panel__subtitle">
-                Cobertura: {state.coverage.assigned} de {items.length}
+                <span className="stepno">3</span> Despachar
               </div>
-              <div className="progressbar">
-                <div
-                  className="progressbar__fill"
-                  style={{
-                    width: `${(state.coverage.assigned / Math.max(1, items.length)) * 100}%`,
-                  }}
-                />
-              </div>
-              {state.huecos.length > 0 ? (
+              {state.huecos.length > 0 && (
                 <>
                   <div className="hint">
                     Lo que falta, por familia y por exposición — no por valor en libros: una fila
@@ -403,13 +519,7 @@ export function Reparto({
                     ))}
                   </ul>
                 </>
-              ) : (
-                <div className="hint">Todos los artículos tienen dueño.</div>
               )}
-            </div>
-
-            <div className="panel__section">
-              <div className="panel__subtitle">Despachar</div>
               {state.blockers.length > 0 ? (
                 <ul className="checklist">
                   {state.blockers.map((blocker, index) => (
@@ -420,7 +530,8 @@ export function Reparto({
                 </ul>
               ) : (
                 <div className="hint">
-                  {counters.length} {counters.length === 1 ? 'contador' : 'contadores'},{' '}
+                  {countersIn(plan).length}{' '}
+                  {countersIn(plan).length === 1 ? 'contador' : 'contadores'},{' '}
                   {plan.sections.length} {plan.sections.length === 1 ? 'sección' : 'secciones'},
                   los {items.length} artículos repartidos. Al despachar se abre la sesión y se
                   generan los enlaces; después no se agregan ni se cambian contadores.
@@ -645,6 +756,93 @@ function SessionSettings({
             ? ' — los verificados contra Zeus (§7.1).'
             : ` — SIN verificar: ${detail.session.parametrosSinVerificar.join(', ')}.`}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Deleting a junk session — shared by the draft screen and the dispatched one.
+ *
+ * Never a browser dialog (the product rule), and never adjacent to the primary
+ * action: the confirm strip appears in place, says what is destroyed, and the
+ * server refuses a sealed session regardless of what this component believes
+ * (`DELETE /api/sessions/:id`).
+ */
+export function DeleteSession({
+  api,
+  sessionId,
+  estado,
+  onDeleted,
+}: {
+  api: Api;
+  sessionId: string;
+  estado: string;
+  onDeleted: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  // The seal is a signed claim about a completed count; its session is the
+  // evidence. The server enforces this — hiding the button just keeps the
+  // screen from offering what will be refused.
+  if (estado === 'sellado' || estado === 'cerrado') return null;
+
+  const texto =
+    estado === 'borrador'
+      ? 'Se borra este borrador y el archivo importado. No hay nada contado que perder.'
+      : 'Se borran sus contadores, sus enlaces y todo lo que ya registraron en el servidor. ' +
+        'Las tabletas que tengan trabajo sin subir se quedan sin dónde subirlo.';
+
+  return (
+    <div className="panel">
+      <div className="panel__body">
+        {!asking ? (
+          <button type="button" className="btn--waiver" onClick={() => setAsking(true)}>
+            {estado === 'borrador' ? 'Eliminar este borrador' : 'Eliminar esta sesión'}
+          </button>
+        ) : (
+          <div className="confirm">
+            <div className="confirm__text">{texto}</div>
+            {problem && (
+              <div className="banner" role="alert">
+                {problem}
+              </div>
+            )}
+            <div className="actions__pair">
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => {
+                  setAsking(false);
+                  setProblem(null);
+                }}
+              >
+                Conservar
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setProblem(null);
+                  try {
+                    await api.del(`/api/sessions/${sessionId}`);
+                    onDeleted();
+                  } catch (cause) {
+                    setProblem(cause instanceof Error ? cause.message : String(cause));
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? 'Eliminando…' : 'Sí, eliminar'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

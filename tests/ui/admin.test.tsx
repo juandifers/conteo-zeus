@@ -32,7 +32,7 @@ if (typeof File !== 'undefined' && !File.prototype.arrayBuffer) {
 }
 
 import { AdminApp } from '../../src/ui/admin/AdminApp';
-import { Reparto } from '../../src/ui/admin/Reparto';
+import { DeleteSession, Reparto } from '../../src/ui/admin/Reparto';
 import { Dispatched } from '../../src/ui/admin/Dispatched';
 import { EMPTY_PLAN, savePlan } from '../../src/ui/admin/plan';
 import type { Api } from '../../src/ui/api';
@@ -83,6 +83,7 @@ function fakeApi(over: Partial<Api> = {}): Api {
     get: vi.fn(async () => ({}) as never),
     post: vi.fn(async () => ({}) as never),
     patch: vi.fn(async () => ({}) as never),
+    del: vi.fn(async () => ({}) as never),
     ...over,
   };
 }
@@ -251,6 +252,115 @@ describe('the coverage gate', () => {
     // Contiguous: the first chunk is the first 41 in catalogue order.
     const first = familia.idarticulos.slice(0, 41);
     expect(first.every((id) => stored.asignado[id] === stored.sections[0].id)).toBe(true);
+  });
+});
+
+describe('the roster', () => {
+  it('is people first: a name added once is what every section offers', async () => {
+    localStorage.clear();
+    render(
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Nombre de un contador nuevo'), 'Ana');
+    await userEvent.click(screen.getByRole('button', { name: 'Agregar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Nueva sección' }));
+
+    const quien = screen.getByLabelText('Contador de SECCIÓN 1') as HTMLSelectElement;
+    expect([...quien.options].map((option) => option.textContent)).toContain('Ana');
+    await userEvent.selectOptions(quien, 'Ana');
+
+    const stored = JSON.parse(localStorage.getItem('conteo.reparto.sesion-1')!) as {
+      roster: string[];
+      sections: { counterNombre: string }[];
+    };
+    expect(stored.roster).toEqual(['Ana']);
+    expect(stored.sections[0].counterNombre).toBe('Ana');
+  });
+
+  it('folds the counters of a pre-roster draft back onto the list', async () => {
+    // A plan saved before the roster existed keeps its people: they are in the
+    // sections, and a screen that opened claiming nobody counts would be lying.
+    localStorage.clear();
+    localStorage.setItem(
+      'conteo.reparto.sesion-1',
+      JSON.stringify({
+        sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Marta' }],
+        asignado: {},
+        etiquetas: {},
+      }),
+    );
+    render(
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
+    );
+    // On the roster row and in the section's select both — the point is it survived.
+    expect(screen.getAllByText('Marta').length).toBeGreaterThan(0);
+  });
+
+  it('removing a person leaves their sections asking, not reassigned', async () => {
+    localStorage.clear();
+    savePlan('sesion-1', {
+      ...EMPTY_PLAN,
+      roster: ['Ana'],
+      sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Ana' }],
+      asignado: Object.fromEntries(catalogue.map((item) => [item.idarticulo, 's1'])),
+    });
+    render(
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Quitar a Ana' }));
+    expect((screen.getByLabelText('Contador de TODO') as HTMLSelectElement).value).toBe('');
+    expect(screen.getByText(/no dice quién la cuenta/)).toBeTruthy();
+  });
+});
+
+describe('deleting a session', () => {
+  it('asks in place, says what is destroyed, then deletes and leaves', async () => {
+    localStorage.clear();
+    const del = vi.fn(async () => ({ deleted: 'sesion-1' }) as never);
+    const onDeleted = vi.fn();
+    render(
+      <Reparto
+        detail={detailFor()}
+        api={fakeApi({ del })}
+        onDispatched={() => {}}
+        onReload={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar este borrador' }));
+    expect(del).not.toHaveBeenCalled();
+    expect(screen.getByText(/Se borra este borrador/)).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sí, eliminar' }));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+    expect(del).toHaveBeenCalledWith('/api/sessions/sesion-1');
+  });
+
+  it('can be declined, and nothing is sent', async () => {
+    localStorage.clear();
+    const del = vi.fn();
+    render(
+      <Reparto
+        detail={detailFor()}
+        api={fakeApi({ del })}
+        onDispatched={() => {}}
+        onReload={() => {}}
+        onDeleted={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar este borrador' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Conservar' }));
+    expect(del).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Se borra este borrador/)).toBeNull();
+  });
+
+  it('is never offered for a sealed session', () => {
+    render(
+      <DeleteSession api={fakeApi()} sessionId="sesion-1" estado="sellado" onDeleted={() => {}} />,
+    );
+    expect(screen.queryByRole('button', { name: /Eliminar/ })).toBeNull();
   });
 });
 

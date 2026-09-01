@@ -71,58 +71,66 @@ function SessionList({ api, navigate }: { api: Api; navigate: (to: string) => vo
         <div className="masthead__title">Conteos</div>
       </div>
 
-      <ImportPanel
-        api={api}
-        onCreated={(id) => {
-          setAttempt((n) => n + 1);
-          navigate(`#/admin/${id}`);
-        }}
-      />
+      <div className="desksplit">
+        <div className="desksplit__main">
+          {load.phase === 'loading' && (
+            <div className="empty">
+              <div className="empty__body">Cargando las sesiones…</div>
+            </div>
+          )}
+          {load.phase === 'failed' && (
+            <div className="banner" role="alert">
+              {load.message}
+            </div>
+          )}
+          {load.phase === 'ready' && load.value.length === 0 && (
+            <div className="empty">
+              <div className="empty__title">Todavía no hay sesiones</div>
+              <div className="empty__body">Sube un archivo exportado de Zeus para empezar.</div>
+            </div>
+          )}
+          {load.phase === 'ready' && (
+            <ul className="rows">
+              {load.value.map((session) => (
+                <li className="row" key={session.id}>
+                  <button
+                    type="button"
+                    className="row__main"
+                    onClick={() => navigate(`#/admin/${session.id}`)}
+                  >
+                    <div className="row__nombre">
+                      {session.nombre ?? `Bodega ${session.bodega}`}
+                    </div>
+                    <div className="row__meta">
+                      Bodega {session.bodega} · corte {session.fechaCorte} · {session.itemCount}{' '}
+                      artículos · creada {formatInstant(session.createdAt)}
+                    </div>
+                  </button>
+                  <div className="row__right">
+                    {/* The state as a chip rather than folded into the title: which
+                        sessions are still drafts is the question this list answers. */}
+                    <span
+                      className={session.estado === 'borrador' ? 'chip' : 'chip chip--counted'}
+                    >
+                      {session.estado}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      {load.phase === 'loading' && (
-        <div className="empty">
-          <div className="empty__body">Cargando las sesiones…</div>
-        </div>
-      )}
-      {load.phase === 'failed' && (
-        <div className="banner" role="alert">
-          {load.message}
-        </div>
-      )}
-      {load.phase === 'ready' && load.value.length === 0 && (
-        <div className="empty">
-          <div className="empty__title">Todavía no hay sesiones</div>
-          <div className="empty__body">Sube un archivo exportado de Zeus para empezar.</div>
-        </div>
-      )}
-      {load.phase === 'ready' && (
-        <ul className="rows">
-          {load.value.map((session) => (
-            <li className="row" key={session.id}>
-              <button
-                type="button"
-                className="row__main"
-                onClick={() => navigate(`#/admin/${session.id}`)}
-              >
-                <div className="row__nombre">
-                  {session.nombre ?? `Bodega ${session.bodega}`}
-                </div>
-                <div className="row__meta">
-                  Bodega {session.bodega} · corte {session.fechaCorte} · {session.itemCount}{' '}
-                  artículos · creada {formatInstant(session.createdAt)}
-                </div>
-              </button>
-              <div className="row__right">
-                {/* The state as a chip rather than folded into the title: which
-                    sessions are still drafts is the question this list answers. */}
-                <span className={session.estado === 'borrador' ? 'chip' : 'chip chip--counted'}>
-                  {session.estado}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+        <aside className="desksplit__rail" aria-label="Nueva sesión">
+          <ImportPanel
+            api={api}
+            onCreated={(id) => {
+              setAttempt((n) => n + 1);
+              navigate(`#/admin/${id}`);
+            }}
+          />
+        </aside>
+      </div>
     </div>
   );
 }

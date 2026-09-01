@@ -16,7 +16,7 @@ import 'fake-indexeddb/auto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSession, listSessions } from '../../api/sessions/index';
-import { getSession, updateSession } from '../../api/sessions/[id]/index';
+import { deleteSession, getSession, updateSession } from '../../api/sessions/[id]/index';
 import { dispatchSession } from '../../api/sessions/[id]/dispatch';
 import { counterFetch } from '../../api/c/[token]';
 import { dispatchStatements, fromBase64, loadCatalogue, toBase64 } from '../../api/_store';
@@ -655,6 +655,58 @@ suite('GET /api/c/:token', () => {
   it('never returns the token it was called with', async () => {
     const result = await counterFetch(db, tokens[0].token);
     expect(JSON.stringify(result.body)).not.toContain(tokens[0].token);
+  });
+});
+
+suite('DELETE /api/sessions/:id', () => {
+  let sessionId: string;
+  let items: Item[];
+
+  beforeAll(async () => {
+    db = await openTestDb(URL!, 'a');
+  });
+  afterAll(async () => {
+    await db.reset();
+    await db.close();
+  });
+  beforeEach(async () => {
+    await db.reset();
+    const created = await upload(XLS);
+    sessionId = (created.body as { id: string }).id;
+    items = (await loadCatalogue(db, sessionId)).map((row) => row.item);
+  });
+
+  it('deletes a draft, file and catalogue included', async () => {
+    const result = await deleteSession(db, sessionId);
+    expect(result.status).toBe(200);
+    expect((await getSession(db, sessionId)).status).toBe(404);
+    const rows = await db.query('select 1 from catalog_rows where session_id = $1', [sessionId]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('takes a dispatched session and everything under it in one cascade', async () => {
+    // The 0003 migration exists for exactly this delete: `assignments`
+    // references both `counters` and `catalog_rows`, and without its cascade
+    // fix the two paths raced and the whole statement failed.
+    await dispatchSession(db, sessionId, wholePlan(items));
+    const result = await deleteSession(db, sessionId);
+    expect(result.status).toBe(200);
+    for (const table of ['counters', 'sections', 'assignments', 'catalog_rows']) {
+      const rows = await db.query(`select 1 from ${table} where session_id = $1`, [sessionId]);
+      expect(rows, table).toHaveLength(0);
+    }
+  });
+
+  it('refuses a sealed session — the acta cites it', async () => {
+    await db.query(`update sessions set estado = 'sellado' where id = $1`, [sessionId]);
+    const result = await deleteSession(db, sessionId);
+    expect(result.status).toBe(409);
+    expect((await getSession(db, sessionId)).status).toBe(200);
+  });
+
+  it('answers an unknown id with 404, not with success', async () => {
+    const result = await deleteSession(db, 'a9999999-0000-4000-8000-000000000000');
+    expect(result.status).toBe(404);
   });
 });
 

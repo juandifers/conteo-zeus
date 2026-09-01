@@ -21,7 +21,11 @@
 
 .sheet {
   display: grid;
-  gap: 1.5rem;
+  /* Two-up on a desk, one per row on anything narrow: five QR cards in one
+     600px column was most of a screen of scrolling for no information. */
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 1rem 1.5rem;
+  padding: 0 16px 24px;
 }
 
 .sheet__counter {
@@ -75,6 +79,21 @@
   .chips,
   .updatebar {
     display: none !important;
+  }
+
+  /* The desk split is a screen arrangement; on paper there is only the sheet,
+     one counter per page, at the page's own width. */
+  .desksplit {
+    display: block;
+  }
+
+  .desksplit__rail {
+    display: none !important;
+  }
+
+  .sheet {
+    display: block;
+    padding: 0;
   }
 
   .sheet__counter {
@@ -362,23 +381,24 @@
   }
 }
 
-/* ---- the reparto desk -------------------------------------------------- */
+/* ---- the desk split ----------------------------------------------------- */
 
 /*
- * Two columns because the task is two-sided: the catalogue on the left is
- * what there is to walk, the plan on the right is who walks it. The rail is
- * sticky so that every move made on the left lands somewhere the admin can
- * see without scrolling — before this the sections lived above the families,
- * and checking one meant losing the other.
+ * Two columns because every desk screen has the same two halves: the work on
+ * the left — a catalogue to divide, a count to watch, a list of sessions —
+ * and, on the right, a rail with the state of it and the actions it is
+ * waiting for. The rail is sticky so a move made on the left lands somewhere
+ * the admin can see without scrolling; before this the whole desk was one
+ * narrow column with half the window empty beside it.
  */
-.reparto {
+.desksplit {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 400px;
   gap: 0 24px;
   align-items: start;
 }
 
-.reparto__plan {
+.desksplit__rail {
   position: sticky;
   top: 0;
   max-height: 100dvh;
@@ -386,14 +406,14 @@
   border-left: 1px solid var(--rule);
 }
 
-/* One column again when the window cannot hold two; the plan goes back on
+/* One column again when the window cannot hold two; the rail goes back on
    top, because the gate it carries is the first thing to understand. */
 @media (max-width: 1000px) {
-  .reparto {
+  .desksplit {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .reparto__plan {
+  .desksplit__rail {
     position: static;
     max-height: none;
     overflow-y: visible;
@@ -432,6 +452,67 @@
 }
 
 /* ---- the plan rail ----------------------------------------------------- */
+
+/*
+ * The step number. The reparto rail is one of the few places in this product
+ * where the content actually is a sequence — people, then sections, then the
+ * gate — so the numbers carry information rather than decoration. Ink on
+ * paper, like everything else.
+ */
+.stepno {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 700;
+  vertical-align: 2px;
+}
+
+.roster {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.roster__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.roster__nombre {
+  font-size: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.roster__meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  color: var(--ink-quiet);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roster__add {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.roster__add .tinput {
+  flex: 1;
+  min-width: 0;
+}
 
 .secrows {
   list-style: none;

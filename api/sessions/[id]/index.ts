@@ -184,14 +184,50 @@ export async function updateSession(db: Db, id: string, body: unknown): Promise<
   return getSession(db, id);
 }
 
+/**
+ * `DELETE /api/sessions/:id` — a junk session, gone.
+ *
+ * Everything under a session cascades from `sessions(id)` — 0003 fixed the one
+ * constraint that made the cascade unreliable, precisely so this endpoint could
+ * exist. Two rules:
+ *
+ * **A sealed or closed session is never deleted.** The seal is a signed claim
+ * about a completed count, the acta cites `sessionHash`, and the export is the
+ * byte-exact file Zeus received; deleting the row deletes the evidence the
+ * signature is about. There is no override, for the same reason the import has
+ * none.
+ *
+ * **Anything earlier goes in one statement, estado checked in the same
+ * `delete`.** A check-then-delete would race the seal: a session read as
+ * `revision` can be `sellado` by the time the second statement runs, and this
+ * gate exists for exactly that row.
+ */
+export async function deleteSession(db: Db, id: string): Promise<ApiResult> {
+  const session = await loadSessionRow(db, id);
+  if (!session) return fail(404, 'esa sesión no existe');
+  const gone = await db.query(
+    `delete from sessions where id = $1 and estado not in ('sellado', 'cerrado') returning id`,
+    [id],
+  );
+  if (gone.length === 0) {
+    return fail(
+      409,
+      'Esta sesión está sellada: su acta y su archivo son el registro de un conteo que ' +
+        'ocurrió, y no se borran.',
+    );
+  }
+  return ok({ deleted: id });
+}
+
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   const id = param(req, 'id');
   if (!id) return send(res, fail(400, 'falta el id de la sesión'));
   try {
     const db = dbFromEnv();
     if (req.method === 'PATCH') return send(res, await updateSession(db, id, req.body));
+    if (req.method === 'DELETE') return send(res, await deleteSession(db, id));
     if (req.method === undefined || req.method === 'GET') return send(res, await getSession(db, id));
-    return send(res, fail(405, 'GET o PATCH'));
+    return send(res, fail(405, 'GET, PATCH o DELETE'));
   } catch (cause) {
     if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
     return send(res, fail(500, messageOf(cause)));

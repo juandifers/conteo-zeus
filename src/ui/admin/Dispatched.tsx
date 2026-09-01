@@ -31,6 +31,7 @@ import { useState } from 'react';
 import { QrCode } from '../components/QrCode';
 import { Cambios } from './Cambios';
 import { Cierre } from './Cierre';
+import { DeleteSession } from './Reparto';
 import { Monitor } from './Monitor';
 import { Revision } from './Revision';
 import { counterLink } from './links';
@@ -113,79 +114,92 @@ export function Dispatched({
       {tab === 'cierre' && <Cierre detail={detail} api={api} onReload={onReload} />}
 
       {tab === 'seguimiento' && (
-        <>
-      <Monitor detail={detail} api={api} />
+        <div className="desksplit">
+          <div className="desksplit__main">
+            <Monitor detail={detail} api={api} />
 
-      <div className="panel">
-        <div className="panel__title">
-          Descargas: {detail.counters.length - pending.length} de {detail.counters.length}
-        </div>
-        <div className="panel__body">
-          {pending.length > 0 ? (
-            <div className="banner" role="status">
-              Todavía sin descargar: {pending.map((counter) => counter.nombre).join(', ')}. Sus
-              tabletas tienen que abrir el enlace <strong>con wifi</strong> antes de entrar a la
-              bodega; adentro no hay señal y ya no se puede.
+            {/*
+              Everything that can still change about who counts what (P2.3.5).
+              Above the printable sheet, because a sheet printed before a swap
+              is a sheet that is wrong, and the person reprinting it needs to
+              have made the change first.
+            */}
+            <Cambios detail={detail} api={api} onReload={onReload} />
+
+            <div className="sheet">
+              {detail.counters.map((counter) => {
+                const link = counterLink(counter.token);
+                return (
+                  <section className="sheet__counter" key={counter.id}>
+                    <h2 className="sheet__nombre">{counter.nombre}</h2>
+                    <div className="sheet__meta">
+                      {countOf(counter.id)} artículos ·{' '}
+                      {sectionsOf(counter.id)
+                        .map((section) => section.nombre)
+                        .join(' · ')}
+                    </div>
+                    <div className="sheet__body">
+                      <QrCode value={link} title={`Enlace de ${counter.nombre}`} />
+                      <div>
+                        {/* The link in full, selectable, in a monospaced face:
+                            the QR is for the ordinary case and this is for the
+                            tablet whose camera will not focus in a corridor. */}
+                        <code className="sheet__link">{link}</code>
+                        <div className={counter.fetchedAt ? 'chip chip--counted' : 'chip'}>
+                          {counter.fetchedAt
+                            ? `descargado ${formatInstant(counter.fetchedAt)}${
+                                counter.fetchCount > 1 ? ` · ${counter.fetchCount} veces` : ''
+                              }`
+                            : 'pendiente'}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                );
+              })}
             </div>
-          ) : (
-            <div className="hint">Todas las tabletas cargaron su asignación.</div>
-          )}
-          <div className="actions">
-            <button type="button" className="btn btn--small" onClick={onReload}>
-              Actualizar
-            </button>
-            <button
-              type="button"
-              className="btn btn--small"
-              onClick={() => globalThis.print?.()}
-            >
-              Imprimir hoja de reparto
-            </button>
           </div>
-        </div>
-      </div>
 
-      {/*
-        Everything that can still change about who counts what (P2.3.5). Above
-        the printable sheet, because a sheet printed before a swap is a sheet
-        that is wrong, and the person reprinting it needs to have made the change
-        first.
-      */}
-      <Cambios detail={detail} api={api} onReload={onReload} />
-
-      <div className="sheet">
-        {detail.counters.map((counter) => {
-          const link = counterLink(counter.token);
-          return (
-            <section className="sheet__counter" key={counter.id}>
-              <h2 className="sheet__nombre">{counter.nombre}</h2>
-              <div className="sheet__meta">
-                {countOf(counter.id)} artículos ·{' '}
-                {sectionsOf(counter.id)
-                  .map((section) => section.nombre)
-                  .join(' · ')}
+          <aside className="desksplit__rail" aria-label="Estado del despacho">
+            <div className="panel">
+              <div className="panel__title">
+                Descargas: {detail.counters.length - pending.length} de {detail.counters.length}
               </div>
-              <div className="sheet__body">
-                <QrCode value={link} title={`Enlace de ${counter.nombre}`} />
-                <div>
-                  {/* The link in full, selectable, in a monospaced face: the QR
-                      is for the ordinary case and this is for the tablet whose
-                      camera will not focus in a corridor. */}
-                  <code className="sheet__link">{link}</code>
-                  <div className={counter.fetchedAt ? 'chip chip--counted' : 'chip'}>
-                    {counter.fetchedAt
-                      ? `descargado ${formatInstant(counter.fetchedAt)}${
-                          counter.fetchCount > 1 ? ` · ${counter.fetchCount} veces` : ''
-                        }`
-                      : 'pendiente'}
+              <div className="panel__body">
+                {pending.length > 0 ? (
+                  <div className="banner" role="status">
+                    Todavía sin descargar: {pending.map((counter) => counter.nombre).join(', ')}.
+                    Sus tabletas tienen que abrir el enlace <strong>con wifi</strong> antes de
+                    entrar a la bodega; adentro no hay señal y ya no se puede.
                   </div>
+                ) : (
+                  <div className="hint">Todas las tabletas cargaron su asignación.</div>
+                )}
+                <div className="actions actions--flat">
+                  <button type="button" className="btn btn--small" onClick={onReload}>
+                    Actualizar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => globalThis.print?.()}
+                  >
+                    Imprimir hoja de reparto
+                  </button>
                 </div>
               </div>
-            </section>
-          );
-        })}
-      </div>
-        </>
+            </div>
+
+            <DeleteSession
+              api={api}
+              sessionId={detail.session.id}
+              estado={detail.session.estado}
+              onDeleted={() => {
+                if (globalThis.location) globalThis.location.hash = '#/admin';
+              }}
+            />
+          </aside>
+        </div>
       )}
     </div>
   );
