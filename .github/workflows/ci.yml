@@ -168,7 +168,17 @@ jobs:
     # Only on the default branch, and only after the checks pass. A migration
     # applied from a feature branch would move the schema under a production
     # deploy that has not shipped yet.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    #
+    # **Read the default branch from the repository rather than naming one.**
+    # This was pinned to `refs/heads/main` and this repository's default branch
+    # is `master`, so the job never ran once — silently, because a skipped job
+    # is a green tick. The schema fell behind the deploy and the only thing that
+    # said so was `/api/health`, which is exactly the failure it exists to
+    # report and exactly the wrong place to learn about it. Asking GitHub which
+    # branch is the default one also survives a rename, which naming it does not.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref_name == github.event.repository.default_branch
     needs: [check, migrations, offline]
     runs-on: ubuntu-latest
     environment: production
