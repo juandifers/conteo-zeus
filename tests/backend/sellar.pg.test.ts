@@ -22,12 +22,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createSession } from '../../api/sessions/index';
 import { dispatchSession } from '../../api/sessions/[id]/dispatch';
 import { postAction } from '../../api/sessions/[id]/acciones';
-import { sealSession } from '../../api/sessions/[id]/sellar';
-import { downloadExport, exportSession } from '../../api/sessions/[id]/exportar';
-import { sessionBundle } from '../../api/sessions/[id]/bundle';
+import { sealSession } from '../../api/sessions/[id]/_sellar';
+import { downloadExport, exportSession } from '../../api/sessions/[id]/_exportar';
+import { sessionBundle } from '../../api/sessions/[id]/_bundle';
 import { sessionSync } from '../../api/sessions/[id]/sync';
 import { counterFetch } from '../../api/c/[token]';
-import { pushEvents } from '../../api/c/[token]/events';
+import { pushEvents } from '../../api/c/[token]/_events';
 import { loadExportBytes, toBase64 } from '../../api/_store';
 import {
   actionGenesisHash,

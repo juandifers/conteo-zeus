@@ -95,3 +95,60 @@ describe('the module graph the functions ship', () => {
     expect(readFileSync(path, 'utf8')).toContain('"extends": "../tsconfig.api.json"');
   });
 });
+
+describe('the function budget', () => {
+  // Vercel's Hobby plan allows twelve serverless functions per deployment.
+  // Thirteen does not warn, degrade, or ship eleven of them: the build fails,
+  // and the last deployment that built stays up. That is how P2.5 spent an
+  // afternoon serving a pre-backend frontend with a green CI.
+  const CAP = 12;
+
+  /** What Vercel turns into an endpoint: a `.ts` under `api/`, `_` excluded. */
+  const endpoints = typescriptFiles(join(ROOT, 'api'))
+    .map((file) => file.slice(ROOT.length + 1))
+    .filter((file) => !file.split('/').some((segment) => segment.startsWith('_')));
+
+  it('stays under the cap', () => {
+    // The list comes with the failure, so it says what there is to merge.
+    const listed = endpoints.map((file) => `  ${file}`).join('\n');
+    expect(endpoints.length, `${endpoints.length} endpoints:\n${listed}`).toBeLessThanOrEqual(
+      CAP,
+    );
+  });
+
+  it('keeps a rewrite for every route folded onto another function', () => {
+    // A merged route with no rewrite is a 404 nobody sees until a tablet is in
+    // a bodega, so the two halves are asserted together rather than trusted to
+    // stay in step.
+    const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as {
+      rewrites: { source: string; destination: string }[];
+    };
+    const folded = config.rewrites.filter((rule) => rule.source.startsWith('/api/'));
+    expect(folded.map((rule) => rule.source)).toEqual([
+      '/api/c/:token/events',
+      '/api/c/:token/resume',
+      '/api/sessions/:id/sellar',
+      '/api/sessions/:id/exportar',
+      '/api/sessions/:id/bundle',
+    ]);
+    for (const rule of folded) {
+      // Every destination has to be a function that exists, and carry the `_op`
+      // its host dispatches on.
+      expect(rule.destination).toMatch(/\?_op=[a-z]+$/);
+      const path = rule.destination.replace(/\?.*$/, '').replace(/:[a-z]+/g, (match) =>
+        match === ':token' ? '[token]' : '[id]',
+      );
+      const file = join(ROOT, path.replace(/^\//, ''));
+      expect(existsSync(`${file}.ts`) || existsSync(join(file, 'index.ts'))).toBe(true);
+    }
+  });
+
+  it('routes the SPA fallback last', () => {
+    // `/((?!api/).*)` cannot swallow the API, but a rule placed after it would
+    // never be reached at all.
+    const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as {
+      rewrites: { source: string }[];
+    };
+    expect(config.rewrites.at(-1)?.source).toBe('/((?!api/).*)');
+  });
+});

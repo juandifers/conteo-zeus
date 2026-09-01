@@ -19,17 +19,8 @@
  */
 import { deriveCounterEstado, genesisHash } from '../../../src/domain/index.js';
 import { isTokenShaped } from '../../../src/lib/token.js';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
-import {
-  fail,
-  messageOf,
-  ok,
-  param,
-  send,
-  type ApiRequest,
-  type ApiResponse,
-  type ApiResult,
-} from '../../_http.js';
+import type { Db } from '../../_db.js';
+import { fail, ok, type ApiResult } from '../../_http.js';
 import { findByToken, lastClientAt, loadCounterChain, loadSessionRow } from '../../_store.js';
 
 export interface ResumePoint {
@@ -86,14 +77,4 @@ export async function counterResume(
     lastClientAt: await lastClientAt(db, found.counter.id),
     serverAt,
   } satisfies ResumePoint);
-}
-
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  if (req.method !== undefined && req.method !== 'GET') return send(res, fail(405, 'GET'));
-  try {
-    return send(res, await counterResume(dbFromEnv(), param(req, 'token')));
-  } catch (cause) {
-    if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
-    return send(res, fail(500, messageOf(cause)));
-  }
 }

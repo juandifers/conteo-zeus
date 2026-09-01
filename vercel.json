@@ -5,6 +5,26 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/c/:token/events",
+      "destination": "/api/c/:token?_op=events"
+    },
+    {
+      "source": "/api/c/:token/resume",
+      "destination": "/api/c/:token?_op=resume"
+    },
+    {
+      "source": "/api/sessions/:id/sellar",
+      "destination": "/api/sessions/:id/cierre?_op=sellar"
+    },
+    {
+      "source": "/api/sessions/:id/exportar",
+      "destination": "/api/sessions/:id/cierre?_op=exportar"
+    },
+    {
+      "source": "/api/sessions/:id/bundle",
+      "destination": "/api/sessions/:id/cierre?_op=bundle"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

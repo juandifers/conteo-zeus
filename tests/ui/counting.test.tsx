@@ -119,30 +119,40 @@ describe('no running total is reachable in the counting path', () => {
     await registrar(user, 'TAJADO', '5');
     await registrar(user, 'TAJADO', '7');
 
+    // The clock is not a surface. `formatInstant` renders «01/09/2026, 04:16
+    // p. m.», so a minute of 16, or a day or an hour of 18, would fail this
+    // test for one minute in every sixty and on two days of every month. What
+    // is being looked for is a running total, not a coincidence of digits.
+    const clockless = (): string =>
+      (document.body.textContent ?? '').replace(
+        /\d{2}\/\d{2}\/\d{4},\s*\d{2}:\d{2}\s*[ap]\.\s*m\./g,
+        '',
+      );
+
     const surfaces: string[] = [];
     /** Search results, with the article already registered three times. */
     await user.clear(screen.getByLabelText('buscar artículo'));
     await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
-    surfaces.push(document.body.textContent ?? '');
+    surfaces.push(clockless());
 
     /** The entry card, opened for a fourth time. */
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
-    surfaces.push(document.body.textContent ?? '');
+    surfaces.push(clockless());
 
     /** The confirmation, with a quantity on it. */
     await user.type(screen.getByLabelText(/cantidad contada/), '2');
     await user.click(screen.getByRole('button', { name: /^Registrar 2$/ }));
-    surfaces.push(document.body.textContent ?? '');
+    surfaces.push(clockless());
     await user.click(screen.getByRole('button', { name: /^Sí, registrar 2$/ }));
 
     /** The toast, back on the search screen. */
-    surfaces.push(document.body.textContent ?? '');
+    surfaces.push(clockless());
 
     /** Mis registros, and Terminar. */
     await user.click(tab('Mis registros'));
-    surfaces.push(document.body.textContent ?? '');
+    surfaces.push(clockless());
     await user.click(tab('Terminar'));
-    surfaces.push(document.body.textContent ?? '');
+    surfaces.push(clockless());
 
     for (const text of surfaces) {
       // 4 + 5 + 7 = 16, and 4 + 5 + 7 + 2 = 18. Neither is ever on screen.

@@ -24,17 +24,8 @@
  */
 import { bundleJson, type BundleAction, type SessionBundle } from '../../../src/app/index.js';
 import { actionGenesisHash, genesisHash } from '../../../src/domain/index.js';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
-import {
-  fail,
-  messageOf,
-  ok,
-  param,
-  send,
-  type ApiRequest,
-  type ApiResponse,
-  type ApiResult,
-} from '../../_http.js';
+import type { Db } from '../../_db.js';
+import { fail, ok, type ApiResult } from '../../_http.js';
 import {
   loadCatalogue,
   loadCounterSync,
@@ -151,14 +142,4 @@ export async function sessionBundle(db: Db, id: string | null): Promise<ApiResul
      */
     canonical: bundleJson(bundle),
   });
-}
-
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  if (req.method !== undefined && req.method !== 'GET') return send(res, fail(405, 'GET'));
-  try {
-    return send(res, await sessionBundle(dbFromEnv(), param(req, 'id')));
-  } catch (cause) {
-    if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
-    return send(res, fail(500, messageOf(cause)));
-  }
 }

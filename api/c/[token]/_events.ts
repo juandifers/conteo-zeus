@@ -37,17 +37,8 @@ import {
   type StoredCounterEvent,
 } from '../../../src/domain/index.js';
 import { isTokenShaped } from '../../../src/lib/token.js';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
-import {
-  fail,
-  messageOf,
-  ok,
-  param,
-  send,
-  type ApiRequest,
-  type ApiResponse,
-  type ApiResult,
-} from '../../_http.js';
+import type { Db } from '../../_db.js';
+import { fail, messageOf, ok, type ApiResult } from '../../_http.js';
 import {
   findByToken,
   insertEventsStatements,
@@ -456,14 +447,4 @@ function maxSkew(batch: readonly ChainedEvent[], serverAt: string): number {
     if (Math.abs(skew) > Math.abs(worst)) worst = skew;
   }
   return worst;
-}
-
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  if (req.method !== 'POST') return send(res, fail(405, 'POST'));
-  try {
-    return send(res, await pushEvents(dbFromEnv(), param(req, 'token'), req.body));
-  } catch (cause) {
-    if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
-    return send(res, fail(500, messageOf(cause)));
-  }
 }

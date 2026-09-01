@@ -53,17 +53,8 @@ import {
   type SessionActionRecord,
 } from '../../../src/domain/index.js';
 import { toBase64 } from '../../../src/lib/base64.js';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
-import {
-  fail,
-  messageOf,
-  ok,
-  param,
-  send,
-  type ApiRequest,
-  type ApiResponse,
-  type ApiResult,
-} from '../../_http.js';
+import type { Db } from '../../_db.js';
+import { fail, ok, type ApiResult } from '../../_http.js';
 import {
   exportStatements,
   loadCatalogue,
@@ -248,19 +239,4 @@ export async function downloadExport(db: Db, id: string | null): Promise<ApiResu
     bytes: bytes.length,
     exportedAt: session.exportedAt,
   } satisfies ExportFile);
-}
-
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  const id = param(req, 'id');
-  try {
-    const db = dbFromEnv();
-    if (req.method === undefined || req.method === 'GET') {
-      return send(res, await downloadExport(db, id));
-    }
-    if (req.method !== 'POST') return send(res, fail(405, 'GET, POST'));
-    return send(res, await exportSession(db, id));
-  } catch (cause) {
-    if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
-    return send(res, fail(500, messageOf(cause)));
-  }
 }

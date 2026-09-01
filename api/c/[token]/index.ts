@@ -23,6 +23,8 @@
  * counters have fetched precisely because a tablet that walks in unloaded is a
  * person who walks back out.
  */
+import { pushEvents } from './_events.js';
+import { counterResume } from './_resume.js';
 import {
   counterPayload,
   registeredArticles,
@@ -151,10 +153,42 @@ export async function counterFetch(
   return ok(payload);
 }
 
+/**
+ * The three routes under a token, behind one function.
+ *
+ * `/api/c/:token/events` and `/api/c/:token/resume` are rewritten here by
+ * `vercel.json`, which appends `_op`. The URLs the tablets call are unchanged;
+ * what changed is how many functions a deployment contains, because the Hobby
+ * plan allows twelve and P2.5 asked for thirteen. Merging on the two most
+ * closely related groups was the alternative to a monthly bill, and this is the
+ * more closely related of the two: all three answer for the same counter, in
+ * the same session, over the same chain, and they already shared every import
+ * on this page before they shared a function.
+ *
+ * The handlers stay one-liners over `counterFetch`, `pushEvents` and
+ * `counterResume`, which are what the tests call and where the reasoning lives.
+ * Nothing here decides anything.
+ */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  if (req.method !== undefined && req.method !== 'GET') return send(res, fail(405, 'GET'));
+  const op = param(req, '_op');
+  const token = param(req, 'token');
+  const method = req.method ?? 'GET';
   try {
-    return send(res, await counterFetch(dbFromEnv(), param(req, 'token')));
+    const db = dbFromEnv();
+    if (op === 'events') {
+      if (method !== 'POST') return send(res, fail(405, 'POST'));
+      return send(res, await pushEvents(db, token, req.body));
+    }
+    if (op === 'resume') {
+      if (method !== 'GET') return send(res, fail(405, 'GET'));
+      return send(res, await counterResume(db, token));
+    }
+    // No `_op`: the token's own route. An `_op` we do not know reaches here
+    // only if somebody typed it, and answering with the counter payload would
+    // be a wrong answer delivered confidently.
+    if (op !== null) return send(res, fail(404, 'No existe esa ruta.'));
+    if (method !== 'GET') return send(res, fail(405, 'GET'));
+    return send(res, await counterFetch(db, token));
   } catch (cause) {
     if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
     return send(res, fail(500, messageOf(cause)));

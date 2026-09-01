@@ -23,8 +23,8 @@ import { dispatchSession } from '../../api/sessions/[id]/dispatch';
 import { listActions, postAction } from '../../api/sessions/[id]/acciones';
 import { sessionSync } from '../../api/sessions/[id]/sync';
 import { counterFetch } from '../../api/c/[token]';
-import { pushEvents } from '../../api/c/[token]/events';
-import { counterResume } from '../../api/c/[token]/resume';
+import { pushEvents } from '../../api/c/[token]/_events';
+import { counterResume } from '../../api/c/[token]/_resume';
 import { loadItemEvents, reassignStatements, toBase64 } from '../../api/_store';
 import {
   actaLines,

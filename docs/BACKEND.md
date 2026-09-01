@@ -30,14 +30,19 @@ api/
                                                           seal-without, waive, un-waive
     sync.ts             GET   /api/sessions/:id/sync   cheap, polled: per-counter state
     events.ts           GET   /api/sessions/:id/events heavier, pulled: the log by cursor
-    sellar.ts           POST  /api/sessions/:id/sellar    abierto|revision -> sellado
-    exportar.ts         POST  /api/sessions/:id/exportar  sellado -> cerrado; writes the .txt
+    cierre.ts           POST  /api/sessions/:id/sellar    abierto|revision -> sellado
+                        POST  /api/sessions/:id/exportar  sellado -> cerrado; writes the .txt
                         GET   /api/sessions/:id/exportar  the stored bytes, base64
-    bundle.ts           GET   /api/sessions/:id/bundle    sesion_<id>.json, canonical
+                        GET   /api/sessions/:id/bundle    sesion_<id>.json, canonical
+      _sellar.ts        sealSession
+      _exportar.ts      exportSession, downloadExport
+      _bundle.ts        sessionBundle
   c/[token]/
     index.ts            GET   /api/c/:token            one counter's assignment
-    events.ts           POST  /api/c/:token/events     the push
-    resume.ts           GET   /api/c/:token/resume     where this chain stands
+                        POST  /api/c/:token/events     the push
+                        GET   /api/c/:token/resume     where this chain stands
+      _events.ts        pushEvents
+      _resume.ts        counterResume
   _db.ts                the `Db` port, and the Neon implementation
   _http.ts              request/response, typed structurally
   _store.ts             every statement this backend runs
@@ -501,6 +506,38 @@ navigation fallback for the same reason (`vite.config.ts`) — that only ever
 affected typing the URL into the address bar rather than `fetch`, but a health
 endpoint that answers `index.html` to the person checking whether the deploy is
 up is worse than one that is missing.
+
+### Nine functions, and why the routes do not match the files
+
+A deployment on Vercel's Hobby plan may contain **twelve** serverless functions.
+P2.5 brought the count to thirteen, and from that commit every deployment
+failed to build. Nothing said so where anyone was looking: CI was green, the
+frontend kept working, and production went on serving the last deployment that
+had built — which predated the entire backend. The whole API was answering
+`FUNCTION_INVOCATION_FAILED` from code that had never shipped.
+
+So two groups were merged, on the two axes where the routes were already one
+thing. `api/sessions/[id]/cierre.ts` answers `sellar`, `exportar` and `bundle` —
+one sequence over one row, where the ordering between them *is* the design.
+`api/c/[token]/index.ts` answers the token's own route plus `events` and
+`resume` — three answers about the same counter, in the same session, over the
+same chain. That leaves nine, and room.
+
+The URLs did not change. `vercel.json` rewrites the five folded paths onto their
+host function with an `_op` query parameter, and rewrites are applied only after
+the filesystem is checked — so they fire precisely because the files they name
+no longer exist. No client knows any of this happened.
+
+Neither did the reasoning move. `sealSession`, `exportSession`, `downloadExport`,
+`sessionBundle`, `pushEvents` and `counterResume` are unchanged in `_`-prefixed
+modules beside their host; the prefix is the whole mechanism, since Vercel does
+not count a file starting with `_` as an endpoint. The dispatchers choose a
+function and map a method to a status code, and the pg tests call the underlying
+functions directly, as they always did.
+
+The cost of this is that a route is no longer one file, which is a real loss —
+the map above is now the only place the two line up. It is worth knowing that
+adding a fourth endpoint group means merging again, not adding a file.
 
 ### How the functions get compiled, and why every import carries `.js`
 

@@ -45,17 +45,8 @@ import {
   type SessionActionRecord,
   type SessionEstado,
 } from '../../../src/domain/index.js';
-import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
-import {
-  fail,
-  messageOf,
-  ok,
-  param,
-  send,
-  type ApiRequest,
-  type ApiResponse,
-  type ApiResult,
-} from '../../_http.js';
+import type { Db } from '../../_db.js';
+import { fail, ok, type ApiResult } from '../../_http.js';
 import { loadCounterSync, loadSessionActions, loadSessionRow, sealStatements } from '../../_store.js';
 import { chainPoint, link, planSealWithout, rowToRecord } from './acciones.js';
 
@@ -245,14 +236,4 @@ export async function sealSession(
     contadores: rows.length,
     ...(override ? { sinRegistros: override } : {}),
   });
-}
-
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  if (req.method !== 'POST') return send(res, fail(405, 'POST'));
-  try {
-    return send(res, await sealSession(dbFromEnv(), param(req, 'id'), req.body));
-  } catch (cause) {
-    if (cause instanceof NoDatabaseError) return send(res, fail(503, cause.message));
-    return send(res, fail(500, messageOf(cause)));
-  }
 }

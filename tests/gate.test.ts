@@ -180,8 +180,8 @@ describe('no P2 source constructs one', () => {
     'src/domain/counterView.ts',
     'src/domain/sync.ts',
     'api/c/[token]/index.ts',
-    'api/c/[token]/events.ts',
-    'api/c/[token]/resume.ts',
+    'api/c/[token]/_events.ts',
+    'api/c/[token]/_resume.ts',
     'api/sessions/[id]/sync.ts',
     'api/sessions/[id]/events.ts',
   ];
@@ -206,7 +206,7 @@ describe('no P2 source constructs one', () => {
   it('the server refuses it too, whatever the client believes', () => {
     // The gate that actually holds: a cached PWA build from three weeks ago is
     // a client nothing in this repository controls.
-    const handler = code(read('api/c/[token]/events.ts'));
+    const handler = code(read('api/c/[token]/_events.ts'));
     expect(handler).toMatch(/retractsEventId === undefined/);
     expect(handler).toMatch(/RETRACT_SIN_SCOPE/);
   });
