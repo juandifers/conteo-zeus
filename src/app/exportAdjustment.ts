@@ -12,6 +12,7 @@ import { writeTxt, type WriteTxtOptions, type ZeusFile } from '../zeus';
 import { resolveSession, type CountEvent, type Session } from '../domain';
 import { sha256Hex } from '../lib/hash';
 import { CatalogueError, catalogueFaults, parseZeusBytes, sourceHashOf } from './importZeus';
+import type { PostingParameters } from './parameters';
 import { verifyWriteBack } from './verifyWriteBack';
 
 export interface ExportAdjustmentOptions
@@ -175,4 +176,116 @@ function requireSource(session: Session): Uint8Array {
     );
   }
   return session.source.bytes;
+}
+
+// --- P2.5: the sealed session's file ----------------------------------------
+
+/**
+ * The generated adjustment, with everything the seal record needs about it.
+ *
+ * The counts are reported back because the acta has to reconcile with the file
+ * rather than with a second fold of the same log, and because «298 rows, 12
+ * counted, 286 written at their book figure» is the sentence somebody reads
+ * before uploading.
+ */
+export interface SealedAdjustment {
+  /** CP850, tab-separated, CRLF. Stored verbatim and served from storage after this. */
+  bytes: Uint8Array;
+  /** SHA-256 of `bytes`, lowercase hex. `sessions.file_hash`. */
+  fileHash: string;
+  /** Rows the fold supplied a number for — counted or waived into `unchanged`. */
+  resueltas: number;
+  /** Rows written from `existencia` because nobody reached them. */
+  porPolitica: number;
+  filas: number;
+}
+
+/**
+ * Write the file for a **sealed** session, under the parameters it was counted
+ * under, and refuse to return bytes that do not match their source.
+ *
+ * ## Why this is not `exportAdjustment`
+ *
+ * The two differ in exactly one place and it is the important one.
+ * `exportAdjustment` fixes `uncountedPolicy: 'reject'` — in P1 the only route to
+ * posting an incomplete count was a signed `unchanged` event, so a row with no
+ * count was a bug and the writer threw on it. That is still the right answer for
+ * that path and it has not changed.
+ *
+ * A sealed P2 session is a different situation. Zeus's format requires every row
+ * and has no way to say «we did not look» (ZEUS_FORMAT.md §9), so a bodega where
+ * 1 800 of 2 400 rows were never reached still has to produce 2 400 lines. The
+ * session's own `uncountedPolicy` — `'existencia'` in the verified triple — is
+ * what those lines carry, which writes them as though counted and found to
+ * match.
+ *
+ * **That is a false statement about those rows, and it is made deliberately.**
+ * What makes it defensible is not this function; it is that the acta's §8 says
+ * so in as many words, that `sinVerificar` on the review screen never falls when
+ * rows are waived, and that the bundle carries the events so anybody can see
+ * which lines came from a person and which from a policy. A file that carries
+ * the truth is not available. A file that carries the fiction *plus a document
+ * that names it* is, and that pairing is the whole design of this task.
+ *
+ * ## `verifyWriteBack` aborts
+ *
+ * It re-parses the emitted bytes against the source they came from and throws on
+ * any mismatch. Nothing here catches it. It is the check that catches the P1
+ * defect class — the sheared file that would have posted wrong balances to
+ * nearly every row — and there is no version of «export it anyway» that is
+ * correct: a file that fails this is not a file whose counts landed on the
+ * articles they were taken on.
+ */
+export function writeAdjustment(
+  file: ZeusFile,
+  // A `Map` and not a `ReadonlyMap` because `writeTxt` takes one, and
+  // `src/zeus/` is frozen for this task (the golden files are what freeze it).
+  // Widening the adapter's signature to satisfy a caller is exactly the kind of
+  // change the zero-diff rule exists to keep out of a task like this one.
+  counts: Map<number, number>,
+  parameters: PostingParameters,
+): SealedAdjustment {
+  const bytes = writeTxt(file, counts, {
+    countTargetColumn: parameters.countTargetColumn,
+    uncountedPolicy: parameters.uncountedPolicy,
+    differenceColumn: parameters.differenceColumn,
+  });
+
+  // Before the bytes are stored, hashed, or seen by anybody. The only useful
+  // moment for this check is the one before a file exists that somebody
+  // believes in.
+  verifyWriteBack(file, bytes, counts, {
+    countTargetColumn: parameters.countTargetColumn,
+    uncountedPolicy: parameters.uncountedPolicy,
+  });
+
+  const resueltas = file.items.filter((item) => counts.has(item.idarticulo)).length;
+  return {
+    bytes,
+    fileHash: sha256Hex(bytes),
+    resueltas,
+    porPolitica: file.items.length - resueltas,
+    filas: file.items.length,
+  };
+}
+
+/**
+ * `AJUSTE_<bodega>_<fechaCorte>_<8 primeros del fileHash>.txt`.
+ *
+ * Zeus probably does not care what the file is called. The person with four
+ * `.txt` files in a Downloads folder at five o'clock does, and the hash prefix
+ * is what makes «which one did I upload» a question with an answer — it is on
+ * the acta and it is the first eight characters of the digest the verifier
+ * recomputes.
+ *
+ * The cutoff's slashes come out: `2026/08/28` is a label in the ERP's own form
+ * (ZEUS_FORMAT.md §2) and a filename is not a place for a path separator.
+ */
+export function adjustmentFilename(
+  bodega: string,
+  fechaCorte: string,
+  fileHash: string,
+): string {
+  const fecha = fechaCorte.replaceAll('/', '-');
+  return `AJUSTE_${bodega}_${fecha}_${fileHash.slice(0, 8)}.txt`;
 }

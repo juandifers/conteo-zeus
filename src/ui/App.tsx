@@ -28,7 +28,7 @@ import type {
 } from '../domain';
 import { UpdateNotice } from './components/UpdateNotice';
 import { browserDownload, type Downloader } from './download';
-import { loadUsuario, loadZona } from './identity';
+import { loadUsuario } from './identity';
 import { noInstall, type Install } from './install';
 import { localOutbox, replayOutbox, type Outbox } from './outbox';
 import { CountScreen } from './screens/CountScreen';
@@ -144,7 +144,6 @@ export function App({
           usuario: loadUsuario(),
           deviceId: device.deviceId,
           nextSeq: device.nextSeq,
-          zona: loadZona(sessionId),
           outbox,
         }),
       )

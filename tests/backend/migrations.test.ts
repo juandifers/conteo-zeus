@@ -111,6 +111,50 @@ describe('the schema says what P2.0 decided', () => {
   });
 });
 
+describe('the schema says what P2.3.5 decided', () => {
+  const admin = migrations.find((m) => m.name === 'admin_actions')!.sql;
+
+  it('gives the admin their own chain rather than a column on `counters`', () => {
+    // `counters` carries a token, a bound device, a `final_seq`, a manifest and
+    // four counting states. An admin has none of those meanings, and hanging
+    // four nullable columns off the entity the sealing gate reads is how a table
+    // stops being about one thing.
+    expect(admin).toMatch(/create table session_actions/);
+    expect(admin).toMatch(/unique \(session_id, seq\)/);
+    expect(admin).toMatch(/prev_hash\s+text\s+not null/);
+    expect(admin).toMatch(/hash\s+text\s+not null/);
+  });
+
+  it('stores the admin’s stamp as text, like an event’s, and for the same reason', () => {
+    // A `timestamptz` would be re-rendered on the way out and the hash would
+    // stop matching.
+    expect(admin).toMatch(/^\s*client_at\s+text\s+not null,/m);
+  });
+
+  it('stores the payload as jsonb, and says why that is safe to hash', () => {
+    // The one place this differs from `events.cantidad text`: an action payload
+    // does not participate in the fold. It is still hashed, so the migration has
+    // to point at what makes the round trip byte-stable.
+    expect(admin).toMatch(/^\s*payload\s+jsonb\s+not null,/m);
+    expect(admin).toMatch(/canonicalJson/);
+    expect(admin).toMatch(/key order/);
+  });
+
+  it('carries the optimistic-concurrency column, not a lock table', () => {
+    expect(admin).toMatch(/alter table sessions add column assignments_version integer not null default 0/);
+    // And says what it is for, because «two admins» is the whole reason.
+    expect(admin).toMatch(/reverse/);
+  });
+
+  it('adds `retirado` without a check constraint, and explains the absence', () => {
+    // The state machine lives in `src/domain/sync.ts`, where both the server and
+    // the device read it from one definition. A check constraint here would be a
+    // second copy that has to be migrated every time a state is added.
+    expect(admin).toMatch(/retirado/);
+    expect(admin).not.toMatch(/add constraint.*check/i);
+  });
+});
+
 describe('/api/health does not migrate', () => {
   // Its behaviour is tested properly in `health.test.ts`, against the exported
   // seam. This is the one property that can only be asserted about the source:

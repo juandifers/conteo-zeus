@@ -165,6 +165,6 @@ function SessionScreen({
   return load.value.session.estado === 'borrador' ? (
     <Reparto detail={load.value} api={api} onDispatched={reload} onReload={reload} />
   ) : (
-    <Dispatched detail={load.value} onReload={reload} />
+    <Dispatched detail={load.value} api={api} onReload={reload} />
   );
 }

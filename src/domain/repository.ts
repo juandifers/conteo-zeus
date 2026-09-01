@@ -102,6 +102,21 @@ export interface CounterChainRepository {
   appendChained(link: ChainedEvent): Promise<void>;
 
   /**
+   * Several chained events, in **one** transaction, all or none.
+   *
+   * What «Corregir» needs (P2.3 §3). An edit is a scoped withdrawal followed by
+   * a fresh `add`, never a mutation — and the two halves are not independently
+   * meaningful: a withdrawal that landed without its replacement is a count
+   * somebody deleted, and a replacement that landed without its withdrawal is a
+   * count entered twice. Both appear in «Mis registros» or neither does.
+   *
+   * The links must be contiguous in `seq` and chained onto each other, which is
+   * what the caller already has: the store advances its head in memory as it
+   * builds them.
+   */
+  appendChainedBatch(links: readonly ChainedEvent[]): Promise<void>;
+
+  /**
    * Where this counter's chain stands **on this device**, or `null` when this
    * device holds none of it.
    *
@@ -142,6 +157,36 @@ export interface CounterChainRepository {
 
   /** Everything the server refused because the session was sealed, for export. */
   rejected(sessionId: string, counterId: string): Promise<ChainedEvent[]>;
+
+  /**
+   * Every counter on **this device** with something still in the outbox
+   * (P2.3.5 §6a).
+   *
+   * The handover case, and the reason it is a query rather than a field on a
+   * screen. Pedro takes over Luis's physical tablet; Luis's rows are still here,
+   * some unsynced. Everything in this port is already keyed by
+   * `(sessionId, counterId)` rather than by device or by "current session" —
+   * which is what stops Pedro's arrival stranding or, worse, re-attributing
+   * Luis's morning — but a queue whose owner went home is a queue nothing looks
+   * at, and a queue nothing looks at never drains.
+   *
+   * So the drain runs for every counter listed here, in the background,
+   * foreground or not, and the sync indicator can say «Luis: 23 registros sin
+   * subir» while Pedro is counting.
+   *
+   * There is deliberately no companion that *deletes* one. There is no state in
+   * which discarding another person's unsynced counts is the right thing for a
+   * tablet to do on its own.
+   */
+  pendingOutboxes(): Promise<PendingOutbox[]>;
+}
+
+/** One counter's queue on this device, whoever is using it right now. */
+export interface PendingOutbox {
+  sessionId: string;
+  counterId: string;
+  /** Events still flagged `pendiente`. Never zero: an empty queue is not listed. */
+  pendientes: number;
 }
 
 export interface CountRepository {
@@ -420,20 +465,43 @@ export class MemoryChain implements CounterChainRepository {
   }
 
   async appendChained(link: ChainedEvent): Promise<void> {
-    validateEvent(link.event);
-    if (!link.event.counterId) {
-      throw new Error(`event ${link.event.id} has no counterId and so has no chain`);
+    await this.appendChainedBatch([link]);
+  }
+
+  /**
+   * All or none, which in a `Map` means: decide everything first, write after.
+   *
+   * The staging is not ceremony. A batch whose second link conflicts must leave
+   * the first unwritten, or the caller's next append chains onto a head this
+   * store rejected — and the in-memory implementation is the one that has to
+   * make that property explicit, since it has no transaction to inherit it from.
+   */
+  async appendChainedBatch(links: readonly ChainedEvent[]): Promise<void> {
+    const staged: (ChainedEvent & { sync: SyncState })[] = [];
+    for (const link of links) {
+      validateEvent(link.event);
+      if (!link.event.counterId) {
+        throw new Error(`event ${link.event.id} has no counterId and so has no chain`);
+      }
+      const existing = this.rows.get(link.event.id);
+      if (existing) {
+        if (sameEvent(existing.event, link.event)) continue;
+        throw new EventConflictError(link.event.id);
+      }
+      const taken = this.mine(link.event.sessionId, link.event.counterId).find(
+        (row) => row.event.seq === link.event.seq,
+      );
+      const staging = staged.find(
+        (row) =>
+          row.event.sessionId === link.event.sessionId &&
+          row.event.counterId === link.event.counterId &&
+          row.event.seq === link.event.seq,
+      );
+      const slot = taken ?? staging;
+      if (slot) throw new SequenceConflictError(link.event, slot.event.id);
+      staged.push({ ...link, sync: 'pendiente' });
     }
-    const existing = this.rows.get(link.event.id);
-    if (existing) {
-      if (sameEvent(existing.event, link.event)) return;
-      throw new EventConflictError(link.event.id);
-    }
-    const slot = this.mine(link.event.sessionId, link.event.counterId).find(
-      (row) => row.event.seq === link.event.seq,
-    );
-    if (slot) throw new SequenceConflictError(link.event, slot.event.id);
-    this.rows.set(link.event.id, { ...link, sync: 'pendiente' });
+    for (const row of staged) this.rows.set(row.event.id, row);
   }
 
   async localChain(
@@ -478,6 +546,22 @@ export class MemoryChain implements CounterChainRepository {
     return this.mine(sessionId, counterId)
       .filter((row) => row.sync === 'rechazado_sesion_sellada')
       .map((row) => ({ event: row.event, prevHash: row.prevHash, hash: row.hash }));
+  }
+
+  async pendingOutboxes(): Promise<PendingOutbox[]> {
+    const counts = new Map<string, PendingOutbox>();
+    for (const row of this.rows.values()) {
+      if (row.sync !== 'pendiente') continue;
+      const counterId = row.event.counterId;
+      if (counterId === undefined) continue;
+      const key = `${row.event.sessionId} ${counterId}`;
+      const held = counts.get(key);
+      if (held) held.pendientes++;
+      else counts.set(key, { sessionId: row.event.sessionId, counterId, pendientes: 1 });
+    }
+    return [...counts.values()].sort((a, b) =>
+      a.counterId < b.counterId ? -1 : a.counterId > b.counterId ? 1 : 0,
+    );
   }
 
   /** Test-only view: every stored row with its flag. */

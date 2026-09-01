@@ -32,8 +32,31 @@ counts.json                                    the counts that produced it
 | Written by | this application, `writeTxt` |
 | Configuration | `countTargetColumn: 'toma'`, `uncountedPolicy: 'existencia'`, `differenceColumn: 'computed'` |
 | Uploaded to Zeus on | 2026-08-28 |
-| Posted balances verified by | **TODO — name and role of whoever checked the posted balances.** Not recorded at the time; fill this in before merge. |
-| Verified against | **TODO — what the posted balances were compared to: the physical count sheet, a Zeus balance report, a screenshot? Name the artefact.** |
+| Posted balances verified by | **Juan Diego Fernández**, who ran the upload and read the balances back inside Zeus. |
+| Verified against | **The two counts as taken, from memory of the run. No artefact was kept** — no count sheet, no balance report, no screenshot. See below. |
+
+### The grade of this evidence, stated rather than implied
+
+The comparison happened and the person who made it is named. **Nothing survives
+that a third party could re-check**, so what §7.1 and §7.2 rest on is one
+person's recollection of two rows, not a document.
+
+That is a weaker claim than "Zeus posted it" alone suggests, and it is written
+here because the whole point of this file is that a closed question with no
+provenance is a guess that stopped being questioned. Two consequences follow, and
+neither is optional:
+
+- **The bytes are still the strongest evidence in this repository.** They are
+  what Zeus accepted, and `expected.txt` beside them is only what this repository
+  reproduces. That ordering does not change.
+- **A second run must keep its artefact.** `docs/PRIMERA-CORRIDA.md` is written
+  as a checklist for exactly that reason: it asks for the balances to be written
+  down *before* the upload, so the next closure is a comparison somebody else can
+  repeat rather than one they have to take on trust.
+
+Do not upgrade the wording of §7.1 on the strength of this row. It closed the
+question well enough to build on; it did not close it well enough to stop asking
+for evidence the next time.
 
 What the run actually contained:
 

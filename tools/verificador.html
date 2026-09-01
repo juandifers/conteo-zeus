@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verificador de conteo · conteo-zeus</title>
+<!--
+  ============================================================================
+  Verificador independiente — P2.5 §4b
+  ============================================================================
+
+  Un hash que nadie puede comprobar es decoración. Este archivo es lo que hace
+  que el acta signifique algo.
+
+  ## Un solo archivo, sin red, sin compilación
+
+  Se abre desde un sistema de archivos, en una máquina que nunca ha oído hablar
+  de este proyecto, en 2029. Un verificador que necesitara la aplicación en
+  marcha no serviría para auditar, porque la situación en la que alguien lo
+  busca es exactamente aquella en la que la aplicación puede ya no existir.
+
+  ## La duplicación es correcta, no una violación
+
+  El SHA-256, la canonicalización y el plegado de eventos están escritos aquí
+  otra vez, a propósito. Si este archivo importara el código que produjo los
+  hashes, coincidiría con ellos por construcción y no probaría nada. Lo que
+  demuestra una segunda implementación es que las reglas están escritas en
+  alguna parte y que se pueden volver a aplicar; lo que demostraría una
+  importación es que una función es igual a sí misma.
+
+  Si esta copia y `src/domain/chain.ts` alguna vez discrepan, una de las dos
+  está mal y el desacuerdo es el hallazgo.
+
+  ## Salida
+
+  Un veredicto y, cuando falla, **una posición**: qué cadena, qué contador, qué
+  `seq`, qué byte. «No coincide» sin una posición no es un hallazgo, es una
+  acusación.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #16181d;
+    --quiet: #5b6270;
+    --paper: #fbfaf7;
+    --rule: #d6d2c8;
+    --ok: #1d4d2b;
+    --bad: #7a1f1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #eceef2; --quiet: #a3aab8; --paper: #14161a; --rule: #333a45;
+            --ok: #7fc98f; --bad: #ef9a9a; }
+  }
+  html { background: var(--paper); color: var(--ink); }
+  body {
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0 auto; padding: 1.5rem; max-width: 56rem;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.125rem; border-bottom: 1px solid var(--rule); padding-bottom: .25rem; }
+  p.lead { color: var(--quiet); margin-top: 0; }
+  fieldset { border: 1px solid var(--rule); margin: 1rem 0; padding: 1rem; }
+  legend { font-weight: 700; padding: 0 .5rem; }
+  label { display: block; margin: .5rem 0 .25rem; font-weight: 600; }
+  button {
+    font: inherit; font-weight: 700; padding: .5rem 1rem; margin-top: 1rem;
+    border: 2px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer;
+  }
+  button[disabled] { opacity: .4; cursor: default; }
+  .verdict { font-size: 1.25rem; font-weight: 700; margin: 1rem 0; padding: .75rem;
+             border: 2px solid var(--rule); }
+  .verdict--ok { border-color: var(--ok); color: var(--ok); }
+  .verdict--bad { border-color: var(--bad); color: var(--bad); }
+  ul.checks { list-style: none; padding: 0; }
+  ul.checks li { border-bottom: 1px solid var(--rule); padding: .5rem 0; }
+  .mark { font-weight: 700; margin-right: .5rem; }
+  .mark--ok { color: var(--ok); }
+  .mark--bad { color: var(--bad); }
+  .where { display: block; color: var(--quiet); font-size: .9375rem;
+           font-family: ui-monospace, "JetBrains Mono", monospace; word-break: break-all; }
+  code { font-family: ui-monospace, "JetBrains Mono", monospace; word-break: break-all; }
+  .note { color: var(--quiet); font-size: .9375rem; }
+</style>
+</head>
+<body>
+<h1>Verificador de conteo</h1>
+<p class="lead">
+  Recalcula, desde cero y sin conexión, las cadenas de un conteo sellado y los
+  hashes que el acta imprime. No usa la aplicación que los produjo: si los
+  usara, coincidiría por construcción y no probaría nada.
+</p>
+
+<fieldset>
+  <legend>Archivos</legend>
+  <label for="bundle">Paquete de auditoría — <code>sesion_&lt;id&gt;.json</code></label>
+  <input id="bundle" type="file" accept=".json,application/json">
+  <label for="txt">Archivo para Zeus — <code>AJUSTE_….txt</code> (opcional)</label>
+  <input id="txt" type="file" accept=".txt,text/plain">
+  <button id="run" type="button" disabled>Verificar</button>
+  <p class="note">
+    Nada sale de esta máquina. La página no hace ninguna petición de red; se
+    puede comprobar desconectándola antes de abrirla.
+  </p>
+</fieldset>
+
+<div id="out"></div>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   1. SHA-256 (FIPS 180-4), sobre bytes, devolviendo hex en minúsculas.
+
+   Escrito a mano y no `crypto.subtle` por dos razones: `crypto.subtle` es
+   asíncrono y solo existe en contextos seguros, y este archivo se abre con
+   `file://`, que en varios navegadores no lo es. Un verificador que solo
+   funciona servido por HTTPS es un verificador que necesita un servidor.
+   ========================================================================== */
+const K = new Uint32Array([
+  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
+]);
+const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+
+function sha256Hex(bytes) {
+  const h = new Uint32Array([
+    0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19,
+  ]);
+  const length = bytes.length;
+  const padded = new Uint8Array(((length + 9 + 63) >> 6) << 6);
+  padded.set(bytes);
+  padded[length] = 0x80;
+  const bits = length * 8;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, Math.floor(bits / 0x100000000));
+  view.setUint32(padded.length - 4, bits >>> 0);
+
+  const w = new Uint32Array(64);
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);
+      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+    }
+    let a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (hh + S1 + ch + K[i] + w[i]) >>> 0;
+      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) >>> 0;
+      hh = g; g = f; f = e; e = (d + t1) >>> 0;
+      d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+    }
+    h[0]=(h[0]+a)>>>0; h[1]=(h[1]+b)>>>0; h[2]=(h[2]+c)>>>0; h[3]=(h[3]+d)>>>0;
+    h[4]=(h[4]+e)>>>0; h[5]=(h[5]+f)>>>0; h[6]=(h[6]+g)>>>0; h[7]=(h[7]+hh)>>>0;
+  }
+  return Array.from(h, (word) => word.toString(16).padStart(8, '0')).join('');
+}
+
+const utf8 = new TextEncoder();
+const digest = (text) => sha256Hex(utf8.encode(text));
+
+/* ==========================================================================
+   2. Las reglas de canonicalización, reescritas.
+
+   `SEPARATOR` es U+001E. Un digest hexadecimal no puede contenerlo, así que
+   ningún `prevHash` puede absorber la frontera.
+
+   Los campos se serializan como un **array de cadenas** con `JSON.stringify`:
+   el escape de cadenas de JSON está definido por la especificación y es total,
+   así que un contador que escriba un tabulador o un salto de línea en una nota
+   no puede mover el límite de un campo. Y un array, no un objeto, porque el
+   orden de las claves de un objeto es solo *casi siempre* el de inserción, y
+   «casi siempre» no es una entrada de hash.
+   ========================================================================== */
+const EVENT_TAG = 'conteo-zeus/event/v1';
+const GENESIS_TAG = 'conteo-zeus/genesis/v1';
+const ACTION_TAG = 'conteo-zeus/action/v1';
+const ACTION_GENESIS_TAG = 'conteo-zeus/action-genesis/v1';
+const SESSION_TAG = 'conteo-zeus/session/v1';
+const SEPARATOR = '\u001e';
+
+/** JSON con una secuencia de bytes definida: claves ordenadas, sin espacios. */
+function canonicalJson(value) {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error('el payload trae el número ' + String(value) +
+        '; solo los enteros seguros sobreviven un viaje por jsonb byte a byte');
+    }
+    return String(value);
+  }
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(function (pair) { return pair[1] !== undefined; })
+      .sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+    return '{' + entries.map(function (pair) {
+      return JSON.stringify(pair[0]) + ':' + canonicalJson(pair[1]);
+    }).join(',') + '}';
+  }
+  throw new Error('el payload trae un ' + typeof value + ', que no es JSON');
+}
+
+/**
+ * Los bytes exactos que un evento aporta a su cadena, desde la fila del bundle.
+ *
+ * Los campos opcionales se rellenan por `kind`, igual que hace la aplicación al
+ * reconstruir un evento desde una fila. Un `finish` no aporta ni `finalSeq` ni
+ * `headHash` al hash: están en la fila y en el manifiesto, no en la cadena.
+ */
+function canonicalEvent(row) {
+  const kind = row.kind;
+  const qty = (kind === 'set' || kind === 'add') ? String(Number(row.cantidad)) : '';
+  const retracts = kind === 'retract' ? (row.retractsEventId || '') : '';
+  const motivo = kind === 'unchanged' ? (row.motivo || '') : '';
+  const texto = kind === 'note' ? (row.texto || '') : '';
+  return JSON.stringify([
+    EVENT_TAG,
+    row.id,
+    row.sessionId,
+    row.counterId,
+    String(row.seq),
+    kind,
+    row.idarticulo === null || row.idarticulo === undefined ? '' : String(row.idarticulo),
+    qty,
+    retracts,
+    motivo,
+    texto,
+    row.usuario,
+    row.zona,
+    row.clientAt,
+    row.deviceId,
+  ]);
+}
+
+const genesisHash = (sessionId, counterId) =>
+  digest(JSON.stringify([GENESIS_TAG, sessionId, counterId]));
+const chainHash = (prevHash, row) => digest(prevHash + SEPARATOR + canonicalEvent(row));
+
+function canonicalAction(action) {
+  return JSON.stringify([
+    ACTION_TAG,
+    action.id,
+    action.sessionId,
+    String(action.seq),
+    action.kind,
+    canonicalJson(action.payload),
+    action.usuario,
+    action.at,
+  ]);
+}
+const actionGenesisHash = (sessionId) =>
+  digest(JSON.stringify([ACTION_GENESIS_TAG, sessionId]));
+const chainActionHash = (prevHash, action) =>
+  digest(prevHash + SEPARATOR + canonicalAction(action));
+
+function sessionHash(input) {
+  const counters = input.counters
+    .slice()
+    .sort(function (a, b) {
+      return a.counterId < b.counterId ? -1 : a.counterId > b.counterId ? 1 : 0;
+    })
+    .map(function (c) { return [c.counterId, c.maxSeq, c.headHash]; });
+  return digest(canonicalJson([
+    SESSION_TAG,
+    input.sessionId,
+    input.sourceHash,
+    ['contadores', counters],
+    ['acciones', input.actionMaxSeq, input.actionHead],
+  ]));
+}
+
+/* ==========================================================================
+   3. El plegado, reescrito.
+
+   Necesario para la quinta comprobación: que el `.txt` sea una representación
+   correcta del paquete. Sin plegar los eventos no se puede decir qué cantidad
+   debería llevar cada fila, y comparar solo el número de filas dejaría fuera la
+   única pregunta que importa.
+
+   La suma es decimal, por escalado a enteros: `0.1 + 0.2` en binario es
+   `0.30000000000000004`, y la regla de representación más corta escribiría eso
+   tal cual en el ERP.
+   ========================================================================== */
+function decimalPlaces(value) {
+  if (!Number.isFinite(value)) return null;
+  const text = String(value);
+  if (text.indexOf('e') >= 0 || text.indexOf('E') >= 0) return null;
+  const dot = text.indexOf('.');
+  return dot === -1 ? 0 : text.length - dot - 1;
+}
+
+function addDecimal(a, b) {
+  const dpA = decimalPlaces(a), dpB = decimalPlaces(b);
+  if (dpA === null || dpB === null) return a + b;
+  const dp = Math.max(dpA, dpB);
+  if (dp > 15) return a + b;
+  const scale = Math.pow(10, dp);
+  const sa = Math.round(a * scale), sb = Math.round(b * scale);
+  if (!Number.isSafeInteger(sa) || !Number.isSafeInteger(sb)) return a + b;
+  return (sa + sb) / scale;
+}
+
+/** El mismo orden total que usa la aplicación. */
+function compareEvents(a, b) {
+  if (a.counterId && a.counterId === b.counterId) {
+    if (a.seq !== b.seq) return a.seq - b.seq;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
+  if (a.clientAt !== b.clientAt) return a.clientAt < b.clientAt ? -1 : 1;
+  if (a.deviceId !== b.deviceId) return a.deviceId < b.deviceId ? -1 : 1;
+  if (a.seq !== b.seq) return a.seq - b.seq;
+  if (a.counterId !== b.counterId) return (a.counterId || '') < (b.counterId || '') ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Un artículo: `{state, qty}` con `state` en counted|unchanged|untouched. */
+function resolve(events) {
+  if (events.length === 0) return { state: 'untouched' };
+
+  const withdrawn = new Set();
+  for (const e of events) {
+    if (e.kind === 'retract' && e.retractsEventId) withdrawn.add(e.retractsEventId);
+  }
+  const survivors = events.filter(function (e) {
+    return !withdrawn.has(e.id) && !(e.kind === 'retract' && e.retractsEventId);
+  });
+
+  let qty;
+  let waived = false;
+  for (const e of survivors.slice().sort(compareEvents)) {
+    if (e.kind === 'set') { qty = Number(e.cantidad); waived = false; }
+    else if (e.kind === 'add') {
+      qty = addDecimal(qty === undefined ? 0 : qty, Number(e.cantidad));
+      waived = false;
+    }
+    else if (e.kind === 'unchanged') { qty = undefined; waived = true; }
+    else if (e.kind === 'retract') { qty = undefined; waived = false; }
+    // `note`, `finish` y `reopen` no afirman nada sobre la existencia.
+  }
+  if (qty !== undefined) return { state: 'counted', qty: qty };
+  return { state: waived ? 'unchanged' : 'untouched' };
+}
+
+/**
+ * Las exoneraciones en pie, proyectadas — y **solo** donde nadie contó.
+ *
+ * Es la condición de corrección de la exoneración: se evalúa contra el plegado
+ * de los eventos de los contadores y de nada más, así que un conteo que
+ * sincronizó tarde siempre gana y el resultado no depende de cuándo una tableta
+ * alcanzó el wifi.
+ */
+function standingWaivers(actions) {
+  const annulled = new Set();
+  for (const a of actions) {
+    if (a.kind === 'anular_waiver' && a.payload && a.payload.waiverId) {
+      annulled.add(a.payload.waiverId);
+    }
+  }
+  return actions.filter(function (a) {
+    return a.kind === 'waiver' && !annulled.has(a.id);
+  });
+}
+
+/* ==========================================================================
+   4. El `.txt`, leído sobre los bytes.
+
+   Sin tabla CP850: se parte por CRLF y por tabulador sobre los bytes, y solo se
+   decodifican como ASCII los dos campos que esta comprobación necesita. Los
+   bytes altos solo aparecen en `nombre`, que aquí no se compara — la fidelidad
+   de esa columna la garantiza `verifyWriteBack` dentro de la aplicación, byte a
+   byte, antes de que el archivo llegue a existir.
+   ========================================================================== */
+const COL_TOMA = 4;
+const COL_IDARTICULO = 11;
+
+function splitTxt(bytes) {
+  const rows = [];
+  let start = 0;
+  for (let i = 0; i + 1 < bytes.length; i++) {
+    if (bytes[i] === 0x0d && bytes[i + 1] === 0x0a) {
+      rows.push({ start: start, end: i });
+      start = i + 2;
+      i++;
+    }
+  }
+  return { rows: rows, trailing: start !== bytes.length };
+}
+
+function asciiField(bytes, from, to) {
+  let out = '';
+  for (let i = from; i < to; i++) out += String.fromCharCode(bytes[i]);
+  return out;
+}
+
+/** Los campos de una fila, como pares de desplazamientos en el archivo. */
+function fieldsOf(bytes, row) {
+  const spans = [];
+  let start = row.start;
+  for (let i = row.start; i < row.end; i++) {
+    if (bytes[i] === 0x09) { spans.push([start, i]); start = i + 1; }
+  }
+  spans.push([start, row.end]);
+  return spans;
+}
+
+/* ==========================================================================
+   5. Las comprobaciones.
+   ========================================================================== */
+
+/** Una comprobación con su posición. `where` es lo que convierte un no en un hallazgo. */
+function check(ok, titulo, where) {
+  return { ok: ok, titulo: titulo, where: where || '' };
+}
+
+function verifyCounterChains(bundle, out) {
+  const sessionId = bundle.sesion.id;
+  const byCounter = new Map();
+  for (const row of bundle.eventos) {
+    if (!byCounter.has(row.counterId)) byCounter.set(row.counterId, []);
+    byCounter.get(row.counterId).push(row);
+  }
+
+  const heads = [];
+  for (const counter of bundle.contadores) {
+    const nombre = counter.nombre + ' (' + counter.id + ')';
+    const rows = (byCounter.get(counter.id) || []).slice().sort(function (a, b) {
+      return a.seq - b.seq;
+    });
+
+    let head = genesisHash(sessionId, counter.id);
+    let broke = null;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.seq !== i + 1) {
+        broke = check(false, 'Cadena de ' + nombre + ': falta un tramo',
+          'se esperaba seq ' + (i + 1) + ' y la cadena salta a seq ' + row.seq);
+        break;
+      }
+      if (row.sessionId !== sessionId) {
+        broke = check(false, 'Cadena de ' + nombre + ': evento de otra sesión',
+          'seq ' + row.seq + ' · evento ' + row.id + ' dice sesión ' + row.sessionId);
+        break;
+      }
+      if (row.prevHash !== head) {
+        broke = check(false, 'Cadena de ' + nombre + ': el enlace no engancha',
+          'seq ' + row.seq + ' cuelga de ' + row.prevHash + ' y la cadena va por ' + head);
+        break;
+      }
+      const recomputed = chainHash(row.prevHash, row);
+      if (recomputed !== row.hash) {
+        broke = check(false, 'Cadena de ' + nombre + ': el contenido no corresponde a su hash',
+          'seq ' + row.seq + ' · evento ' + row.id +
+          ' · guardado ' + row.hash + ' · recalculado ' + recomputed);
+        break;
+      }
+      head = row.hash;
+    }
+    if (broke) {
+      out.push(broke);
+      heads.push({ counterId: counter.id, maxSeq: rows.length, headHash: head, roto: true });
+      continue;
+    }
+
+    out.push(check(true, 'Cadena de ' + nombre + ': ' + rows.length + ' eventos, íntegra',
+      'cabeza ' + head));
+    heads.push({ counterId: counter.id, maxSeq: rows.length, headHash: head, roto: false });
+  }
+
+  // La cabeza recalculada contra la que el sello dice haber usado.
+  for (const recorded of bundle.sellos.contadores) {
+    const mine = heads.find(function (h) { return h.counterId === recorded.counterId; });
+    if (!mine) {
+      out.push(check(false, 'El sello nombra un contador que el paquete no trae',
+        'counterId ' + recorded.counterId));
+      continue;
+    }
+    if (mine.roto) continue;
+    if (mine.maxSeq !== recorded.maxSeq) {
+      out.push(check(false, 'La cadena tiene otra longitud que la sellada',
+        'contador ' + recorded.counterId + ' · sellada hasta seq ' + recorded.maxSeq +
+        ' · en el paquete hay ' + mine.maxSeq));
+    }
+    if (mine.headHash !== recorded.headHash) {
+      out.push(check(false, 'La cabeza recalculada no es la sellada',
+        'contador ' + recorded.counterId + ' · sellada ' + recorded.headHash +
+        ' · recalculada ' + mine.headHash));
+    }
+  }
+  return heads;
+}
+
+function verifyActionChain(bundle, out) {
+  const sessionId = bundle.sesion.id;
+  const actions = bundle.acciones.slice().sort(function (a, b) { return a.seq - b.seq; });
+  let head = actionGenesisHash(sessionId);
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    if (action.seq !== i + 1) {
+      out.push(check(false, 'Cadena de decisiones: falta un tramo',
+        'se esperaba seq ' + (i + 1) + ' y salta a ' + action.seq));
+      return { head: head, maxSeq: actions.length, roto: true };
+    }
+    if (action.prevHash !== head) {
+      out.push(check(false, 'Cadena de decisiones: el enlace no engancha',
+        'seq ' + action.seq + ' cuelga de ' + action.prevHash + ' y la cadena va por ' + head));
+      return { head: head, maxSeq: actions.length, roto: true };
+    }
+    let recomputed;
+    try {
+      recomputed = chainActionHash(action.prevHash, action);
+    } catch (cause) {
+      out.push(check(false, 'Cadena de decisiones: no se puede recalcular',
+        'seq ' + action.seq + ' · ' + cause.message));
+      return { head: head, maxSeq: actions.length, roto: true };
+    }
+    if (recomputed !== action.hash) {
+      out.push(check(false, 'Cadena de decisiones: el contenido no corresponde a su hash',
+        'seq ' + action.seq + ' · acción ' + action.id +
+        ' · guardado ' + action.hash + ' · recalculado ' + recomputed));
+      return { head: head, maxSeq: actions.length, roto: true };
+    }
+    head = action.hash;
+  }
+  out.push(check(true, 'Cadena de decisiones: ' + actions.length + ' acciones, íntegra',
+    'cabeza ' + head));
+  if (head !== bundle.sellos.actionHead) {
+    out.push(check(false, 'La cabeza de decisiones recalculada no es la sellada',
+      'sellada ' + bundle.sellos.actionHead + ' · recalculada ' + head));
+  }
+  return { head: head, maxSeq: actions.length, roto: false };
+}
+
+/** El plegado completo: eventos de contadores, y después las exoneraciones. */
+function foldBundle(bundle) {
+  const byArticle = new Map();
+  for (const row of bundle.eventos) {
+    if (row.idarticulo === null || row.idarticulo === undefined) continue;
+    if (!byArticle.has(row.idarticulo)) byArticle.set(row.idarticulo, []);
+    byArticle.get(row.idarticulo).push(row);
+  }
+  const fold = new Map();
+  byArticle.forEach(function (rows, idarticulo) { fold.set(idarticulo, resolve(rows)); });
+
+  let exonerados = 0;
+  for (const waiver of standingWaivers(bundle.acciones)) {
+    for (const idarticulo of (waiver.payload.idarticulo || [])) {
+      const state = fold.has(idarticulo) ? fold.get(idarticulo).state : 'untouched';
+      if (state !== 'untouched') continue;   // un conteo nunca pierde ante una exoneración
+      fold.set(idarticulo, { state: 'unchanged' });
+      exonerados++;
+    }
+  }
+  return { fold: fold, exonerados: exonerados };
+}
+
+function verifyTxt(bundle, bytes, out) {
+  const fileHash = sha256Hex(bytes);
+  if (bundle.sellos.fileHash === null || bundle.sellos.fileHash === undefined) {
+    out.push(check(false, 'El paquete no trae fileHash',
+      'la sesión se selló pero todavía no había generado el archivo, así que este ' +
+      '.txt no se puede atar a este sello'));
+    return;
+  }
+  if (fileHash !== bundle.sellos.fileHash) {
+    out.push(check(false, 'fileHash: el .txt no es el archivo que se selló',
+      'en el paquete ' + bundle.sellos.fileHash + ' · el archivo entregado ' + fileHash));
+  } else {
+    out.push(check(true, 'fileHash: el .txt es exactamente el archivo generado', fileHash));
+  }
+
+  const split = splitTxt(bytes);
+  const rows = split.rows;
+  if (split.trailing) {
+    out.push(check(false, 'El .txt no termina en CRLF',
+      'byte ' + bytes.length + ' · el formato exige CRLF también en la última fila'));
+  }
+  if (rows.length !== bundle.catalogo.length) {
+    out.push(check(false, 'El .txt no tiene las filas del catálogo',
+      'el archivo trae ' + rows.length + ' filas y el catálogo ' + bundle.catalogo.length));
+    return;
+  }
+
+  const folded = foldBundle(bundle);
+  const policy = bundle.sesion.parameters.uncountedPolicy;
+  const target = bundle.sesion.parameters.countTargetColumn;
+  if (target !== 'toma') {
+    out.push(check(false, 'Esta comprobación solo sabe leer la columna `toma`',
+      'la sesión escribió en «' + target + '»; el resto del veredicto sigue valiendo'));
+    return;
+  }
+
+  let orden = 0, cantidades = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const spans = fieldsOf(bytes, rows[i]);
+    if (spans.length !== 24) {
+      out.push(check(false, 'Una fila del .txt no tiene 24 campos',
+        'fila ' + (i + 1) + ' · byte ' + rows[i].start + ' · tiene ' + spans.length));
+      return;
+    }
+    const idarticulo = Number(asciiField(bytes, spans[COL_IDARTICULO][0], spans[COL_IDARTICULO][1]));
+    const expectedId = bundle.catalogo[i].idarticulo;
+    if (idarticulo !== expectedId) {
+      out.push(check(false, 'El .txt está en otro orden que el catálogo',
+        'fila ' + (i + 1) + ' · byte ' + spans[COL_IDARTICULO][0] +
+        ' · el archivo dice idarticulo ' + idarticulo + ' y el catálogo ' + expectedId));
+      orden++;
+      if (orden > 4) return;
+      continue;
+    }
+
+    const toma = Number(asciiField(bytes, spans[COL_TOMA][0], spans[COL_TOMA][1]));
+    const existencia = Number(bundle.catalogo[i].existencia);
+    const resolution = folded.fold.get(idarticulo) || { state: 'untouched' };
+    let expected;
+    if (resolution.state === 'counted') expected = resolution.qty;
+    else if (resolution.state === 'unchanged') expected = existencia;
+    else if (policy === 'existencia') expected = existencia;
+    else if (policy === 'zero') expected = 0;
+    else continue;
+
+    // Igualdad exacta, con una tolerancia relativa mínima: cuando el origen es
+    // un `.xls`, el escritor renderiza los números por el `General` de Excel,
+    // que corta a 11 caracteres. Una diferencia real en un conteo nunca es de
+    // ese tamaño.
+    const diff = Math.abs(toma - expected);
+    if (diff !== 0 && diff > Math.abs(expected) * 1e-10) {
+      out.push(check(false, 'Una fila del .txt no lleva la cantidad que dice el paquete',
+        'fila ' + (i + 1) + ' · idarticulo ' + idarticulo + ' · byte ' + spans[COL_TOMA][0] +
+        ' · el archivo dice ' + toma + ' y el plegado da ' + expected +
+        ' (' + resolution.state + ')'));
+      cantidades++;
+      if (cantidades > 9) {
+        out.push(check(false, 'Hay más diferencias de cantidad',
+          'se dejaron de listar tras 10'));
+        return;
+      }
+    }
+  }
+
+  if (orden === 0 && cantidades === 0) {
+    out.push(check(true, 'El .txt es una representación correcta del paquete',
+      rows.length + ' filas, en el mismo orden, con las cantidades del plegado'));
+  }
+}
+
+function verify(bundle, txtBytes) {
+  const out = [];
+
+  if (!bundle || bundle.formato !== 'conteo-zeus/bundle/v1') {
+    out.push(check(false, 'Este archivo no es un paquete de auditoría de conteo-zeus',
+      'formato: ' + String(bundle && bundle.formato)));
+    return out;
+  }
+
+  const heads = verifyCounterChains(bundle, out);
+  const actions = verifyActionChain(bundle, out);
+
+  // El sello, recalculado desde las cabezas que acaban de recalcularse — nunca
+  // desde las que el paquete declara. Si se usaran las declaradas, el sello
+  // coincidiría aunque un evento hubiera cambiado.
+  const recomputed = sessionHash({
+    sessionId: bundle.sesion.id,
+    sourceHash: bundle.sesion.sourceHash,
+    counters: heads.map(function (h) {
+      return { counterId: h.counterId, maxSeq: h.maxSeq, headHash: h.headHash };
+    }),
+    actionHead: actions.head,
+    actionMaxSeq: actions.maxSeq,
+  });
+  if (recomputed === bundle.sellos.sessionHash) {
+    out.push(check(true, 'sessionHash: el sello corresponde a estas cadenas y a este catálogo',
+      recomputed));
+  } else {
+    out.push(check(false, 'sessionHash: el sello no corresponde a lo que hay en el paquete',
+      'en el acta ' + bundle.sellos.sessionHash + ' · recalculado ' + recomputed +
+      ' — arriba está qué cadena falló'));
+  }
+
+  const folded = foldBundle(bundle);
+  let contados = 0, sinTocar = 0;
+  for (const row of bundle.catalogo) {
+    const state = folded.fold.has(row.idarticulo)
+      ? folded.fold.get(row.idarticulo).state
+      : 'untouched';
+    if (state === 'counted') contados++;
+    else if (state === 'untouched') sinTocar++;
+  }
+  out.push(check(true, 'Plegado: ' + contados + ' filas contadas, ' + folded.exonerados +
+    ' exoneradas, ' + sinTocar + ' que nadie tocó',
+    'de ' + bundle.catalogo.length + ' filas del catálogo. Las ' +
+    (sinTocar + folded.exonerados) + ' no contadas se escriben con la cantidad de ' +
+    'Zeus, es decir, como si se hubieran contado y coincidido.'));
+
+  if (txtBytes) verifyTxt(bundle, txtBytes, out);
+
+  return out;
+}
+
+/* ==========================================================================
+   6. La página.
+   ========================================================================== */
+const bundleInput = typeof document === 'undefined' ? null : document.getElementById('bundle');
+
+if (bundleInput) {
+  const txtInput = document.getElementById('txt');
+  const runButton = document.getElementById('run');
+  const output = document.getElementById('out');
+
+  const refresh = function () { runButton.disabled = bundleInput.files.length === 0; };
+  bundleInput.addEventListener('change', refresh);
+  txtInput.addEventListener('change', refresh);
+
+  const readBytes = function (file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(new Uint8Array(reader.result)); };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const render = function (checks) {
+    output.textContent = '';
+    const failed = checks.filter(function (entry) { return !entry.ok; });
+
+    const verdict = document.createElement('div');
+    verdict.className = 'verdict ' + (failed.length === 0 ? 'verdict--ok' : 'verdict--bad');
+    verdict.textContent = failed.length === 0
+      ? 'Verificado. Todo lo que se puede recalcular, coincide.'
+      : failed.length + ' comprobación(es) no coinciden. Abajo está dónde.';
+    output.append(verdict);
+
+    const heading = document.createElement('h2');
+    heading.textContent = 'Comprobaciones';
+    output.append(heading);
+
+    const list = document.createElement('ul');
+    list.className = 'checks';
+    for (const entry of checks) {
+      const item = document.createElement('li');
+      const mark = document.createElement('span');
+      mark.className = 'mark ' + (entry.ok ? 'mark--ok' : 'mark--bad');
+      mark.textContent = entry.ok ? 'OK' : 'NO';
+      item.append(mark, document.createTextNode(entry.titulo));
+      if (entry.where) {
+        const where = document.createElement('span');
+        where.className = 'where';
+        where.textContent = entry.where;
+        item.append(where);
+      }
+      list.append(item);
+    }
+    output.append(list);
+
+    const note = document.createElement('p');
+    note.className = 'note';
+    note.textContent =
+      'Lo que esto acredita: que los eventos no cambiaron después del sello y que el ' +
+      '.txt corresponde a ellos y a ese catálogo. Lo que no acredita: quién registró ' +
+      'cada evento — no hay autenticación — ni nada que se haya modificado dentro de ' +
+      'Zeus después de cargar el archivo.';
+    output.append(note);
+  };
+
+  runButton.addEventListener('click', function () {
+    runButton.disabled = true;
+    readBytes(bundleInput.files[0])
+      .then(function (bundleBytes) {
+        const bundle = JSON.parse(new TextDecoder().decode(bundleBytes));
+        return (txtInput.files.length > 0 ? readBytes(txtInput.files[0]) : Promise.resolve(null))
+          .then(function (txtBytes) { render(verify(bundle, txtBytes)); });
+      })
+      .catch(function (cause) {
+        render([check(false, 'No se pudo leer el paquete',
+          String(cause && cause.message ? cause.message : cause))]);
+      })
+      .then(function () { runButton.disabled = false; });
+  });
+}
+
+/*
+ * Expuesto para `tests/verificador.test.ts`, que carga este archivo y ejecuta su
+ * script. La prueba usa exactamente las funciones que corre el navegador, que es
+ * el único modo de que probarlas signifique algo — y es también lo que hace que
+ * un desacuerdo entre esta copia y `src/domain/chain.ts` sea un fallo en CI en
+ * vez de un descubrimiento dentro de tres años.
+ */
+if (typeof globalThis !== 'undefined') {
+  globalThis.__verificador = {
+    verify: verify,
+    sha256Hex: sha256Hex,
+    canonicalJson: canonicalJson,
+    sessionHash: sessionHash,
+    resolve: resolve,
+    foldBundle: foldBundle,
+  };
+}
+</script>
+</body>
+</html>

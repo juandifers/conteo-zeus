@@ -23,6 +23,7 @@ import {
   genesisHash,
   type ChainedEvent,
   type CountEvent,
+  type CounterPayload,
 } from '../../src/domain';
 import { ingestZeusBytes, toWire } from '../../src/app';
 import { parseXls, reencode } from '../../src/zeus';
@@ -673,15 +674,29 @@ suite('POST /api/c/:token/events', () => {
     ]);
   });
 
-  it('the counter’s catalogue payload is byte-identical to what P2.1 shipped', async () => {
-    // The acceptance item this task must not break. Nothing here widened the
+  it('the counter’s catalogue is byte-identical to what P2.1 shipped', async () => {
+    // The acceptance item this task must not break. Nothing has widened the
     // allowlist; the leak test in tests/domain/counterView.test.ts still holds
     // over the same object, and this asserts the endpoint still builds it.
+    //
+    // **`yaRegistrados` is the one part that moves, and it is supposed to**
+    // (P2.3.5 §6b): it is a set of `idarticulo`s carrying presence and never
+    // magnitude, the same information the neutral checkmark already conveys.
+    // So the catalogue is compared byte for byte and that field is compared for
+    // what it is allowed to contain.
     const { sessionId, ana } = await dispatched();
-    const before = await counterFetch(db, ana.token, { record: false });
+    const before = (await counterFetch(db, ana.token, { record: false }))
+      .body as CounterPayload;
     await pushEvents(db, ana.token, { events: counts(sessionId, ana.id, 3, 1181) });
-    const after = await counterFetch(db, ana.token, { record: false });
-    expect(JSON.stringify(after.body)).toBe(JSON.stringify(before.body));
-    expect(JSON.stringify(after.body)).not.toMatch(/existencia|costo|"hash"|prevHash/);
+    const after = (await counterFetch(db, ana.token, { record: false })).body as CounterPayload;
+
+    const catalogue = (payload: CounterPayload) =>
+      JSON.stringify({ ...payload, yaRegistrados: undefined });
+    expect(catalogue(after)).toBe(catalogue(before));
+    expect(before.yaRegistrados).toEqual([]);
+    expect(after.yaRegistrados).toEqual([1181]);
+    expect(JSON.stringify(after)).not.toMatch(/existencia|costo|"hash"|prevHash/);
+    // Ids and nothing else — no quantity rode along with the one that moved.
+    expect(after.yaRegistrados.every((id) => Number.isInteger(id))).toBe(true);
   });
 });

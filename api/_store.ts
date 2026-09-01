@@ -15,7 +15,7 @@
  *     number. They are display and ranking figures only — never a posting
  *     input — but "never a posting input" is not a reason to let them drift.
  */
-import type { Item } from '../src/domain';
+import { eventFromRow, type CountEvent, type EventWire, type Item } from '../src/domain';
 import type { CatalogueRowWire } from '../src/app';
 import { fromBase64, toBase64 } from '../src/lib/base64';
 import type { Db, Row, Statement } from './_db';
@@ -36,6 +36,14 @@ export interface SessionRow {
   createdAt: string;
   dispatchedAt: string | null;
   itemCount: number;
+  /** Optimistic concurrency over the partition (P2.3.5 §7). Zero until the first change. */
+  assignmentsVersion: number;
+  /** P2.5. Null until the seal; set in the same transaction as `estado = 'sellado'`. */
+  sealedAt: string | null;
+  sessionHash: string | null;
+  /** Null until the export; set with `estado = 'cerrado'` and `export_bytes`. */
+  exportedAt: string | null;
+  fileHash: string | null;
 }
 
 /**
@@ -69,7 +77,12 @@ const SESSION_COLUMNS = `
   source_name                as "sourceName",
   source_hash                as "sourceHash",
   ${utc('created_at')}    as "createdAt",
-  ${utc('dispatched_at')} as "dispatchedAt"
+  ${utc('dispatched_at')} as "dispatchedAt",
+  assignments_version     as "assignmentsVersion",
+  ${utc('sealed_at')}     as "sealedAt",
+  session_hash            as "sessionHash",
+  ${utc('exported_at')}   as "exportedAt",
+  file_hash               as "fileHash"
 `;
 
 export async function listSessionRows(db: Db): Promise<SessionRow[]> {
@@ -163,6 +176,21 @@ export async function loadCatalogue(db: Db, sessionId: string): Promise<Catalogu
   }));
 }
 
+/**
+ * Just the keys, in catalogue order.
+ *
+ * `loadCatalogue` drags 298 `raw_row` arrays across the wire and every
+ * coverage question needs nothing but the primary key. Reassignment asks that
+ * question on every request, so it asks it cheaply.
+ */
+export async function loadCatalogueIds(db: Db, sessionId: string): Promise<number[]> {
+  const rows = await db.query<{ idarticulo: number }>(
+    'select idarticulo from catalog_rows where session_id = $1 order by ord',
+    [sessionId],
+  );
+  return rows.map((row) => row.idarticulo);
+}
+
 export interface CounterRow {
   id: string;
   nombre: string;
@@ -172,14 +200,23 @@ export interface CounterRow {
   fetchCount: number;
   /** The device bound on first push, or `null` before there was one (P2.2 §3a). */
   deviceId: string | null;
+  /**
+   * When the server last accepted anything from them, or `null`.
+   *
+   * On the reassignment screen (P2.3.5 §4b), because handing a counter's shelves
+   * to somebody else while their tablet has been silent for an hour is the one
+   * decision in this system that can produce a double count nothing can prevent.
+   */
+  lastServerAt: string | null;
 }
 
 export async function loadCounters(db: Db, sessionId: string): Promise<CounterRow[]> {
   return db.query<CounterRow>(
     `select id, nombre, token, estado,
-            ${utc('fetched_at')} as "fetchedAt",
+            ${utc('fetched_at')}     as "fetchedAt",
             fetch_count as "fetchCount",
-            device_id   as "deviceId"
+            device_id   as "deviceId",
+            ${utc('last_server_at')} as "lastServerAt"
      from counters where session_id = $1 order by created_at, nombre`,
     [sessionId],
   );
@@ -220,9 +257,10 @@ export async function findByToken(
 ): Promise<{ counter: CounterRow; sessionId: string } | null> {
   const rows = await db.query<CounterRow & { sessionId: string }>(
     `select id, nombre, token, estado,
-            ${utc('fetched_at')} as "fetchedAt",
+            ${utc('fetched_at')}     as "fetchedAt",
             fetch_count as "fetchCount",
             device_id   as "deviceId",
+            ${utc('last_server_at')} as "lastServerAt",
             session_id  as "sessionId"
      from counters where token = $1`,
     [token],
@@ -488,26 +526,19 @@ export async function lastClientAt(db: Db, counterId: string): Promise<string | 
  * round-trips through a float breaks the chain silently — which is
  * indistinguishable from a chain somebody tampered with.
  */
-export interface EventWire {
-  id: string;
-  sessionId: string;
-  counterId: string;
-  seq: number;
-  kind: string;
-  idarticulo: number | null;
-  cantidad: string | null;
-  retractsEventId: string | null;
-  motivo: string | null;
-  texto: string | null;
-  finalSeq: number | null;
-  headHash: string | null;
-  usuario: string;
-  zona: string;
-  clientAt: string;
-  deviceId: string;
-  prevHash: string;
-  hash: string;
-}
+/**
+ * The wire shape of one stored event, and the reader that turns it back into a
+ * domain event, both from `src/domain/wire.ts`.
+ *
+ * They moved down into the domain in P2.4: the admin's review screen pulls
+ * these rows through `GET /api/sessions/:id/events` and folds them in the
+ * browser, and a second `eventFromRow` written in `src/ui/` would be a second
+ * definition of what a stored `add` means. Re-exported here so every existing
+ * caller in `api/` is unchanged.
+ */
+export type { EventWire };
+export { eventFromRow };
+
 
 /**
  * Insert a batch, guarded on the counter's chain being exactly where the handler
@@ -528,6 +559,15 @@ export interface EventWire {
  * counter row serialises them, and the predicate makes the loser's insert a
  * no-op it can detect and re-decide from.
  */
+/**
+ * Session states that still accept counter events.
+ *
+ * Here rather than in the handler because it is a **database** predicate: the
+ * handler's copy (`OPEN_TO_PUSH`) decides what to tell the counter, and this one
+ * decides what actually lands. They agree, and they are two different jobs.
+ */
+export const OPEN_TO_EVENTS = ['abierto', 'revision'];
+
 export function insertEventsStatements(
   counterId: string,
   expectedMaxSeq: number,
@@ -551,6 +591,27 @@ export function insertEventsStatements(
    */
   const untouched = `(select coalesce(max(seq), 0) from events where counter_id = $1) = $2`;
   /**
+   * The session is still taking events — checked **inside** the transaction.
+   *
+   * P2.5 §1: `sellado` is the point after which nothing can be appended, and
+   * `api/c/[token]/events.ts` refuses a sealed session before it gets here. That
+   * check reads the session outside any transaction, though, and the window it
+   * leaves is exactly the one that matters: a push that read «abierto» at
+   * 17:03:59.8 and a seal that commits at 17:04:00.0 would put events into
+   * `events` that `session_hash` does not cover — a count in the database and
+   * outside the certificate, which is the one inconsistency the whole task
+   * exists to prevent.
+   *
+   * The `for share` below is the other half. Without it this predicate reads the
+   * committed state at statement start and the seal could commit immediately
+   * afterwards; with it, a push and a seal cannot overlap at all, and the loser
+   * finds out which one it is. `for share` rather than `for update` because
+   * pushes do not conflict with *each other* — two counters draining at once is
+   * the normal afternoon — and only the seal needs to exclude them.
+   */
+  const open = `(select estado from sessions where id =
+                  (select session_id from counters where id = $1)) = any($4::text[])`;
+  /**
    * The insert landed: the row at the batch's head is *ours*, by hash.
    *
    * The counter update cannot reuse `untouched` — by the time it runs, inside
@@ -565,7 +626,16 @@ export function insertEventsStatements(
   const landed = `(select hash from events where counter_id = $1 and seq = $9) = $10`;
 
   return [
-    // The lock, and nothing else before it.
+    // The session, shared: this transaction is one of possibly several pushes,
+    // and it excludes only the seal (`sealStatements` takes the same row `for
+    // update`). Taken before the counter lock, in the same order every other
+    // write path here takes them, so no two of them can deadlock.
+    {
+      text: `select id from sessions where id = (select session_id from counters where id = $1)
+             for share`,
+      params: [counterId],
+    },
+    // The counter lock, and nothing that writes before it.
     { text: `select id from counters where id = $1 for update`, params: [counterId] },
     {
       text: `insert into events (
@@ -581,7 +651,7 @@ export function insertEventsStatements(
                cantidad text, retracts_event_id text, motivo text, texto text,
                final_seq int, head_hash text, usuario text, zona text,
                client_at text, device_id text, prev_hash text, hash text)
-             where ${untouched}`,
+             where ${untouched} and ${open}`,
       params: [
         counterId,
         expectedMaxSeq,
@@ -606,6 +676,7 @@ export function insertEventsStatements(
             hash: event.hash,
           })),
         ),
+        OPEN_TO_EVENTS,
       ],
     },
     {
@@ -618,8 +689,15 @@ export function insertEventsStatements(
       // largest magnitude ever seen rather than its latest value: a tablet that
       // was nine minutes fast at eleven and correct at four was still nine
       // minutes fast in the log the acta is read from.
+      // `retirado` is the one state in this column that is not derived from the
+      // chain (P2.3.5 §5a): it is an admin decision, recorded in
+      // `session_actions` with a reason. Luis's tablet draining at 17:40 is
+      // welcome — his events are his and they belong in the file — but the push
+      // must not quietly put him back into the count, so the case below keeps
+      // the decision and lets everything else be re-derived.
       text: `update counters set
-               estado          = $2,
+               estado          = case when counters.estado = 'retirado'
+                                      then 'retirado' else $2 end,
                finish_reason   = $3,
                final_seq       = $4,
                head_hash       = $5,
@@ -663,6 +741,16 @@ export interface CounterSyncRow {
   nombre: string;
   estado: string;
   storedMaxSeq: number;
+  /**
+   * How many events the server holds for this counter.
+   *
+   * Beside `storedMaxSeq` because the two together answer «is this chain whole»
+   * exactly: `seq` starts at 1 and `unique (counter_id, seq)` forbids a
+   * repeat, so `count(*) = max(seq)` is contiguity and nothing else. That is the
+   * gate a **retired** counter is held to (P2.3.5 §5a), and it is one query
+   * rather than one per counter.
+   */
+  storedCount: number;
   headHash: string | null;
   finalSeq: number | null;
   finishReason: string | null;
@@ -678,6 +766,7 @@ export async function loadCounterSync(db: Db, sessionId: string): Promise<Counte
   return db.query<CounterSyncRow>(
     `select c.id, c.nombre, c.estado,
             coalesce((select max(seq) from events e where e.counter_id = c.id), 0) as "storedMaxSeq",
+            (select count(*)::int from events e where e.counter_id = c.id) as "storedCount",
             c.head_hash      as "headHash",
             c.final_seq      as "finalSeq",
             c.finish_reason  as "finishReason",
@@ -729,5 +818,609 @@ export async function loadEventsSince(
      order by server_seq
      limit $3`,
     [sessionId, since, limit],
+  );
+}
+
+// --- P2.3.5: admin actions, reassignment, retirement -------------------------
+
+/**
+ * One stored admin action, as it comes back out.
+ *
+ * `payload` arrives from the driver already parsed — both `pg` and the Neon
+ * HTTP driver decode `jsonb` — so nothing here re-parses it. What matters for
+ * the chain is that the object it hands back re-canonicalises to the same bytes
+ * that were hashed, which is what `canonicalJson`'s key sorting and its refusal
+ * of non-integer numbers exist for.
+ */
+export interface SessionActionRow {
+  id: string;
+  sessionId: string;
+  seq: number;
+  kind: string;
+  payload: unknown;
+  usuario: string;
+  clientAt: string;
+  serverAt: string;
+  prevHash: string;
+  hash: string;
+}
+
+export async function loadSessionActions(
+  db: Db,
+  sessionId: string,
+): Promise<SessionActionRow[]> {
+  return db.query<SessionActionRow>(
+    `select id, session_id as "sessionId", seq, kind, payload, usuario,
+            client_at as "clientAt",
+            ${utc('server_at')} as "serverAt",
+            prev_hash as "prevHash", hash
+     from session_actions where session_id = $1 order by seq`,
+    [sessionId],
+  );
+}
+
+/** An action on its way in. Hashed by the handler with `chainActionHash`. */
+export interface ActionWire {
+  id: string;
+  seq: number;
+  kind: string;
+  payload: unknown;
+  usuario: string;
+  clientAt: string;
+  prevHash: string;
+  hash: string;
+}
+
+function actionRows(sessionId: string, actions: readonly ActionWire[]): string {
+  return JSON.stringify(
+    actions.map((action) => ({
+      id: action.id,
+      session_id: sessionId,
+      seq: action.seq,
+      kind: action.kind,
+      // Stringified here and cast back in SQL. `jsonb_to_recordset` would give
+      // us a `jsonb` column directly, but only if the value were nested in the
+      // document — and a payload that is itself an object then has to be
+      // distinguished from the record's own fields. One less thing to get wrong.
+      payload: JSON.stringify(action.payload),
+      usuario: action.usuario,
+      client_at: action.clientAt,
+      prev_hash: action.prevHash,
+      hash: action.hash,
+    })),
+  );
+}
+
+const INSERT_ACTIONS = `
+  insert into session_actions
+    (id, session_id, seq, kind, payload, usuario, client_at, prev_hash, hash)
+  select r.id::uuid, r.session_id::uuid, r.seq, r.kind, r.payload::jsonb, r.usuario,
+         r.client_at, r.prev_hash, r.hash
+  from jsonb_to_recordset($ACTIONS::jsonb) as r(
+    id text, session_id text, seq int, kind text, payload text, usuario text,
+    client_at text, prev_hash text, hash text)
+`;
+
+export interface ReassignWrites {
+  /** The action rows, in order. The last one is what everything after is guarded on. */
+  actions: readonly ActionWire[];
+  /** `coalesce(max(seq), 0)` over `session_actions` as the handler read it. */
+  expectedActionSeq: number;
+  /** `sessions.assignments_version` as the handler read it. */
+  version: number;
+  /** Which session states may still be repartitioned (`REASSIGNABLE`). */
+  estados: readonly string[];
+  counters: readonly { id: string; nombre: string; token: string }[];
+  createSections: readonly { id: string; nombre: string; counterId: string }[];
+  repointSections: readonly { id: string; to: string }[];
+  moves: readonly { idarticulo: number; from: string; to: string; sectionId: string }[];
+}
+
+/**
+ * A reassignment, in one transaction, with every write guarded.
+ *
+ * The same shape `dispatchStatements` and `insertEventsStatements` use, for the
+ * same reason and against the same failure: **in a non-interactive transaction
+ * an unmatched `update` raises nothing.** Neon's HTTP protocol has no session to
+ * hold a transaction open across, so the decision is taken outside it, and a
+ * guard on the last statement guards nothing — the first six would already have
+ * committed. Every statement below therefore carries its own predicate, and the
+ * first one takes the row lock before anything has been written.
+ *
+ * There are two predicates, and the split is what makes this all-or-nothing:
+ *
+ *   - **`prechecked`** — the session is still open, `assignments_version` is
+ *     still what the admin planned against, every `from` really does hold its
+ *     article, and the action chain is where the handler read it. Evaluated once,
+ *     on the statement that appends the actions.
+ *   - **`landed`** — the action row at the chain's new head is *ours*, by hash.
+ *     Everything after is guarded on that instead, because by then the first
+ *     predicate is no longer true of the transaction's own state (the actions it
+ *     tested for are now there). It is the same trick `insertEventsStatements`
+ *     uses to guard the counter update after its own insert has moved `max(seq)`.
+ *
+ * So either the actions were appended — in which case every precondition held —
+ * or nothing at all happened. There is no ordering in which the partition moves
+ * and the record of why does not.
+ *
+ * The version bump is last and is what the handler reads: an empty result means
+ * somebody else reassigned while this admin was planning, and the answer is a
+ * `409` and a reload. **Move lists are never merged.**
+ */
+export function reassignStatements(sessionId: string, writes: ReassignWrites): Statement[] {
+  const head = writes.actions[writes.actions.length - 1];
+  const estados = [...writes.estados];
+  const plan = JSON.stringify(
+    writes.moves.map((move) => ({
+      idarticulo: move.idarticulo,
+      from_id: move.from,
+      to_id: move.to,
+      section_id: move.sectionId,
+    })),
+  );
+
+  /**
+   * The batch's own last action row is here, by hash.
+   *
+   * Every statement after the action insert is guarded on this rather than on
+   * `prechecked`, because by then the first predicate is no longer true of the
+   * transaction's own state — the actions it tests for are now present. Same
+   * trick, and same reason, as the counter update in `insertEventsStatements`.
+   *
+   * `$1` is always the session, `$2` the head seq, `$3` its hash. Parameters are
+   * numbered **per statement** rather than shared, because Postgres refuses a
+   * bind that supplies more parameters than the statement uses.
+   */
+  const landed = `(select hash from session_actions where session_id = $1 and seq = $2) = $3`;
+  const landedParams = [sessionId, head.seq, head.hash];
+
+  return [
+    // The lock, and nothing else before it. Anything written first could be
+    // written by a transaction that is about to lose.
+    {
+      text: `select id from sessions
+             where id = $1 and estado = any($2::text[]) and assignments_version = $3
+             for update`,
+      params: [sessionId, estados, writes.version],
+    },
+    {
+      // Everything hangs off this one statement landing. `prechecked` is the
+      // whole precondition — the session is still open, `assignments_version` is
+      // still what the admin planned against, every `from` really does hold its
+      // article, and the action chain is where the handler read it.
+      text: `${INSERT_ACTIONS.replace('$ACTIONS', '$7')}
+             where (select estado from sessions where id = $1) = any($2::text[])
+               and (select assignments_version from sessions where id = $1) = $3
+               and (select count(*) from assignments a
+                      join jsonb_to_recordset($4::jsonb)
+                        as p(idarticulo int, from_id text, to_id text, section_id text)
+                        on a.idarticulo = p.idarticulo and a.counter_id = p.from_id::uuid
+                     where a.session_id = $1) = $5
+               and (select coalesce(max(seq), 0) from session_actions where session_id = $1) = $6`,
+      params: [
+        sessionId,
+        estados,
+        writes.version,
+        plan,
+        writes.moves.length,
+        writes.expectedActionSeq,
+        actionRows(sessionId, writes.actions),
+      ],
+    },
+    {
+      // New counters, minted with the same generator and the same 128-bit token
+      // as dispatch (P2.1). `asignado`, because they have not opened the link.
+      text: `insert into counters (id, session_id, nombre, token, estado)
+             select r.id::uuid, $1::uuid, r.nombre, r.token, 'asignado'
+             from jsonb_to_recordset($4::jsonb) as r(id text, nombre text, token text)
+             where ${landed}`,
+      params: [...landedParams, JSON.stringify(writes.counters)],
+    },
+    {
+      text: `insert into sections (id, session_id, nombre, counter_id)
+             select r.id::uuid, $1::uuid, r.nombre, r.counter_id::uuid
+             from jsonb_to_recordset($4::jsonb) as r(id text, nombre text, counter_id text)
+             where ${landed}`,
+      params: [
+        ...landedParams,
+        JSON.stringify(
+          writes.createSections.map((section) => ({
+            id: section.id,
+            nombre: section.nombre,
+            counter_id: section.counterId,
+          })),
+        ),
+      ],
+    },
+    {
+      // A whole section changing hands: same row, same name, same `zona`. A
+      // second name for one shelf would put two zones on one place in the acta.
+      text: `update sections s set counter_id = r.to_id::uuid
+             from jsonb_to_recordset($4::jsonb) as r(id text, to_id text)
+             where s.id = r.id::uuid and s.session_id = $1 and ${landed}`,
+      params: [
+        ...landedParams,
+        JSON.stringify(writes.repointSections.map((section) => ({ id: section.id, to_id: section.to }))),
+      ],
+    },
+    {
+      // The move itself. `a.counter_id = p.from_id` stays in the predicate even
+      // though the action insert already verified it: a row that is not where
+      // the plan said must not be silently overwritten, and under the version
+      // guard the two can only disagree if there is a bug.
+      text: `update assignments a
+             set counter_id = p.to_id::uuid, section_id = p.section_id::uuid
+             from jsonb_to_recordset($4::jsonb)
+               as p(idarticulo int, from_id text, to_id text, section_id text)
+             where a.session_id = $1 and a.idarticulo = p.idarticulo
+               and a.counter_id = p.from_id::uuid and ${landed}
+             returning a.idarticulo`,
+      params: [...landedParams, plan],
+    },
+    {
+      // The handler reads this one. Empty means somebody else moved first, and
+      // — because everything above hangs off `landed` — nothing at all happened.
+      text: `update sessions set assignments_version = assignments_version + 1
+             where id = $1 and estado = any($4::text[]) and assignments_version = $5
+               and ${landed}
+             returning assignments_version as "assignmentsVersion"`,
+      params: [...landedParams, estados, writes.version],
+    },
+  ];
+}
+
+export interface RetireWrites {
+  counterId: string;
+  action: ActionWire;
+  expectedActionSeq: number;
+  estados: readonly string[];
+}
+
+/**
+ * Retire a counter, and record why, in one transaction.
+ *
+ * **Refused while they still hold an article.** Retirement is not a way to
+ * abandon coverage, so the reassignment comes first; sequencing it that way
+ * keeps the coverage gate one rule rather than one rule with an exception. The
+ * check is inside the transaction, on the assignments as they are at that
+ * instant, because an admin who reassigns in one tab and retires in another is
+ * the ordinary way this gets done.
+ *
+ * The state change is guarded on the action having landed, so there is no
+ * ordering in which somebody is retired and the reason is not on the chain.
+ */
+export function retireStatements(sessionId: string, writes: RetireWrites): Statement[] {
+  const estados = [...writes.estados];
+  return [
+    {
+      text: `select id from counters where id = $2::uuid and session_id = $1 for update`,
+      params: [sessionId, writes.counterId],
+    },
+    {
+      text: `${INSERT_ACTIONS.replace('$ACTIONS', '$5')}
+             where (select estado from sessions where id = $1) = any($3::text[])
+               and (select count(*) from assignments
+                     where session_id = $1 and counter_id = $2::uuid) = 0
+               and (select estado from counters where id = $2::uuid) <> 'retirado'
+               and (select coalesce(max(seq), 0) from session_actions where session_id = $1) = $4`,
+      params: [
+        sessionId,
+        writes.counterId,
+        estados,
+        writes.expectedActionSeq,
+        actionRows(sessionId, [writes.action]),
+      ],
+    },
+    {
+      text: `update counters set estado = 'retirado'
+             where id = $2::uuid and session_id = $1
+               and (select hash from session_actions where session_id = $1 and seq = $3) = $4
+             returning id`,
+      params: [sessionId, writes.counterId, writes.action.seq, writes.action.hash],
+    },
+  ];
+}
+
+export interface ActionOnlyWrites {
+  action: ActionWire;
+  expectedActionSeq: number;
+  estados: readonly string[];
+  /**
+   * A counter this action is *about*, and the state they must still be in.
+   *
+   * A parameter rather than a predicate string the caller composes: an id
+   * interpolated into SQL text is an id somebody will one day take from a
+   * request body. `sellar_sin_registros` is the case — it may only be signed
+   * against a counter who is already `retirado`, and that has to be re-checked
+   * under the lock because the read that established it was outside one.
+   */
+  counter?: { id: string; estado: string };
+}
+
+/**
+ * An admin action with no other write behind it — `sellar_sin_registros`.
+ *
+ * It changes nothing about the partition or about any counter's state. What it
+ * changes is the sealing gate, and it does that by *being on the chain*: the
+ * gate reads the action log (`sealOverrides`), so the only way to satisfy it is
+ * to sign something that will be printed on the acta.
+ */
+export function actionStatements(sessionId: string, writes: ActionOnlyWrites): Statement[] {
+  const estados = [...writes.estados];
+  const counterGuard = writes.counter
+    ? `and (select estado from counters where id = $5::uuid) = $6`
+    : '';
+
+  return [
+    { text: `select id from sessions where id = $1 for update`, params: [sessionId] },
+    {
+      text: `${INSERT_ACTIONS.replace('$ACTIONS', '$4')}
+             where (select estado from sessions where id = $1) = any($2::text[])
+               and (select coalesce(max(seq), 0) from session_actions where session_id = $1) = $3
+               ${counterGuard}`,
+      params: [
+        sessionId,
+        estados,
+        writes.expectedActionSeq,
+        actionRows(sessionId, [writes.action]),
+        ...(writes.counter ? [writes.counter.id, writes.counter.estado] : []),
+      ],
+    },
+    // Read back, so the handler answers on what is stored rather than on what it
+    // sent. An empty result is somebody else having appended this seq first.
+    {
+      text: `select seq from session_actions where session_id = $1 and seq = $2`,
+      params: [sessionId, writes.action.seq],
+    },
+  ];
+}
+
+/**
+ * One session's item events, reconstructed as domain events.
+ *
+ * Read by `GET /api/c/:token` to compute `yaRegistrados` (P2.3.5 §6b), and the
+ * one place the server folds anything. It folds with `registeredArticles`, the
+ * same function the tablet uses — deciding what "registered" means in SQL would
+ * be a second definition, and the two would disagree the first time a scoped
+ * retraction landed.
+ *
+ * Session-scoped kinds are excluded by the `idarticulo is not null` predicate:
+ * a `finish` says nothing about an article and would only be dropped by the
+ * fold anyway.
+ */
+export async function loadItemEvents(
+  db: Db,
+  sessionId: string,
+  idarticulos: readonly number[],
+): Promise<CountEvent[]> {
+  if (idarticulos.length === 0) return [];
+  const rows = await db.query<EventWire>(
+    `select id, session_id as "sessionId", counter_id as "counterId", seq, kind, idarticulo,
+            cantidad, retracts_event_id as "retractsEventId", motivo, texto,
+            final_seq as "finalSeq", head_hash as "headHash",
+            usuario, zona, client_at as "clientAt", device_id as "deviceId",
+            prev_hash as "prevHash", hash
+     from events
+     where session_id = $1 and idarticulo = any($2::int[])
+     order by counter_id, seq`,
+    [sessionId, [...idarticulos]],
+  );
+  return rows.map(eventFromRow);
+}
+
+// --- P2.5: the seal, the export, and the bundle ------------------------------
+
+/**
+ * Every event in a session, in `(counterId, seq)` order.
+ *
+ * `loadItemEvents` beside it is filtered to a set of articles and drops the
+ * session-scoped kinds; this one drops nothing. Three readers need all of it and
+ * for the same reason: the export folds the whole log, the acta reports on
+ * `finish` and `reopen` positions, and the bundle has to carry every link or the
+ * verifier cannot walk a chain from genesis.
+ *
+ * Ordered by `(counter_id, seq)` so the bundle's byte sequence does not depend
+ * on what the planner felt like doing. `canonicalJson` sorts object keys; it
+ * does not sort arrays, and it must not — an array's order is part of what it
+ * means.
+ */
+export async function loadSessionEvents(db: Db, sessionId: string): Promise<EventWire[]> {
+  return db.query<EventWire>(
+    `select id, session_id as "sessionId", counter_id as "counterId", seq, kind, idarticulo,
+            cantidad, retracts_event_id as "retractsEventId", motivo, texto,
+            final_seq as "finalSeq", head_hash as "headHash",
+            usuario, zona, client_at as "clientAt", device_id as "deviceId",
+            prev_hash as "prevHash", hash
+     from events where session_id = $1 order by counter_id, seq`,
+    [sessionId],
+  );
+}
+
+export interface SealWrites {
+  /**
+   * The `sellar_sin_registros` action signed with this seal, when there is one.
+   *
+   * In the **same transaction** and written **first**, so it is inside the chain
+   * the seal covers. An override recorded afterwards would sit outside the hash
+   * that is supposed to attest to it — which is to say, outside the only thing
+   * that makes it more than a note.
+   */
+  action?: ActionWire;
+  /** `coalesce(max(seq), 0)` over `session_actions` as the handler read it. */
+  expectedActionSeq: number;
+  /** The counter the override is about, and the state they must still be in. */
+  counter?: { id: string; estado: string };
+  /** Which session states may still be sealed. */
+  estados: readonly string[];
+  sessionHash: string;
+}
+
+/**
+ * Seal a session: freeze both chains and record what they hashed to.
+ *
+ * **`sealed_at` comes from `now()` in the database, not from the handler.**
+ * `events.server_at` defaults to the same clock, and the two are compared:
+ * «which events arrived after the seal» is only a meaningful question if both
+ * sides of it are read off one clock. A serverless function's `Date.now()` and
+ * its database's are close and are not the same, and a handler running a few
+ * seconds behind would stamp a seal that made legitimately earlier events look
+ * late — a false alarm on the one screen that must not cry wolf.
+ *
+ * Every write guarded inside the transaction, for the third time in this
+ * codebase and for the same reason as the first two (P2.2's dispatch bug):
+ * Neon's HTTP protocol has no session to hold an interactive transaction open
+ * across, so the decision is made outside it — and **an unmatched `update`
+ * raises nothing**. A guard on only the last statement would guard nothing,
+ * because the earlier ones would already have committed.
+ *
+ * The guard on the update includes `session_hash is null`, which makes the seal
+ * idempotent in the only direction that matters: two admins pressing the button
+ * at once produce one seal and one refusal, never a session whose recorded hash
+ * is over a chain that grew between the two reads.
+ */
+export function sealStatements(sessionId: string, writes: SealWrites): Statement[] {
+  const statements: Statement[] = [
+    { text: `select id from sessions where id = $1 for update`, params: [sessionId] },
+  ];
+
+  if (writes.action) {
+    const counterGuard = writes.counter
+      ? `and (select estado from counters where id = $5::uuid) = $6`
+      : '';
+    statements.push({
+      text: `${INSERT_ACTIONS.replace('$ACTIONS', '$4')}
+             where (select estado from sessions where id = $1) = any($2::text[])
+               and (select coalesce(max(seq), 0) from session_actions where session_id = $1) = $3
+               ${counterGuard}`,
+      params: [
+        sessionId,
+        [...writes.estados],
+        writes.expectedActionSeq,
+        actionRows(sessionId, [writes.action]),
+        ...(writes.counter ? [writes.counter.id, writes.counter.estado] : []),
+      ],
+    });
+  }
+
+  statements.push({
+    text: `update sessions
+             set estado = 'sellado', sealed_at = now(), session_hash = $2
+           where id = $1
+             and estado = any($3::text[])
+             and session_hash is null
+             and (select coalesce(max(seq), 0) from session_actions where session_id = $1) = $4
+           returning ${utc('sealed_at')} as "sealedAt", session_hash as "sessionHash"`,
+    params: [
+      sessionId,
+      writes.sessionHash,
+      [...writes.estados],
+      // The chain must be exactly where the hash was taken over: the override
+      // this transaction just wrote, or nothing at all. An action that landed
+      // between the read and this statement would be one the seal does not cover.
+      writes.expectedActionSeq + (writes.action ? 1 : 0),
+    ],
+  });
+
+  return statements;
+}
+
+export interface ExportWrites {
+  bytes: Uint8Array;
+  fileHash: string;
+}
+
+/**
+ * Store the generated file and close the session.
+ *
+ * One statement, guarded on `estado = 'sellado'` and on there being no bytes
+ * yet. Generation happens once: a second export would produce a second
+ * `file_hash` for a session whose acta names the first, and the honest name for
+ * that is two files.
+ *
+ * `decode($2, 'hex')` rather than a driver-side `bytea` parameter, because the
+ * two drivers disagree about how to send one — `pg` wants a Buffer and the Neon
+ * HTTP driver serialises through JSON — and hex is what both can carry as text.
+ * The same asymmetry `loadSourceBytes` handles on the way out.
+ */
+export function exportStatements(sessionId: string, writes: ExportWrites): Statement[] {
+  const hex = Array.from(writes.bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return [
+    { text: `select id from sessions where id = $1 for update`, params: [sessionId] },
+    {
+      text: `update sessions
+               set estado = 'cerrado',
+                   exported_at = now(),
+                   file_hash = $2,
+                   export_bytes = decode($3, 'hex')
+             where id = $1 and estado = 'sellado' and export_bytes is null
+             returning ${utc('exported_at')} as "exportedAt", file_hash as "fileHash"`,
+      params: [sessionId, writes.fileHash, hex],
+    },
+  ];
+}
+
+/**
+ * The generated file, back out again.
+ *
+ * The same two-driver normalisation as `loadSourceBytes`, and the same reason
+ * it is worth a function: a re-download that served a `\\x…` string as though it
+ * were bytes would produce a file that is twice the size and entirely wrong,
+ * and it would do so only on whichever driver the deploy happened to use.
+ */
+export async function loadExportBytes(db: Db, id: string): Promise<Uint8Array | null> {
+  const rows = await db.query<{ export_bytes: unknown }>(
+    'select export_bytes from sessions where id = $1',
+    [id],
+  );
+  const value = rows[0]?.export_bytes;
+  if (value === undefined || value === null) return null;
+  if (value instanceof Uint8Array) return new Uint8Array(value);
+  if (typeof value === 'string') {
+    const hex = value.startsWith('\\x') ? value.slice(2) : value;
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(hex.substr(i * 2, 2), 16);
+    return bytes;
+  }
+  throw new Error(`export_bytes came back as ${typeof value}, which no driver should produce`);
+}
+
+/**
+ * Events the server accepted **after** the seal.
+ *
+ * This list should always be empty, and it is read anyway.
+ *
+ * `insertEventsStatements` guards the insert on the session still being open
+ * and takes the session row `for share`, so a push and a seal cannot overlap
+ * and a late batch is refused rather than stored. That is an argument, and the
+ * screen this feeds is the one place where an argument is not good enough: an
+ * event in `events` that `session_hash` does not cover is a count in the
+ * database and outside the certificate, and the admin has to be able to see one
+ * rather than be told it cannot happen.
+ *
+ * A non-empty answer means the guard failed — a hand-run `insert`, a restored
+ * backup, a future migration that forgot. It is shown apart from the sealed set,
+ * because those events are real work and are **not** part of what was certified.
+ *
+ * **`sealed_at` is read in SQL, never passed in.** The value this endpoint hands
+ * to a browser is rendered to milliseconds (`utc()`), and `timestamptz` keeps
+ * microseconds; comparing against the rendered string flags every event that
+ * landed in the same millisecond as the seal — which, on a fast machine, is the
+ * last push before it. A false «events arrived after the seal» on the one panel
+ * whose whole job is integrity is worse than no panel.
+ */
+export async function loadEventsAfter(db: Db, sessionId: string): Promise<AdminEventRow[]> {
+  return db.query<AdminEventRow>(
+    `select id, session_id as "sessionId", counter_id as "counterId", seq, kind, idarticulo,
+            cantidad, retracts_event_id as "retractsEventId", motivo, texto,
+            final_seq as "finalSeq", head_hash as "headHash",
+            usuario, zona, client_at as "clientAt", device_id as "deviceId",
+            prev_hash as "prevHash", hash,
+            server_seq::text as "serverSeq",
+            ${utc('server_at')} as "serverAt"
+     from events
+     where session_id = $1
+       and server_at > (select sealed_at from sessions where id = $1)
+     order by server_at`,
+    [sessionId],
   );
 }

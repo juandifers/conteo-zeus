@@ -319,8 +319,12 @@ export type ManifestVerdict =
  * The admin has to act on this — go and find the tablet holding seq 88 to 91 —
  * so it is a range list rather than a count. A count is a number nobody can do
  * anything with.
+ *
+ * Exported since P2.3.5: `sellar_sin_registros` records the range it is signing
+ * over, in the same spelling the counter's own `finish_reason` uses, so the
+ * acta and the monitoring screen name the same gap the same way.
  */
-function missingRanges(missing: readonly number[]): string {
+export function seqRanges(missing: readonly number[]): string {
   const parts: string[] = [];
   let start = missing[0];
   let prev = missing[0];
@@ -401,7 +405,7 @@ export function checkFinishManifest(input: {
     if (!bySeq.has(seq)) missing.push(seq);
   }
   if (missing.length > 0) {
-    return { ok: false, reason: `faltan seq ${missingRanges(missing)}` };
+    return { ok: false, reason: `faltan seq ${seqRanges(missing)}` };
   }
 
   // The empty case is not a special case in the arithmetic, only in where the
@@ -420,4 +424,269 @@ export function checkFinishManifest(input: {
   }
 
   return { ok: true };
+}
+
+// --- P2.3.5: the admin's own chain ------------------------------------------
+
+/**
+ * The second domain separator, for the second chain.
+ *
+ * Retiring a counter is a decision, made by a named person, that an auditor
+ * will ask about — and until P2.3.5 there was nowhere to record one. `events`
+ * is per counter and anchored to counter identity, so an admin action does not
+ * fit in it and a nullable `counter_id` would put four meanings in one table.
+ * P2.4's waivers have the same problem and worse, a waiver being an admin
+ * vouching for a book figure on a row nobody counted; solving it here means
+ * P2.4 inherits the mechanism rather than inventing a second one.
+ *
+ * **One chain per session, not one per admin.** Admin actions happen at a desk,
+ * one at a time, and a single sequence is both sufficient and easier to verify
+ * than several that would have to be interleaved afterwards.
+ *
+ * The tags are distinct from the event ones so that no action can ever be
+ * mistaken for an event, or hashed into an event chain, however either format
+ * changes later.
+ */
+const ACTION_TAG = 'conteo-zeus/action/v1';
+const ACTION_GENESIS_TAG = 'conteo-zeus/action-genesis/v1';
+
+/**
+ * The seal's own separator, distinct from the two chains it covers.
+ *
+ * Versioned like the others: a future change to what the seal hashes must be a
+ * *different* seal rather than a silently incompatible one, because the verifier
+ * that recomputes it may be five years older than the bundle it is handed.
+ */
+const SESSION_TAG = 'conteo-zeus/session/v1';
+
+/** One admin action, as much of it as the chain hashes. */
+export interface ChainableAction {
+  id: string;
+  sessionId: string;
+  seq: number;
+  kind: string;
+  /** JSON, and only the subset `canonicalJson` accepts — see there. */
+  payload: unknown;
+  /** Who decided. Typed at the desk; there are no accounts (docs/BACKEND.md). */
+  usuario: string;
+  /** Normalised UTC, like an event's `at`. */
+  at: string;
+}
+
+/**
+ * JSON with a defined byte sequence: keys sorted, no whitespace, no surprises.
+ *
+ * An action's payload is heterogeneous — a move list, a counter id, a missing
+ * range — and none of it participates in the fold, so it is stored as `jsonb`.
+ * That is the whole reason this function has to exist: `jsonb` does **not**
+ * preserve key order, so `JSON.stringify` over the value read back out is not
+ * the string that went in, and a hash over it would fail to verify on the first
+ * read. Sorting the keys makes the two agree by construction.
+ *
+ * **Only integers.** `jsonb` stores numbers as `numeric` and renders them back
+ * canonically, so `1.0` and `1e2` do not survive as written; an integer does.
+ * There is no quantity in any admin action — quantities are what counters emit
+ * — so this costs nothing and closes the one way the round trip could change a
+ * byte. A float is refused here rather than hashed into a chain that will not
+ * verify tomorrow.
+ */
+export function canonicalJson(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(
+        `an action payload carries the number ${String(value)}; only safe integers ` +
+          'survive a jsonb round trip byte for byte, and an action carries no quantity',
+      );
+    }
+    return String(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, held]) => held !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries
+      .map(([key, held]) => `${JSON.stringify(key)}:${canonicalJson(held)}`)
+      .join(',')}}`;
+  }
+  throw new Error(`an action payload carries a ${typeof value}, which is not JSON`);
+}
+
+/** The exact bytes an action contributes to the session's action chain. */
+export function canonicalAction(action: ChainableAction): string {
+  if (!Number.isSafeInteger(action.seq) || action.seq < 1) {
+    throw new UnchainableEventError(
+      action.id,
+      `seq is ${String(action.seq)}, not a whole number >= 1`,
+    );
+  }
+  if (action.usuario.trim() === '') {
+    throw new UnchainableEventError(
+      action.id,
+      'it names no usuario. An admin action with nobody on it is exactly the thing ' +
+        'this chain exists to prevent',
+    );
+  }
+  return JSON.stringify([
+    ACTION_TAG,
+    action.id,
+    action.sessionId,
+    String(action.seq),
+    action.kind,
+    canonicalJson(action.payload),
+    action.usuario,
+    action.at,
+  ]);
+}
+
+/** Where a session's action chain starts. Anchored to the session, like `genesisHash`. */
+export function actionGenesisHash(sessionId: string): string {
+  return sha256Hex(utf8.encode(JSON.stringify([ACTION_GENESIS_TAG, sessionId])));
+}
+
+/** The action's link hash: the previous hash, the separator, and the canonical action. */
+export function chainActionHash(prevHash: string, action: ChainableAction): string {
+  return sha256Hex(utf8.encode(prevHash + SEPARATOR + canonicalAction(action)));
+}
+
+/** One stored action link, as the server holds it. */
+export type StoredAction = ChainableAction & { prevHash: string; hash: string };
+
+/** The action chain, verified end to end. Same shape of answer as `verifyChain`. */
+export function verifyActionChain(
+  sessionId: string,
+  actions: readonly StoredAction[],
+): ChainVerdict {
+  const sorted = [...actions].sort((a, b) => a.seq - b.seq);
+  for (const [index, action] of sorted.entries()) {
+    if (action.sessionId !== sessionId) {
+      return {
+        ok: false,
+        problem: 'foreign-event',
+        detail: `action ${action.id} belongs to session ${action.sessionId}, not ${sessionId}`,
+        atSeq: action.seq,
+      };
+    }
+    if (index > 0 && action.seq === sorted[index - 1].seq) {
+      return {
+        ok: false,
+        problem: 'duplicate-seq',
+        detail: `actions ${sorted[index - 1].id} and ${action.id} both claim seq ${action.seq}`,
+        atSeq: action.seq,
+      };
+    }
+    if (action.seq !== index + 1) {
+      return {
+        ok: false,
+        problem: 'gap',
+        detail: `seq ${index + 1} is missing: the action chain jumps to ${action.seq}`,
+        atSeq: index + 1,
+      };
+    }
+  }
+
+  let head = actionGenesisHash(sessionId);
+  for (const action of sorted) {
+    if (action.prevHash !== head) {
+      return {
+        ok: false,
+        problem: 'unchainable',
+        detail:
+          `action ${action.id} (seq ${action.seq}) hangs off ${action.prevHash.slice(0, 12)} ` +
+          `and the chain is at ${head.slice(0, 12)}`,
+        atSeq: action.seq,
+      };
+    }
+    let recomputed: string;
+    try {
+      recomputed = chainActionHash(action.prevHash, action);
+    } catch (cause) {
+      return {
+        ok: false,
+        problem: 'unchainable',
+        detail: cause instanceof Error ? cause.message : String(cause),
+        atSeq: action.seq,
+      };
+    }
+    if (recomputed !== action.hash) {
+      return {
+        ok: false,
+        problem: 'unchainable',
+        detail: `the hash of action seq ${action.seq} does not correspond to its content`,
+        atSeq: action.seq,
+      };
+    }
+    head = action.hash;
+  }
+
+  return {
+    ok: true,
+    head,
+    finalSeq: sorted.length === 0 ? 0 : sorted[sorted.length - 1].seq,
+    count: sorted.length,
+  };
+}
+
+/**
+ * The seal hash: both chains, and the catalogue they were counted against.
+ *
+ * From P2.3.5 on a session's history is two append-only logs. A `session_hash`
+ * over only the counters' events would leave every admin decision — who was
+ * retired, what was reassigned, whose missing work was sealed over, which
+ * eighteen hundred rows somebody signed off unseen — outside the seal and
+ * therefore outside whatever the acta guarantees. Those are precisely the
+ * entries somebody would have a motive to change afterwards.
+ *
+ * **`sourceHash` is not decoration.** Without it the same event set over a
+ * different catalogue produces the same session hash, and the seal would attest
+ * to counts detached from the rows they were counted against — «91069 = 2» is
+ * a fact about a bodega only in company with the file that says 91069 is a
+ * `PASTA NATURAL DE CEREZA` with a book figure of 1.
+ *
+ * **Every head is tagged and every chain carries its length.** The heads alone
+ * would let a counter's head and the actions' head be exchanged for one
+ * another; the lengths make a truncation visible in the hash rather than only
+ * in the chain it truncated. A session with no admin actions still hashes over
+ * `actionGenesisHash` at length zero rather than over nothing.
+ *
+ * Serialised with `canonicalJson` rather than `JSON.stringify` so that the
+ * verifier — which duplicates this function rather than importing it, on
+ * purpose (P2.5 §4b) — has one written rule to reimplement instead of an
+ * implicit dependence on key order and number rendering.
+ */
+export function sessionHash(input: {
+  sessionId: string;
+  /** The catalogue this count was taken against. Ties the seal to the file. */
+  sourceHash: string;
+  /**
+   * One entry per counter: how far their chain runs and where its head is.
+   *
+   * Sorted here, by counter id, never by the caller. A hash whose input order
+   * depended on what a `select` happened to return is a hash that verifies on
+   * one machine.
+   */
+  counters: readonly { counterId: string; maxSeq: number; headHash: string }[];
+  /** The action chain's head, or `actionGenesisHash(sessionId)` when there are none. */
+  actionHead: string;
+  /** The highest action `seq`, or 0. */
+  actionMaxSeq: number;
+}): string {
+  const counters = [...input.counters]
+    .sort((a, b) => (a.counterId < b.counterId ? -1 : a.counterId > b.counterId ? 1 : 0))
+    .map((counter) => [counter.counterId, counter.maxSeq, counter.headHash]);
+
+  return sha256Hex(
+    utf8.encode(
+      canonicalJson([
+        SESSION_TAG,
+        input.sessionId,
+        input.sourceHash,
+        ['contadores', counters],
+        ['acciones', input.actionMaxSeq, input.actionHead],
+      ]),
+    ),
+  );
 }

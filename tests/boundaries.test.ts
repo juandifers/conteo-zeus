@@ -183,6 +183,110 @@ describe('layer boundaries', () => {
     expect(reachesTheDomain).toBe(true);
   });
 
+  /**
+   * The counter bundle never reaches the review module — P2.4.
+   *
+   * `src/domain/ownWork.ts` is the seam that keeps quantities out of the
+   * counting components; this is the same seam one layer up. `review.ts` reads
+   * `existencia` and `costo` and derives variances out of both, which is exactly
+   * right for the person who signs the acta and exactly wrong for a device in a
+   * bodega. §2.1 governs the tablet and only the tablet, and the way to keep
+   * that true under refactoring is to make the reach a test failure rather than
+   * a review comment.
+   *
+   * The walk stops at `src/domain/index.ts` on purpose. It is a barrel that
+   * re-exports every module in the domain, so following it would make every file
+   * reachable from every file and the assertion would say nothing. What is
+   * asserted instead is the thing that actually matters and that a bundler
+   * actually keeps: **no file the counter renders imports a name the review
+   * module exports**, by any route.
+   */
+  describe('the counter bundle does not import the review module (P2.4)', () => {
+    /** Everything reachable from the counting screens, barrel excluded. */
+    function counterClosure(): Set<string> {
+      const seen = new Set<string>();
+      const queue = filesUnder(join(SRC, 'ui', 'counter'));
+      while (queue.length > 0) {
+        const file = queue.pop()!;
+        if (seen.has(file)) continue;
+        seen.add(file);
+        for (const match of readFileSync(file, 'utf8').matchAll(IMPORT)) {
+          const specifier = match[1];
+          if (!specifier.startsWith('.')) continue;
+          const target = resolvePath(dirname(file), specifier);
+          // The barrel: transparent, not followed. See the note above.
+          if (target === join(SRC, 'domain') || target === join(SRC, 'domain', 'index')) continue;
+          for (const candidate of [
+            `${target}.ts`,
+            `${target}.tsx`,
+            join(target, 'index.ts'),
+            join(target, 'index.tsx'),
+          ]) {
+            try {
+              if (statSync(candidate).isFile()) {
+                queue.push(candidate);
+                break;
+              }
+            } catch {
+              // Not this extension. The next candidate, or nothing at all —
+              // a specifier that resolves to no file is a compile error, and
+              // this test is not the place to report it.
+            }
+          }
+        }
+      }
+      return seen;
+    }
+
+    /** Every name `src/domain/review.ts` exports, function or type. */
+    function reviewExports(): string[] {
+      const source = readFileSync(join(SRC, 'domain', 'review.ts'), 'utf8');
+      return [
+        ...source.matchAll(/export\s+(?:function|interface|type|const)\s+(\w+)/g),
+      ].map((match) => match[1]);
+    }
+
+    it('no counting file imports one of its names, by any route', () => {
+      const names = new Set(reviewExports());
+      expect(names.size).toBeGreaterThan(8);
+
+      const offenders: string[] = [];
+      for (const file of counterClosure()) {
+        const source = readFileSync(file, 'utf8');
+        for (const match of source.matchAll(IMPORT)) {
+          // The names inside the braces, with `type` prefixes and aliases
+          // stripped. A default import cannot name one of these: the module has
+          // no default export.
+          const clause = source.slice(match.index ?? 0, (match.index ?? 0) + match[0].length);
+          const braces = /\{([^}]*)\}/.exec(clause);
+          if (!braces) continue;
+          for (const raw of braces[1].split(',')) {
+            const name = raw.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim();
+            if (name !== '' && names.has(name)) {
+              offenders.push(`${relative(SRC, file)} -> ${name}`);
+            }
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
+
+    it('and never reaches an admin screen either', () => {
+      const admin = [...counterClosure()].filter((file) =>
+        file.startsWith(join(SRC, 'ui', 'admin')),
+      );
+      expect(admin.map((file) => relative(SRC, file))).toEqual([]);
+    });
+
+    it('the closure is a real closure — it would pass on an empty walk', () => {
+      const closure = counterClosure();
+      // It reaches the store and the api port at least, or the walk stopped at
+      // the first file and every assertion above is vacuous.
+      expect(closure.size).toBeGreaterThan(12);
+      expect([...closure].some((file) => file.includes(join('ui', 'store')))).toBe(true);
+    });
+  });
+
   it('the scanner actually sees imports — it would pass on an empty read', () => {
     // Guards against the regex silently matching nothing and every check above
     // becoming vacuous.

@@ -19,12 +19,37 @@ const UNTOUCHED: Resolution = Object.freeze({ state: 'untouched' as const });
 /**
  * Total order over events, used before folding.
  *
- * **Never fold in array order.** Stage 2 merges logs from several offline
+ * **Never fold in array order.** A session's log is merged from several offline
  * devices, and the array order is then just whichever log was concatenated
  * first — two devices holding the same events would resolve the same item
  * differently, which is the one thing a distributed count cannot afford.
  *
- * Ordering is `(at, deviceId, seq)`:
+ * There are two orders here, and which one applies is decided by one question:
+ * **do these two events belong to the same counter?**
+ *
+ * ## Within one counter: `seq`, and nothing else
+ *
+ * `seq` is allocated per counter — `unique (counter_id, seq)` on the server,
+ * continued onto a replacement tablet by `GET /api/c/:token/resume` — so within
+ * one counter it *is* the causal order, whatever any clock says. Ordering their
+ * events by `at` first was a real bug rather than a tidiness complaint: a
+ * counter who moves to a spare tablet whose clock runs nine minutes slow stamps
+ * events that sort **before** the ones they continue, and for that counter's own
+ * article the difference is a correction losing to the value it was correcting.
+ *
+ * The resume watermark (`CountStoreOptions.highWater`) does hold that shut, but
+ * only by clamping the spare's `at` up to the last one the server saw — which
+ * makes the two events *equal* on the first key and hands the decision to the
+ * lexicographic order of two uuids. A tie-break deciding which of a counter's
+ * own taps came first is not an ordering, it is a coin. The watermark stays
+ * because it keeps the audit timeline on the acta readable, which is what it
+ * should have been doing; it is no longer what keeps a total right.
+ *
+ * P1 events have no `counterId`, so this branch never fires for them and their
+ * logs fold exactly as they did — asserted by `tests/domain/migration.test.ts`,
+ * which is the reason it is safe to change this at all.
+ *
+ * ## Across counters: `(at, deviceId, seq, counterId, id)`
  *
  * - `at` first, so a later observation wins. Compared as a string, which is
  *   chronological **only** for ISO-8601 instants normalised to UTC — hence the
@@ -33,17 +58,26 @@ const UNTOUCHED: Resolution = Object.freeze({ state: 'untouched' as const });
  * - `deviceId` next, so two devices that stamp the same millisecond are
  *   ordered identically everywhere. Which device wins is arbitrary; that it is
  *   the *same* device everywhere is not.
- * - `seq` last, monotonic per device, which recovers the true order of taps a
- *   coarse clock stamped identically. Note it only disambiguates *within* a
- *   device — sequence numbers from different devices are not comparable, which
- *   is why `deviceId` is compared first.
- * - `id` is the final tie-break, so the order is total even if the same event
- *   arrives from two paths with a duplicated `(at, deviceId, seq)`.
+ * - `seq` next. Across counters it is not a comparable ordinal — which is why
+ *   `deviceId` is compared first — but it is still a stable number.
+ * - `counterId`, because two tokens open on one tablet produce the same
+ *   `deviceId`, the same `at` and the same `seq` for two genuinely different
+ *   events. Without it the comparator returns 0 for a distinct pair, the order
+ *   stops being total, and the fold stops being deterministic with nothing
+ *   anywhere saying so.
+ * - `id` last, so the order is total even if the same `(at, deviceId, seq,
+ *   counterId)` arrives twice.
  */
 export function compareEvents(a: CountEvent, b: CountEvent): number {
+  // One counter's own events, in the order that counter recorded them.
+  if (a.counterId !== undefined && a.counterId === b.counterId) {
+    if (a.seq !== b.seq) return a.seq - b.seq;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
   if (a.at !== b.at) return a.at < b.at ? -1 : 1;
   if (a.deviceId !== b.deviceId) return a.deviceId < b.deviceId ? -1 : 1;
   if (a.seq !== b.seq) return a.seq - b.seq;
+  if (a.counterId !== b.counterId) return (a.counterId ?? '') < (b.counterId ?? '') ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 

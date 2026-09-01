@@ -4,8 +4,12 @@ Vercel serverless functions plus Neon Postgres.
 
 **P2.0** was the schema, the migration runner and one health endpoint.
 **P2.1** adds session creation and dispatch: an admin uploads a Zeus export,
-divides the bodega between counters, and hands out one link per person. Still no
-event ingestion, no sync, no sealing and no authentication.
+divides the bodega between counters, and hands out one link per person.
+**P2.2** adds event ingestion and the counter state machine. **P2.3.5** adds the
+admin's own append-only chain and the one operation that changes who counts what
+after the tablets have gone out. **P2.5** adds the seal, the export and the audit
+bundle — the first task that writes something a person uploads. Still no
+authentication.
 
 The **counting** screens remain entirely local. The one crossing point is
 `GET /api/c/:token`, which runs once, on office wifi, before a tablet leaves the
@@ -21,8 +25,15 @@ api/
     index.ts            GET   /api/sessions/:id        everything the admin draws
                         PATCH /api/sessions/:id        the session's own settings
     dispatch.ts         POST  /api/sessions/:id/dispatch   borrador -> abierto
+    acciones.ts         GET   /api/sessions/:id/acciones  the admin's own chain
+                        POST  /api/sessions/:id/acciones  reassign, add, retire,
+                                                          seal-without, waive, un-waive
     sync.ts             GET   /api/sessions/:id/sync   cheap, polled: per-counter state
     events.ts           GET   /api/sessions/:id/events heavier, pulled: the log by cursor
+    sellar.ts           POST  /api/sessions/:id/sellar    abierto|revision -> sellado
+    exportar.ts         POST  /api/sessions/:id/exportar  sellado -> cerrado; writes the .txt
+                        GET   /api/sessions/:id/exportar  the stored bytes, base64
+    bundle.ts           GET   /api/sessions/:id/bundle    sesion_<id>.json, canonical
   c/[token]/
     index.ts            GET   /api/c/:token            one counter's assignment
     events.ts           POST  /api/c/:token/events     the push
@@ -36,8 +47,14 @@ migrations/
   0001_init.sql         the schema
   0002_sections_and_dispatch.sql   sections, assignments' section, download state
   0003_sync.sql         the arrival cursor, device binding, clock skew
+  0004_admin_actions.sql  the admin's chain, and optimistic concurrency on the partition
+                          (P2.4 adds `waiver` and `anular_waiver` to it — no DDL)
+  0005_export_bytes.sql   the generated file, stored, so a re-download is provably
+                          the same bytes. `sealed_at`, `session_hash`, `exported_at`
+                          and `file_hash` have been on `sessions` since 0001
 tools/
   migrate.mjs           the runner. Runs in CI, never on a cold start
+  verificador.html      the standalone verifier. No build step, no network, no imports
 ```
 
 ## What the functions may import
@@ -244,7 +261,150 @@ Two smaller consequences worth naming:
   `tests/blindCount.test.ts` and `tests/domain/counterView.test.ts` still assert
   exactly what they asserted before, over exactly the same object.
 
+**From P2.3.5 a retired counter's link keeps accepting pushes and stops handing
+out an assignment.** That is a policy call rather than a technical one and it
+went the way it did because revoking a token is the one action guaranteed to
+strand whatever is still on that tablet — and the tablet may be holding the only
+copy of somebody's morning. `GET /api/c/:token` answers `409 COUNTER_RETIRED`
+with a sentence that does not blame the counter; `POST /api/c/:token/events` and
+`/resume` go on working, so a drain that starts at five o'clock still lands.
+
 Authentication is deferred, not dismissed.
+
+---
+
+## The admin's own chain (P2.3.5)
+
+`POST /api/sessions/:id/acciones` is **one endpoint for four things**, because
+«Luis se fue enfermo», «metamos a Carla», «María nunca llegó» and «Ana que ayude
+con abarrotes» are one operation: reassigning articles between counters while a
+session is open, sometimes with a counter created or retired alongside.
+
+    { kind: 'reasignar',            usuario, motivo, version, moves, nuevos? }
+    { kind: 'retirar_contador',     usuario, motivo, counterId }
+    { kind: 'sellar_sin_registros', usuario, motivo, counterId }
+
+Adding a counter is a `reasignar` carrying `nuevos`: P2.1 leaves nothing
+unassigned, so somebody added at eleven cannot arrive empty-handed, and the link
+and the shelves are minted in one transaction. Two rows go onto the chain —
+`agregar_contador` and `reasignar` — and the response carries the token for the
+printable sheet.
+
+Every write is guarded inside its transaction, in the shape `dispatchStatements`
+established and for the same reason: Neon's HTTP protocol has no session to hold
+an interactive transaction open across, so the decision is taken outside it, and
+**an unmatched `update` raises nothing**. There are two predicates:
+
+- **`prechecked`**, on the statement that appends the actions — the session is
+  still open, `assignments_version` is still what the admin planned against,
+  every `from` really does hold its article, and the action chain is where the
+  handler read it;
+- **`landed`**, on everything after it — the action row at the chain's new head
+  is ours, by hash. The first predicate is no longer true of the transaction's
+  own state by then, which is the same trick `insertEventsStatements` uses after
+  its insert has moved `max(seq)`.
+
+So either the actions were appended, in which case every precondition held, or
+nothing at all happened. **There is no ordering in which the partition moves and
+the record of why does not.**
+
+`sessions.assignments_version` is optimistic concurrency over the partition, and
+a mismatch is a `409` and a reload. Move lists are never merged.
+
+**P2.4 adds two kinds to the same chain, and no table beside it.**
+
+    { kind: 'waiver',        usuario, motivo, idarticulo: number[] }
+    { kind: 'anular_waiver', usuario, motivo, waiverId }
+
+A waiver writes nothing but its own row. What it changes is what the **fold**
+sees, and it does that by *being on the chain*: `waiversToEvents` projects the
+standing waivers into `unchanged` events on every read, so there is deliberately
+no table of waived articles to fall out of step with the log — and
+`anular_waiver` is one row rather than a deletion.
+
+The handler does **not** check whether a waived article has already been counted,
+and that omission is the design. A tablet syncing an hour from now would make any
+answer it gave wrong; §4b is decided at fold time, against articles that resolve
+to `untouched` from counter events alone, which is what makes the outcome
+independent of when a device reached wifi. A waiver on a counted row is accepted,
+does nothing, and is reported as superseded.
+
+**`session_actions.payload` never carries a quantity.** The waived value is
+`existencia` from `catalog_rows`, read where it lives; a copy in the payload
+would be a second figure that can disagree with the first. `tests/gate.test.ts`
+asserts it over every payload type, and the pg suite asserts it against what is
+actually stored.
+
+Payloads are `jsonb` because they are heterogeneous and none of them
+participates in the fold — the opposite of `events.cantidad text`, which is a
+string precisely because it does. They are still hashed, so the hash is taken
+over a key-sorted canonical rendering (`canonicalJson`), which is what survives
+`jsonb` not preserving key order; and that function refuses anything but safe
+integers among the numbers, since an admin action carries no quantity and `1.0`
+does not come back out as it went in.
+
+---
+
+## The seal and the export (P2.5)
+
+    revisión ──sellar──▶ sellado ──generar──▶ cerrado
+
+**Two endpoints and never one.** «Download the file, then close the session»
+cannot be defended: if a tablet can still drain between generating and closing,
+the `.txt` corresponds to no recorded state. `POST /sellar` freezes both chains
+and records `session_hash`; `POST /exportar` is allowed only from `sellado` and
+writes bytes that are a deterministic function of a set that can no longer change.
+
+`POST /sellar` refuses unless `sessionReadyToSeal` returns no **blocking**
+reasons. The advisory tier is a checklist, not a gate. The only route past a
+blocking reason is `sinRegistros` in the body, which appends
+`sellar_sin_registros` **inside the same transaction, before the seal**, so the
+record of whose work was skipped is inside the chain the hash covers. There is no
+force flag and there must not be one: the value of the gate is that it cannot be
+satisfied by assertion.
+
+`sealStatements` guards its update on the state, on `session_hash is null`, and
+on the action chain being exactly where the hash was taken over. An empty result
+is another admin sealing, or an action landing between the read and the write,
+and in both cases nothing was written.
+
+### Nothing can be appended between the seal and the export
+
+The push handler reads the session's state outside any transaction, which leaves
+a window. `insertEventsStatements` therefore repeats the check as a predicate on
+the insert **and** takes the session row `for share`, while `sealStatements` takes
+it `for update`. A push and a seal cannot overlap; two pushes still can, which is
+the normal afternoon. Lock order is the same everywhere here — the session first,
+then the counter — so none of these paths can deadlock.
+
+`sealed_at` and `exported_at` are stamped by `now()` **in SQL**, not by the
+handler. `events.server_at` defaults to the same clock, and the two are compared
+to answer «did anything arrive after the seal»; a function running a few seconds
+behind its database would make legitimately earlier events look late.
+
+### The export runs here, and the bytes are kept
+
+Generation goes through `src/app/writeAdjustment` — `api/` may not import
+`src/zeus/` — and `verifyWriteBack` **aborts** it. Nothing catches that throw and
+the session stays `sellado`, so a failure costs a button press. It is the check
+that catches the sheared-file class, and there is no correct version of «export
+it anyway».
+
+`sessions.export_bytes` holds what was hashed. `GET /exportar` serves those bytes
+base64 in a JSON body — `send` writes JSON and only JSON (`_http.ts`), and base64
+is exact — and **never a regeneration**: a second run of the writer would be «a
+file that ought to be identical», which is the claim `file_hash` exists to replace
+with a fact.
+
+### The bundle
+
+`GET /bundle` answers from `sellado` onwards with `canonicalJson` of everything
+needed to recompute the seal without this application: the catalogue including
+`raw_row`, every event with its `prevHash`/`hash`, every action with its chain
+fields, and the digests. Canonical means byte-stable, so two downloads of one
+sealed session are the same file. **No counter token is in it**: a link is a
+bearer credential, and the acta names people while the chain identifies them by
+id.
 
 ---
 
@@ -394,6 +554,19 @@ And three from P2.2's `0003`:
   unnoticed; "a session cannot reliably be deleted" is not a property worth
   keeping.
 
+And two from P2.3.5's `0004`:
+
+- **`session_actions`, one chain per session.** An admin decision an auditor
+  will ask about had nowhere to live: `events` is per counter and anchored to
+  counter identity. Not a role column on `counters` either — that table carries
+  a token, a bound device, a `final_seq`, a manifest and four counting states,
+  and an admin has none of those meanings. One sequence rather than one per
+  admin, because admin actions happen at a desk, one at a time.
+- **`sessions.assignments_version`.** Optimistic concurrency over the partition,
+  checked under the row lock. Two admins reassigning at once is P2.2's
+  transaction bug with a worse blast radius: the second write would silently
+  reverse the first, whereas dispatch at least refuses the loser outright.
+
 And one absence: **`counters.estado` has no `terminado_local`.** That is a
 device-side state the server cannot observe — with no connectivity in the
 bodega, a counter who recorded nothing looks exactly like a counter whose tablet
@@ -401,6 +574,12 @@ is holding 200 queued events. The server knows only what arrived:
 `terminado_confirmado` when a `finish` event is present *and*
 `verifyChain` (`src/domain/chain.ts`) confirms the chain is complete to
 `final_seq`, `terminado_incompleto` when it is present and the chain is not.
+
+There **is** one state in that column the server does not derive:
+`retirado` (P2.3.5). It is an admin decision recorded in `session_actions` with a
+reason, and it is sticky by an explicit `case` in the push's counter update — a
+late drain from a retired counter's tablet is welcome and is not a claim about
+whether they are still counting.
 
 `src/domain/chain.ts` is imported **unchanged** by both sides. There must not be
 a second implementation of the hash on the server, in any language;

@@ -60,13 +60,21 @@ function tally(
 }
 
 export interface WriteFailure {
-  event: CountEvent;
+  /**
+   * The events that did not land.
+   *
+   * Usually one. More than one only for «Corregir» (P2.3 §3), which appends a
+   * scoped withdrawal and its replacement together — and a retry has to be the
+   * same all-or-nothing write the original was, or the second attempt can leave
+   * a count withdrawn with nothing put back.
+   */
+  events: readonly CountEvent[];
   message: string;
   /**
-   * The chain link, in P2 mode, so a retry writes the same row rather than an
-   * unhashed one. `null` for P1 events, which have no chain.
+   * The chain links, in P2 mode, so a retry writes the same rows rather than
+   * unhashed ones. `null` for P1 events, which have no chain.
    */
-  link: ChainedEvent | null;
+  links: readonly ChainedEvent[] | null;
 }
 
 /** Why counting stopped, in the words the screen prints. */
@@ -98,7 +106,30 @@ export interface CountStoreOptions {
   deviceId: string;
   /** First unused sequence number for this device, from the store (§6). */
   nextSeq: number;
-  zona: string;
+  /**
+   * The zone stamped on an event when nothing else decides it.
+   *
+   * Empty for a P1 session, and that is now the only value it takes there: the
+   * `ZONAS` dropdown is gone (P2.3), because a zone somebody picks off a list is
+   * a claim and a zone derived from the assignment is a fact. Nothing is written
+   * back from this field — `ubicacion` stays empty (ZEUS_FORMAT.md §9) — so an
+   * empty string is the honest answer rather than a lost feature.
+   */
+  zona?: string;
+  /**
+   * The zone of one article, from the partition. **P2's only source of `zona`.**
+   *
+   * `Section.nombre` *is* the zone of every article in that section (P2.1 §3c),
+   * so this is a lookup into the assignment the device was served and not a
+   * preference anybody can set. A function rather than a fixed string because a
+   * counter holds several sections and the events they emit belong to different
+   * ones — a store that stamped `secciones[0].nombre` on everything would put
+   * the wrong shelf on two thirds of somebody's afternoon.
+   *
+   * `null` is the session-scoped case (`finish`, `reopen`, a loose `note`):
+   * nobody stood anywhere for those, so they carry no zone.
+   */
+  zonaFor?: (idarticulo: number | null) => string;
   outbox: Outbox;
   /**
    * Injected so tests get a fixed `at`; production passes the real clock.
@@ -157,6 +188,7 @@ export class CountStore {
   private readonly outbox: Outbox;
   private readonly clock: () => string;
   private readonly newId: () => string;
+  private readonly zonaFor?: (idarticulo: number | null) => string;
   /** Present exactly in P2 mode — see `CountStoreOptions.counterId`. */
   readonly counterId?: string;
   private readonly chain?: CounterChainRepository;
@@ -182,6 +214,7 @@ export class CountStore {
     this.outbox = options.outbox;
     this.clock = options.clock ?? nowInstant;
     this.newId = options.newId ?? (() => crypto.randomUUID());
+    this.zonaFor = options.zonaFor;
     this.counterId = options.counterId;
     this.chain = options.chain;
     this.head = options.head ?? '';
@@ -235,7 +268,7 @@ export class CountStore {
       session,
       events: events.slice(),
       resolutions,
-      zona: options.zona,
+      zona: options.zona ?? '',
       usuario: options.usuario,
       counts: tally(session, resolutions),
       pending: 0,
@@ -285,10 +318,6 @@ export class CountStore {
     return (this.byItem.get(idarticulo) ?? []).slice();
   }
 
-  setZona(zona: string): void {
-    this.emit({ zona });
-  }
-
   setUsuario(usuario: string): void {
     this.emit({ usuario });
   }
@@ -305,8 +334,29 @@ export class CountStore {
     return this.append(idarticulo, { kind: 'add', qty });
   }
 
-  /** A waiver. Carries a name and a time, which is the whole point (§4). */
+  /**
+   * A waiver. Carries a name and a time, which is the whole point (§4).
+   *
+   * **Refused in P2 mode** (P2.3). A waiver asserts "the book figure is correct
+   * without counting it", and a counter cannot see the book figure (§2.1) — so
+   * on their tablet the sentence has no referent, and asking somebody to vouch
+   * for a number redacted from their device is exactly the judgment blindness
+   * exists to prevent. Waivers move to the admin at review, where the person
+   * signing sees what they are signing; `waiveMany` below is that path and is
+   * unaffected.
+   *
+   * Refused rather than merely unrendered, for `retract`'s reason: the counter
+   * screens are not the only caller a store can acquire, and this one is worth
+   * failing loudly.
+   */
   markUnchanged(idarticulo: number, motivo?: string): CountEvent {
+    if (this.counterId !== undefined) {
+      throw new Error(
+        'un contador no puede dejar un artículo «sin verificar»: eso afirma que la ' +
+          'cifra del sistema está bien, y esta tableta nunca la vio. La exención la ' +
+          'firma el administrador en la revisión (P2.3)',
+      );
+    }
     return this.append(idarticulo, { kind: 'unchanged', motivo });
   }
 
@@ -439,6 +489,69 @@ export class CountStore {
     return this.append(idarticulo, draft);
   }
 
+  /**
+   * Withdraw one named entry of this counter's own — «Deshacer» in Mis
+   * registros (P2.3 §3).
+   *
+   * Distinct from `undo`, which asks the domain for the *last* standing event.
+   * The correction screen is a list, and the row somebody taps is the row they
+   * mean; walking back to it with repeated undo would withdraw everything after
+   * it on the way.
+   *
+   * The event must be this counter's own and still standing. Checked rather
+   * than trusted: the id comes from a rendered list, and a list is a thing a
+   * future refactor can hand the wrong row.
+   */
+  withdraw(idarticulo: number, eventId: string): CountEvent {
+    this.requireCounter('retract');
+    this.requireOwnStanding(idarticulo, eventId);
+    return this.append(idarticulo, { kind: 'retract', retractsEventId: eventId });
+  }
+
+  /**
+   * Correct one entry: withdraw it and record the new number, **in one
+   * transaction** (P2.3 §3).
+   *
+   * Never a mutation. The log is append-only, so an edit is two events, and
+   * both of them show up in Mis registros — the original struck through, the
+   * replacement below it. That is not a leaky abstraction, it is the record: a
+   * screen that showed only the final number would be hiding the correction it
+   * exists to make.
+   *
+   * One transaction because the halves are not independently meaningful. A
+   * withdrawal that landed alone is a count somebody deleted; a replacement that
+   * landed alone is a count entered twice. Neither is a state a person could
+   * discover by looking at the screen.
+   */
+  correct(idarticulo: number, eventId: string, qty: number): CountEvent[] {
+    this.requireCounter('corregir');
+    this.requireOwnStanding(idarticulo, eventId);
+    const built = [
+      this.build(idarticulo, { kind: 'retract', retractsEventId: eventId }),
+      this.build(idarticulo, { kind: 'add', qty }),
+    ];
+    this.commit(built);
+    return built.map(({ event }) => event);
+  }
+
+  /** This counter's own, on this article, not already withdrawn. */
+  private requireOwnStanding(idarticulo: number, eventId: string): void {
+    const bucket = this.byItem.get(idarticulo) ?? [];
+    const target = bucket.find((event) => event.id === eventId);
+    if (!target || target.counterId !== this.counterId) {
+      throw new Error(
+        `el registro ${eventId} no es de este contador en el artículo ${idarticulo}: ` +
+          'sólo se puede deshacer lo propio (DOMAIN.md §6)',
+      );
+    }
+    const withdrawn = bucket.some(
+      (event) => event.kind === 'retract' && event.retractsEventId === eventId,
+    );
+    if (withdrawn) {
+      throw new Error(`el registro ${eventId} ya estaba deshecho`);
+    }
+  }
+
   // --- the P2 counter's session-scoped events -------------------------------
 
   /**
@@ -508,6 +621,25 @@ export class CountStore {
     /** Overrides for an event a different person is signing — see `waiveMany`. */
     stamp?: { usuario: string; zona: string },
   ): CountEvent {
+    const built = this.build(idarticulo, draft, stamp);
+    this.commit([built]);
+    return built.event;
+  }
+
+  /**
+   * Stamp, chain and validate one draft — **without writing it**.
+   *
+   * Split out from `append` so that «Corregir» can build two events, advance the
+   * chain across both, and hand them to one transaction. Nothing here touches
+   * the screen or the database: a caller that builds and does not commit has
+   * consumed a `seq` and advanced the head, which is why there is no such
+   * caller.
+   */
+  private build(
+    idarticulo: number | null,
+    draft: CountEventDraft | CounterEventDraft,
+    stamp?: { usuario: string; zona: string },
+  ): { event: CountEvent; link: ChainedEvent | null } {
     if (this.snapshot.halted) {
       throw new Error(
         'el guardado está detenido; no se aceptan más conteos hasta reintentar',
@@ -530,9 +662,21 @@ export class CountStore {
       );
     }
 
+    // The second half of the same gate: `CounterEventDraft` no longer spells
+    // `unchanged`, and this is where a draft typed as the wider
+    // `CountEventDraft` would otherwise arrive.
+    if (this.counterId !== undefined && draft.kind === 'unchanged') {
+      throw new Error(
+        'una exención afirma que la cifra del sistema está bien; una tableta de ' +
+          'contador nunca la vio y no puede afirmarlo (P2.3)',
+      );
+    }
+
     const { session } = this.snapshot;
     const usuario = stamp?.usuario ?? this.snapshot.usuario;
-    const zona = stamp?.zona ?? this.snapshot.zona;
+    // The partition, when there is one. `waiveMany`'s explicit override wins,
+    // because nobody stood anywhere for a bulk waiver.
+    const zona = stamp?.zona ?? this.zonaFor?.(idarticulo) ?? this.snapshot.zona;
     const base = {
       id: this.newId(),
       sessionId: session.id,
@@ -616,8 +760,12 @@ export class CountStore {
       this.head = hash;
       link = { event, prevHash, hash };
     }
+    return { event, link };
+  }
 
-    this.apply(event);
+  /** Show them, hold them, write them — one durable write for the whole set. */
+  private commit(built: readonly { event: CountEvent; link: ChainedEvent | null }[]): void {
+    for (const { event } of built) this.apply(event);
     // P1's lifeboat: synchronous and durable, between the render and the flush,
     // the only line standing between an optimistic write and a tab closed at
     // the wrong moment.
@@ -629,10 +777,14 @@ export class CountStore {
     // A `localStorage` queue would also be replayed through `appendEvent`,
     // which writes no chain metadata, so a replayed event would land unhashed
     // and unpushable: a lifeboat that quietly drops the passenger.
-    const held = link === null ? this.outbox.hold(event) : true;
+    const chained = built[0].link !== null;
+    const held = chained ? true : built.every(({ event }) => this.outbox.hold(event));
     if (!held && this.snapshot.protected) this.emit({ protected: false });
-    this.persist(event, held, link);
-    return event;
+    this.persist(
+      built.map(({ event }) => event),
+      held,
+      chained ? built.map(({ link }) => link!) : null,
+    );
   }
 
   /**
@@ -697,14 +849,26 @@ export class CountStore {
     });
   }
 
-  /** IndexedDB last, and never on the critical path. */
-  private persist(event: CountEvent, held: boolean, link: ChainedEvent | null = null): void {
+  /**
+   * IndexedDB last, and never on the critical path.
+   *
+   * One call per *write*, and a write may carry more than one event — see
+   * `appendChainedBatch`. A failure records the whole set, because the whole set
+   * is what has to be retried together.
+   */
+  private persist(
+    events: readonly CountEvent[],
+    held: boolean,
+    links: readonly ChainedEvent[] | null,
+  ): void {
     this.emit({ pending: this.snapshot.pending + 1 });
     const written =
-      link === null ? this.repo.appendEvent(event) : this.chain!.appendChained(link);
+      links === null
+        ? Promise.all(events.map((event) => this.repo.appendEvent(event))).then(() => undefined)
+        : this.chain!.appendChainedBatch(links);
     void written.then(
       () => {
-        this.outbox.release(event.id);
+        for (const event of events) this.outbox.release(event.id);
         this.failureStreak = 0;
         this.emit({ pending: Math.max(0, this.snapshot.pending - 1) });
       },
@@ -713,7 +877,7 @@ export class CountStore {
         this.failureStreak++;
         this.emit({
           pending: Math.max(0, this.snapshot.pending - 1),
-          failures: [...this.snapshot.failures, { event, message, link }],
+          failures: [...this.snapshot.failures, { events, message, links }],
           halted: this.snapshot.halted ?? this.haltFor(held, message),
         });
       },
@@ -762,9 +926,9 @@ export class CountStore {
     if (failures.length === 0) return;
     this.failureStreak = 0;
     this.emit({ failures: [], halted: null });
-    for (const { event, link } of failures) {
-      const held = link === null ? this.outbox.hold(event) : true;
-      this.persist(event, held, link);
+    for (const { events, links } of failures) {
+      const held = links === null ? events.every((event) => this.outbox.hold(event)) : true;
+      this.persist(events, held, links);
     }
   }
 

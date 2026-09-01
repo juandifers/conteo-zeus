@@ -157,6 +157,38 @@ export interface CounterSyncState {
   fetchedAt: string | null;
   /** Why `terminado_incompleto`, when it is. */
   finishReason: string | null;
+  /**
+   * The stored chain has no hole in it: every `seq` from 1 to the highest is here.
+   *
+   * What a **retired** counter is gated on (P2.3.5 §5a), and the only completeness
+   * question the server can answer without a `finish` manifest. It is exact for
+   * the case it is asked about — a hole is visible, `unique (counter_id, seq)`
+   * makes `count(*) = max(seq)` equivalent to contiguity — and it is **silent
+   * about a tail**: a tablet holding seq 61 to 83 and nothing after leaves a
+   * chain that is contiguous 1..60 and looks complete.
+   *
+   * That limit is not a defect to be fixed here; it is the reason `finish`
+   * carries a manifest at all, and the reason `retirar_contador` requires a
+   * reason a person typed. What the gate catches is the case that is actually
+   * common — some of a counter's later events arrived and the ones in between
+   * did not — and `sellar_sin_registros` is what an admin uses when the answer
+   * is «wait for the tablet» and the tablet is not coming.
+   */
+  chainComplete: boolean;
+}
+
+/**
+ * A counter whose missing work the admin has explicitly sealed over (§5b).
+ *
+ * Derived from `session_actions` rather than stored on `counters`, because a
+ * flag on the row would be a second copy of a fact the action chain already
+ * carries — and a state an admin could reach by editing a row by hand is
+ * exactly what the sealing gate exists to make impossible.
+ */
+export interface SealOverride {
+  counterId: string;
+  /** The sequence range known missing, as it will be printed on the acta. */
+  faltan: string;
 }
 
 export type SealBlocker =
@@ -170,7 +202,17 @@ export type SealBlocker =
       detalle: string | null;
     }
   | { kind: 'contador-bifurcado'; counterId: string; nombre: string }
-  | { kind: 'contador-sin-descargar'; counterId: string; nombre: string };
+  | { kind: 'contador-sin-descargar'; counterId: string; nombre: string }
+  /**
+   * Retired, and the server is holding a chain with a hole in it (§5a).
+   *
+   * A separate blocker from `contador-sin-terminar` because the resolutions are
+   * different and only one of them is a button. This one is resolved by the
+   * tablet coming back and draining — which is the answer the screen should push
+   * toward — or, when it is not coming, by `sellar_sin_registros`, which is an
+   * admin putting their name on a count that is missing a named person's work.
+   */
+  | { kind: 'contador-retirado-incompleto'; counterId: string; nombre: string };
 
 /**
  * Why this session cannot be sealed yet. Empty means it can.
@@ -191,6 +233,13 @@ export type SealBlocker =
  */
 export function sessionReadyToSeal(input: {
   counters: readonly CounterSyncState[];
+  /**
+   * The `sellar_sin_registros` actions standing on this session (P2.3.5 §5b).
+   *
+   * Optional so every existing caller is unchanged, and so that "no overrides"
+   * is spelled the same way as "none were signed".
+   */
+  overrides?: readonly SealOverride[];
 }): SealBlocker[] {
   const blockers: SealBlocker[] = [];
 
@@ -201,20 +250,47 @@ export function sessionReadyToSeal(input: {
   // as "ready".
   if (input.counters.length === 0) return [{ kind: 'sin-contadores' }];
 
+  const sealedOver = new Set((input.overrides ?? []).map((override) => override.counterId));
+
   for (const counter of input.counters) {
-    if (counter.fetchedAt === null) {
+    // A retired counter is a decision, not a chain state, and it is the one
+    // resolution that lets a session with somebody missing from it be sealed at
+    // all. Everything below is scoped by it.
+    const retired = counter.estado === 'retirado';
+
+    // `fetchedAt === null` on a retired counter is P2.3.5 §5c — «María fue
+    // asignada y nunca llegó». Their articles were reassigned and they were
+    // retired, which *is* the resolution; blocking on the tablet they never
+    // opened would leave the session unsealable for ever.
+    if (counter.fetchedAt === null && !retired) {
       blockers.push({
         kind: 'contador-sin-descargar',
         counterId: counter.id,
         nombre: counter.nombre,
       });
     }
+    // A fork is never waived by retirement. Two chains claiming one `seq` means
+    // the server is holding events it cannot order, and no admin decision about
+    // who is still counting changes that.
     if (counter.forked) {
       blockers.push({
         kind: 'contador-bifurcado',
         counterId: counter.id,
         nombre: counter.nombre,
       });
+    }
+    if (retired) {
+      // Their sixty counts are real data and they belong in the file, so the
+      // gate is on the chain being whole rather than on the counter having
+      // finished — they did not finish, that is what retirement records.
+      if (!counter.chainComplete && !sealedOver.has(counter.id)) {
+        blockers.push({
+          kind: 'contador-retirado-incompleto',
+          counterId: counter.id,
+          nombre: counter.nombre,
+        });
+      }
+      continue;
     }
     if (counter.estado !== 'terminado_confirmado') {
       blockers.push({

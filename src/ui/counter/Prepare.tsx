@@ -6,6 +6,13 @@
  * device will need is resident before it leaves the office** — because there is
  * no signal in the bodega and no second chance at it.
  *
+ * From P2.3 this screen is what shows **until the counting screen can open**:
+ * `CounterScreen` renders it while there is no assignment on the device and
+ * while the chain is finding its starting point, and replaces it with the four
+ * counting tabs the moment both are true. It is therefore still the screen that
+ * has to be able to say «esta tableta todavía no está lista» and offer a retry,
+ * which is why it keeps its own fetch rather than being a spinner.
+ *
  * So the order here is deliberate: read what is already stored *first*, then try
  * the network. A tablet that has been prepared opens this screen and says
  * «listo» whether or not there is a network, which is exactly what somebody
@@ -208,8 +215,7 @@ export function Prepare({
 
       <div className="colofon">
         <div className="colofon__row">
-          La pantalla de conteo todavía no está en esta versión. Esta tableta ya tiene su
-          asignación guardada; cuando llegue, la va a encontrar aquí.
+          Abriendo el conteo…
         </div>
       </div>
     </div>

@@ -107,7 +107,24 @@ export interface CountEventBase {
   at: string;
   /** Stable per install. Ties are broken on it, so two devices never fold differently. */
   deviceId: string;
-  /** Monotonic per device. Orders events a coarse clock stamps identically. */
+  /**
+   * The counter's own sequence number, allocated 1, 2, 3… as they record.
+   *
+   * **Not "monotonic per device", which is what this said until P2.3 and what
+   * `deviceId` still suggests.** It was true in P1, where one device was one
+   * counter for the life of a session. It stopped being true in P2.2: `seq` is
+   * allocated per counter (`unique (counter_id, seq)` on the server), the push
+   * protocol resumes from `storedMaxSeq + 1`, and `GET /api/c/:token/resume`
+   * deliberately continues one counter's numbering onto a **different device**
+   * when their tablet dies mid-shift. Two counters sharing one tablet likewise
+   * hold two independent numberings on one `deviceId`.
+   *
+   * The distinction is load-bearing rather than pedantic: `compareEvents` reads
+   * `seq` as the causal order **within one counter** and as a mere tie-break
+   * across counters, and a reader who believes the old sentence would conclude
+   * the first of those is unsound. On a P1 event, which has no `counterId`, the
+   * old reading and the new one coincide.
+   */
   seq: number;
 }
 
@@ -133,6 +150,10 @@ export interface AddCountEvent extends CountEventBase {
  * is a person asserting they did not need to count. The distinction survives
  * all the way to the variance report, which reports no variance for these
  * rather than a zero variance.
+ *
+ * **No counter emits one** (P2.3). Vouching for the book figure requires seeing
+ * the book figure, which a counter's tablet does not hold — so this is written
+ * by the P1 app and by the supervisor's bulk waiver, and by nothing else.
  */
 export interface UnchangedEvent extends CountEventBase {
   kind: 'unchanged';
@@ -297,11 +318,25 @@ export type CountEventDraft =
  * unspellable there. `CountEventDraft` keeps it for the P1 app, whose sessions
  * have one counter and whose logs must fold to the same numbers after the
  * upgrade as before it (docs/MIGRATION-P1-P2.md).
+ *
+ * **`unchanged` is missing too, and for a different reason** (P2.3). A waiver
+ * asserts "the book figure is correct without counting" — and the counter
+ * cannot see the book figure (§2.1). Asking somebody to vouch for a number
+ * redacted from their device is incoherent, and it is precisely the judgment
+ * blindness exists to prevent. Waivers move to the admin at review, where the
+ * person signing can see what they are signing; `waiveMany` still writes them
+ * and still demands a `motivo` and a name.
+ *
+ * That leaves a counter three verbs — `add`, scoped `retract`, `note` — plus
+ * the two session-scoped ones, and it has a consequence worth stating where the
+ * type is: `unchanged` was the only **order-sensitive** kind a counter could
+ * emit. Without it, the fold over counter-emitted events is unconditionally
+ * commutative by construction rather than by keeping clocks in line
+ * (DOMAIN.md §6.2).
  */
 export type CounterEventDraft =
   | { kind: 'set'; qty: number }
   | { kind: 'add'; qty: number }
-  | { kind: 'unchanged'; motivo?: string }
   | { kind: 'retract'; retractsEventId: string }
   | { kind: 'note'; texto: string; idarticulo: number | null }
   | { kind: 'finish'; finalSeq: number; headHash: string }

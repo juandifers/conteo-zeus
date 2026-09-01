@@ -16,6 +16,7 @@ import type {
   ExportRecord,
   ExportRepository,
   Item,
+  PendingOutbox,
   Session,
   SessionMeta,
 } from '../domain';
@@ -238,27 +239,42 @@ export class DexieCounterChain implements CounterChainRepository {
    * flag has advanced is still the same event.
    */
   async appendChained(link: ChainedEvent): Promise<void> {
-    const { event, prevHash, hash } = link;
-    validateEvent(event);
-    if (!event.counterId) {
-      throw new Error(
-        `event ${event.id} has no counterId and so has no chain to be appended to; ` +
-          'P1 events stay local, read-only and unchained (docs/MIGRATION-P1-P2.md)',
-      );
+    await this.appendChainedBatch([link]);
+  }
+
+  /**
+   * Several links, one transaction — what «Corregir» appends (P2.3 §3).
+   *
+   * Dexie gives the atomicity for free here, which is the whole reason the batch
+   * lives at this level rather than being two calls in a component: a withdrawal
+   * that landed without its replacement is a count somebody deleted, and the
+   * component would have no way to tell that had happened.
+   */
+  async appendChainedBatch(links: readonly ChainedEvent[]): Promise<void> {
+    for (const { event } of links) {
+      validateEvent(event);
+      if (!event.counterId) {
+        throw new Error(
+          `event ${event.id} has no counterId and so has no chain to be appended to; ` +
+            'P1 events stay local, read-only and unchained (docs/MIGRATION-P1-P2.md)',
+        );
+      }
     }
     await this.db.transaction('rw', this.db.countEvents, async () => {
-      const existing = await this.db.countEvents.get(event.id);
-      if (existing) {
-        if (sameEvent(toEvent(existing), event)) return;
-        throw new EventConflictError(event.id);
-      }
-      const slot = await this.db.countEvents
-        .where('[sessionId+counterId+seq]')
-        .equals([event.sessionId, event.counterId!, event.seq])
-        .first();
-      if (slot) throw new SequenceConflictError(event, slot.id);
+      for (const { event, prevHash, hash } of links) {
+        const existing = await this.db.countEvents.get(event.id);
+        if (existing) {
+          if (sameEvent(toEvent(existing), event)) continue;
+          throw new EventConflictError(event.id);
+        }
+        const slot = await this.db.countEvents
+          .where('[sessionId+counterId+seq]')
+          .equals([event.sessionId, event.counterId!, event.seq])
+          .first();
+        if (slot) throw new SequenceConflictError(event, slot.id);
 
-      await this.db.countEvents.add({ ...event, prevHash, hash, sync: 'pendiente' });
+        await this.db.countEvents.add({ ...event, prevHash, hash, sync: 'pendiente' });
+      }
     });
   }
 
@@ -369,5 +385,33 @@ export class DexieCounterChain implements CounterChainRepository {
       prevHash: row.prevHash ?? '',
       hash: row.hash ?? '',
     }));
+  }
+
+  /**
+   * Every counter on this tablet with a queue, whoever has it in their hands.
+   *
+   * A scan of the pending rows rather than an index lookup, because the question
+   * is «which counters», and the compound index is keyed by counter first —
+   * there is nothing to look *up* until you already know the answer. It runs
+   * when a counting screen mounts and when the drain wakes, over rows that are
+   * by definition the ones still waiting, so a tablet whose outbox is empty
+   * reads nothing.
+   *
+   * P1 rows are skipped: they carry no `counterId`, are never pushed anywhere,
+   * and have no `sync` flag at all (see `EventRow`).
+   */
+  async pendingOutboxes(): Promise<PendingOutbox[]> {
+    const rows = await this.db.countEvents.where('sync').equals('pendiente').toArray();
+    const counts = new Map<string, PendingOutbox>();
+    for (const row of rows) {
+      if (!row.counterId) continue;
+      const key = `${row.sessionId} ${row.counterId}`;
+      const held = counts.get(key);
+      if (held) held.pendientes++;
+      else counts.set(key, { sessionId: row.sessionId, counterId: row.counterId, pendientes: 1 });
+    }
+    return [...counts.values()].sort((a, b) =>
+      a.counterId < b.counterId ? -1 : a.counterId > b.counterId ? 1 : 0,
+    );
   }
 }

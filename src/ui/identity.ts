@@ -1,10 +1,19 @@
 /**
- * Who is counting, and in which zone.
+ * Who is counting.
  *
- * `usuario` and `zona` are stamped on every event (`CountEventBase`) and owned
- * by no entity — DOMAIN.md §6 keeps them that way until the multi-device stage
- * turns the question from attribution into assignment. Until then they are a
- * preference, and a preference belongs in the browser.
+ * **`zona` used to live here too, and deliberately does not any more** (P2.3).
+ * A `ZONAS` dropdown offered seven names and stamped whichever one somebody had
+ * last touched onto every event. P2.1 §3c made `zona` a different kind of fact:
+ * `Section.nombre` *is* the zone of every article in that section, decided by
+ * the admin at dispatch and the same fact coverage is gated on. Two writers to
+ * one field means the log can disagree with the partition, and the disagreement
+ * surfaces months later as an acta nobody can reconcile — so the claim gives
+ * way to the fact, and the picker is gone rather than merely unused.
+ *
+ * P1 sessions have no partition and therefore no zone, which is the honest
+ * answer: `ubicacion` is empty in Zeus, nothing is written back from this field
+ * (ZEUS_FORMAT.md §9), and a stored preference was never evidence of where
+ * anybody stood.
  *
  * `deviceId` used to live here and no longer does. The fold breaks ties on it,
  * so an id that a cleared storage bucket could regenerate would silently
@@ -13,7 +22,6 @@
  */
 
 const USUARIO_KEY = 'conteo.usuario';
-const ZONA_KEY = 'conteo.zona';
 const REVISA_KEY = 'conteo.revisa';
 
 function read(key: string): string | null {
@@ -55,25 +63,4 @@ export function loadSupervisor(): string {
 
 export function saveSupervisor(usuario: string): void {
   write(REVISA_KEY, usuario);
-}
-
-/** Zones we suggest. Zeus's `ubicacion` column is empty, so this is where the
- * vocabulary starts — a fixed list first, and whatever the hotel actually says
- * afterwards. */
-export const ZONAS = [
-  'ALMACEN',
-  'COCINA',
-  'NEVERA',
-  'CONGELADOR',
-  'CAVA',
-  'BAR',
-  'PANADERIA',
-] as const;
-
-export function loadZona(sessionId: string): string {
-  return read(`${ZONA_KEY}.${sessionId}`) ?? ZONAS[0];
-}
-
-export function saveZona(sessionId: string, zona: string): void {
-  write(`${ZONA_KEY}.${sessionId}`, zona);
 }

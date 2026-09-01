@@ -43,7 +43,15 @@ const COUNTING_SURFACES = [
   // ready for the day somebody widens the payload.
   'ui/counter/Prepare.tsx',
   'ui/counter/CounterScreen.tsx',
+  'ui/counter/Search.tsx',
+  'ui/counter/Entry.tsx',
+  'ui/counter/MyEntries.tsx',
+  'ui/counter/Notes.tsx',
+  'ui/counter/SyncBar.tsx',
   'ui/counter/Finish.tsx',
+  'ui/counter/Registrado.tsx',
+  'ui/counter/assignment.ts',
+  'ui/counter/handover.ts',
   'ui/screens/CountScreen.tsx',
   'ui/screens/FaltantesScreen.tsx',
   'ui/components/EntryCard.tsx',
@@ -80,6 +88,63 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
     });
   }
 
+  /**
+   * The P2 surfaces, which are held to a **second** rule the P1 ones are not.
+   *
+   * P1's screens legitimately render a resolution: one device, one counter, and
+   * `contado 70` is that counter's own number. On a tablet in a dispatched
+   * session it is a *sum over an article* — the counter's three entries added
+   * up, and under blind double-counting somebody else's too — which is exactly
+   * the anchor §2.1 removes.
+   *
+   * So no counting component may hold a fold result scoped to an article. The
+   * fold still decides what «registered» means; it happens in
+   * `src/domain/ownWork.ts`, and what crosses back is a set of ids. That is the
+   * whole reason that module exists.
+   */
+  const P2_COUNTING = [
+    'ui/counter/CounterScreen.tsx',
+    'ui/counter/Search.tsx',
+    'ui/counter/Entry.tsx',
+    'ui/counter/MyEntries.tsx',
+    'ui/counter/Notes.tsx',
+    'ui/counter/SyncBar.tsx',
+    'ui/counter/Finish.tsx',
+    'ui/counter/Registrado.tsx',
+  ];
+
+  const NO_FOLD: Array<[string, RegExp]> = [
+    ['resolve()', /\bresolve(All)?\s*\(/],
+    ['a Resolution', /\bResolution\b/],
+    ['store.resolutionFor', /\bresolutionFor\b/],
+    ['snapshot.resolutions', /\bresolutions\b/],
+    ['StateChip', /\bStateChip\b/],
+    ['the P1 tally', /\bformatQty\(\s*(resolution|current)/],
+  ];
+
+  for (const file of P2_COUNTING) {
+    it(`${file} never holds a fold result for an article`, () => {
+      const source = code(read(file));
+      for (const [name, pattern] of NO_FOLD) {
+        expect(pattern.test(source), `${file} reaches for ${name}`).toBe(false);
+      }
+    });
+  }
+
+  it('the domain answers «has this been registered» without handing back a quantity', () => {
+    // Stated as a test because it is the seam the rule rests on: if
+    // `registeredArticles` ever starts returning a map of quantities, every
+    // assertion above goes on passing and the screens get the totals anyway.
+    const own = code(read('domain/ownWork.ts'));
+    expect(own).toMatch(/Set<number>/);
+    // The only thing read off a fold in that module is the state.
+    expect(own).toMatch(/resolve\(bucket\)\.state !== 'untouched'/);
+    // And the only `qty` in it is one the counter typed — «is this entry a
+    // zero» — never a resolved one.
+    expect(own.match(/\.qty\b/g) ?? []).toHaveLength(1);
+    expect(own).toMatch(/entry\.event\.kind === 'add' && entry\.event\.qty === 0/);
+  });
+
   it('covers the whole of what a counter can open', () => {
     // A new screen under `ui/screens/` is a new surface, and the honest way to
     // find out whether it belongs on the list above is to be made to say so.
@@ -94,8 +159,34 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
     const root = code(read('ui/Root.tsx'));
     expect(root).toMatch(/<CounterScreen\b/);
     expect(root).toMatch(/<AdminApp\b/);
-    // `CounterScreen` is what `#/c/<token>` opens, and `Prepare` is inside it.
-    expect(code(read('ui/counter/CounterScreen.tsx'))).toMatch(/<Prepare\b/);
+    // `CounterScreen` is what `#/c/<token>` opens; everything a counter can
+    // reach is rendered from there and is on the list above.
+    const screen = code(read('ui/counter/CounterScreen.tsx'));
+    expect(screen).toMatch(/<Prepare\b/);
+    // JSX only: a `<` preceded by a word character is a type parameter
+    // (`useState<Live | null>`), not an element.
+    const rendered = [...screen.matchAll(/(?:^|[^\w.])<([A-Z]\w+)\b/gm)].map((match) => match[1]);
+    expect(new Set(rendered)).toEqual(
+      new Set(['Prepare', 'Counting', 'SyncBar', 'Entry', 'Search', 'MyEntries', 'Notes', 'FinishPanel']),
+    );
+  });
+
+  it('says «somebody registered here» without ever saying how much (P2.3.5 §6b)', () => {
+    // After a handover the checkmark can mean two things — your own work, or
+    // the work of whoever held this shelf before you — and they get different
+    // labels because a screen reader saying «ya registraste algo aquí» about
+    // Luis's shelf tells somebody they did something they did not do.
+    //
+    // What both labels have in common is the property that matters: neither
+    // carries a number, and neither can, because the component is handed two
+    // booleans and nothing else.
+    const mark = code(read('ui/counter/Registrado.tsx'));
+    expect(mark).toMatch(/propio: boolean/);
+    expect(mark).toMatch(/heredado: boolean/);
+    expect(mark).not.toMatch(/\bnumber\b/);
+    // And the set it is asked about is a set of ids, which cannot hold a
+    // magnitude however anybody reads it.
+    expect(code(read('ui/counter/assignment.ts'))).toMatch(/heredados: ReadonlySet<number>/);
   });
 
   it('leaves the review screen alone, because it is the reveal', () => {
@@ -103,6 +194,21 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
     // "the app hides it". Somebody has to look at the variances.
     const review = code(read('ui/screens/ReviewScreen.tsx'));
     expect(/\.existencia\b|\bformatMoney\b/.test(review)).toBe(true);
+  });
+
+  it('leaves the review module alone — it is the reveal, and it is fenced off', () => {
+    // P2.4's `src/domain/review.ts` reads `existencia` and `costo` and derives
+    // variances out of both, which is exactly right for the person who signs the
+    // acta and exactly wrong for a device in a bodega. §2.1 is about the
+    // counter, not about the app.
+    //
+    // The fence is not this test — `tests/boundaries.test.ts` walks the counter
+    // bundle's module graph and refuses any import of a name this module exports.
+    // What is asserted here is that the module really does hold the figures, so
+    // that the fence is protecting something.
+    const review = code(read('domain/review.ts'));
+    expect(/\.existencia\b/.test(review)).toBe(true);
+    expect(/\bexposureValue\b|\bbookValue\b/.test(review)).toBe(true);
   });
 
   it('leaves the admin screens alone, for the same reason', () => {
@@ -135,6 +241,24 @@ describe('the payload a counter receives is an allowlist (§2.1)', () => {
     for (const field of ['idarticulo:', 'codigo:', 'nombre:', 'presentacion:', 'unidad:']) {
       expect(source).toContain(field);
     }
+  });
+
+  it('sends `yaRegistrados` as ids and folds it with the domain, not with SQL', () => {
+    // P2.3.5 §6b widens the payload by exactly one field, and it is the one
+    // shape that cannot carry a quantity: a list of `idarticulo`s. It is the
+    // same information the neutral checkmark already conveys — presence, never
+    // magnitude — which is why it is admissible at all.
+    //
+    // The fold behind it is `registeredArticles`, the same function the tablet
+    // runs. Deciding what «registered» means in SQL would be a second definition
+    // of the fold, and the two would disagree the first time a scoped retraction
+    // landed.
+    expect(source).toMatch(/yaRegistrados: number\[\]/);
+    const handler = code(
+      readFileSync(resolvePath(SRC, '..', 'api', 'c', '[token]', 'index.ts'), 'utf8'),
+    );
+    expect(handler).toMatch(/registeredArticles\(/);
+    expect(handler).not.toMatch(/cantidad|qty/);
   });
 
   it('is the only thing api/c/[token] builds its response from', () => {

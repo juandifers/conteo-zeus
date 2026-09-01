@@ -1,11 +1,12 @@
 /**
- * «Terminar», and the banner that takes over when the network does not answer.
+ * «Terminar»: the gap review, the confirmation, and the banner behind them.
  *
- * The rule this screen exists to obey: **finishing must degrade, never hang.**
- * There is no connectivity in the bodega. A blocking spinner is a force-close,
- * and a force-close is the one thing that loses data — so the button always
- * returns, and whatever did not upload becomes a persistent banner with a
- * retry beside it.
+ * Two rules meet on this screen.
+ *
+ * **Finishing must degrade, never hang.** There is no connectivity in the
+ * bodega. A blocking spinner is a force-close, and a force-close is the one
+ * thing that loses data — so the button always returns, and whatever did not
+ * upload becomes a persistent banner with a retry beside it (`SyncBar`).
  *
  *     [ TERMINAR ]
  *          │
@@ -20,25 +21,60 @@
  *
  * The `finish` event is appended **before** the attempt, not after it. Finishing
  * is something the counter did; whether the network cooperated is a separate
- * fact, and conflating them is how a counter ends up having to press a button
- * twice to have finished once.
+ * fact, and conflating them is how somebody ends up pressing a button twice to
+ * have finished once.
+ *
+ * **The gap review is what P2.1's scoped assignment bought.** Before the
+ * confirm, the counter sees the articles *in their own sections* with nothing
+ * standing against them — shelves this person physically walked past, which is
+ * what makes the list both well-defined and actionable. It would be neither
+ * against the whole catalogue.
+ *
+ * There is deliberately **no «sin novedad»** here. The only resolutions are
+ * counting it or declaring the location empty; waiving an uncounted row means
+ * vouching for a book figure, and the book figure is not on this device (§2.1).
+ * That decision belongs to the admin at review, with one name on it.
+ *
+ * Finishing with gaps is allowed. The gap is a fact the admin needs, and a
+ * screen that blocked it would only teach people to type something.
+ *
+ * **After a handover the gap list is scoped twice** (P2.3.5 §6b): to this
+ * counter's sections, and then minus the articles somebody else had already
+ * registered when the tablet fetched. Pedro inheriting 120 of Luis's articles,
+ * sixty of them already counted, must not be sent to recount those sixty.
  */
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 
+import { ownSummary, sectionProgress, type CountEvent } from '../../domain';
 import type { CountStore } from '../store';
+import type { CounterCatalogue } from './assignment';
 import type { CounterSync } from './sync';
 
 export function FinishPanel({
   store,
   sync,
-  onExport,
+  catalogue,
+  events,
+  onCount,
 }: {
   store: CountStore;
   sync: CounterSync;
-  /** Offered only when the session was sealed before this tablet got back (§1d). */
-  onExport?: (json: string) => void;
+  catalogue: CounterCatalogue;
+  events: readonly CountEvent[];
+  /** Jump to the entry screen for one gap row. */
+  onCount: (idarticulo: number) => void;
 }) {
-  const state = useSyncExternalStore(sync.subscribe, sync.getSnapshot);
+  /** The gap row whose «está vacío» is waiting for its second tap. */
+  const [emptying, setEmptying] = useState<number | null>(null);
+  const { estado, serverEstado } = useSyncExternalStore(sync.subscribe, sync.getSnapshot);
+
+  // The gap list is «my articles with nothing standing **from me**» (P2.3 §5a),
+  // minus whatever somebody else had already registered when this device
+  // fetched (P2.3.5 §6b). Without that subtraction a counter who inherited
+  // Luis's 120 articles would be shown all 120 and sent to recount sixty of
+  // them, which is the double count of §4b arriving by a second route.
+  const progress = sectionProgress(catalogue.sections, events, store.counterId, catalogue.heredados);
+  const summary = ownSummary(catalogue.sections, events, store.counterId, catalogue.heredados);
 
   const terminar = () => {
     // Local first, and unconditionally. The manifest is taken from the store's
@@ -65,88 +101,171 @@ export function FinishPanel({
     void store.settled().then(() => sync.refresh()).then(() => sync.drain());
   };
 
-  if (state.stopped) {
+  const confirmed = estado === 'terminado_confirmado';
+  const claimed = estado === 'terminado_local';
+
+  if (claimed || confirmed) {
     return (
       <div className="panel">
-        <div className="empty" role="alert">
-          <div className="empty__title">{state.stopped.title}</div>
-          <div className="empty__body">{state.stopped.detail}</div>
+        <div className="panel__title">{confirmed ? '✓ Terminado y confirmado' : '⏳ Terminado'}</div>
+        <div className="panel__body">
+          <div className="hint">
+            {confirmed
+              ? 'El servidor tiene todo lo que contaste.'
+              : 'Tu conteo está guardado en la tableta. Se confirma solo en cuanto haya red.'}
+          </div>
+          {serverEstado === 'terminado_incompleto' && (
+            <div className="banner" role="status">
+              El servidor recibió tu «terminar» pero todavía le faltan registros. No apagues la
+              tableta: se están reintentando.
+            </div>
+          )}
+          <div className="hint">
+            {`Si encuentras algo más, reabre: todo lo que registres después queda marcado como ` +
+              'una corrección posterior para el administrador.'}
+          </div>
         </div>
         <div className="actions">
-          {state.stopped.kind === 'sealed' && onExport && (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void sync.rejectedExport().then(onExport)}
-            >
-              Exportar {state.rechazados} registros para el acta
-            </button>
-          )}
+          <button type="button" className="btn" onClick={reabrir}>
+            Reabrir
+          </button>
         </div>
       </div>
     );
   }
 
-  const confirmed = state.estado === 'terminado_confirmado';
-  const claimed = state.estado === 'terminado_local';
-
   return (
-    <div className="panel">
-      <div className="panel__title">
-        {confirmed ? '✓ Terminado y confirmado' : claimed ? '⏳ Terminado' : 'Cuando acabes'}
+    <>
+      <div className="panel">
+        <div className="panel__title">Tu trabajo</div>
+        <div className="panel__body">
+          <ul className="checklist">
+            <li className="checkrow">
+              <span>artículos registrados</span>
+              <span className="num">{summary.registrados}</span>
+            </li>
+            {summary.heredados > 0 && (
+              // Named rather than folded into «registrados», because «I
+              // registered 38» and «38 are registered, 12 of them by somebody
+              // else» are not the same sentence about the same afternoon.
+              <li className="checkrow">
+                <span>ya registrados por otra persona</span>
+                <span className="num">{summary.heredados}</span>
+              </li>
+            )}
+            <li className="checkrow">
+              <span>sin registrar</span>
+              <span className="num">{summary.sinRegistrar}</span>
+            </li>
+            <li className="checkrow">
+              <span>lugares vacíos (cero)</span>
+              <span className="num">{summary.ceros}</span>
+            </li>
+            <li className="checkrow">
+              <span>notas</span>
+              <span className="num">{summary.notas}</span>
+            </li>
+          </ul>
+        </div>
       </div>
-      <div className="panel__body">
-        {state.pendientes > 0 ? (
-          <div className="banner" role="status">
-            {/*
-              One string, not three nodes. A sentence assembled out of JSX
-              expressions renders as separate text nodes, which reads the same
-              and is a different thing entirely to anything that queries by
-              text — a test, a screen reader, `Ctrl+F` on a tablet.
-            */}
-            {`${state.pendientes} ${state.pendientes === 1 ? 'registro' : 'registros'} sin subir.` +
-              (claimed || confirmed
-                ? ' Acércate a la zona con señal antes de irte: tu conteo está guardado en la tableta y se sube solo en cuanto haya red.'
-                : ' Se suben solos en cuanto haya red.')}
-            {state.problem && <div className="hint">{state.problem}</div>}
+
+      {progress.map((section) => (
+        <div className="panel" key={section.id}>
+          <div className="panel__title">{`Tu sección: ${section.nombre} · ${section.total} artículos`}</div>
+          <div className="panel__body">
+            <ul className="checklist">
+              <li className="checkrow">
+                <span>registrados</span>
+                <span className="num">{section.registrados}</span>
+              </li>
+              {section.heredados > 0 && (
+                <li className="checkrow">
+                  <span>ya registrados por otra persona</span>
+                  <span className="num">{section.heredados}</span>
+                </li>
+              )}
+              <li className="checkrow">
+                <span>sin registrar</span>
+                <span className="num">{section.faltan.length}</span>
+              </li>
+            </ul>
           </div>
-        ) : (
-          <div className="hint">
-            {confirmed
-              ? 'El servidor tiene todo lo que contaste.'
-              : claimed
-                ? 'Todo subido. Esperando la confirmación del servidor.'
-                : 'Todo lo que llevas está subido.'}
-          </div>
-        )}
-        {state.serverEstado === 'terminado_incompleto' && (
-          <div className="banner" role="status">
-            El servidor recibió tu «terminar» pero todavía le faltan registros. No apagues
-            la tableta: se están reintentando.
-          </div>
-        )}
-      </div>
+          {section.faltan.length > 0 && (
+            <ul className="rows">
+              {section.faltan.map((idarticulo) => {
+                const item = catalogue.byId.get(idarticulo);
+                return (
+                  <li className="row row--static" key={idarticulo}>
+                    <div className="row__main">
+                      <div className="row__nombre">{item?.nombre ?? `artículo ${idarticulo}`}</div>
+                      <div className="row__meta">
+                        <span className="num">{item?.codigo ?? ''}</span>
+                        {item ? ` · ${item.presentacion}` : ''}
+                      </div>
+                    </div>
+                    <div className="corrections">
+                      {/*
+                        Labelled per article. The visible word is the same on
+                        every row, which is right on screen and useless to a
+                        screen reader — and to anything else that has to tell
+                        one row's button from another's.
+                      */}
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        aria-label={`contar ${item?.nombre ?? idarticulo}`}
+                        onClick={() => onCount(idarticulo)}
+                      >
+                        Contar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        aria-label={`marcar ${item?.nombre ?? idarticulo} como vacío`}
+                        onClick={() => setEmptying(idarticulo)}
+                      >
+                        Está vacío
+                      </button>
+                    </div>
+                    {emptying === idarticulo && (
+                      <div className="confirm">
+                        <div className="confirm__text">
+                          ¿Confirmas que este lugar está vacío?
+                          <div className="hint">
+                            Queda registrado como cero, que es una cantidad contada y no una
+                            excusa. Si no fuiste, déjalo sin registrar.
+                          </div>
+                        </div>
+                        <div className="actions__pair">
+                          <button type="button" className="btn" onClick={() => setEmptying(null)}>
+                            Volver
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--primary"
+                            onClick={() => {
+                              store.addCount(idarticulo, 0);
+                              setEmptying(null);
+                            }}
+                          >
+                            Sí, está vacío
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ))}
+
       <div className="actions">
-        {claimed || confirmed ? (
-          <button type="button" className="btn" onClick={reabrir}>
-            Reabrir
-          </button>
-        ) : (
-          <button type="button" className="btn btn--primary" onClick={terminar}>
-            Terminar
-          </button>
-        )}
-        {state.pendientes > 0 && (
-          <button
-            type="button"
-            className="btn"
-            disabled={state.draining}
-            onClick={() => void sync.retryNow()}
-          >
-            {state.draining ? 'Subiendo…' : 'Reintentar ahora'}
-          </button>
-        )}
+        <button type="button" className="btn btn--primary" onClick={terminar}>
+          {summary.sinRegistrar > 0 ? 'Terminar de todas formas' : 'Terminar'}
+        </button>
       </div>
-    </div>
+    </>
   );
 }

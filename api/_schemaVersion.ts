@@ -11,4 +11,4 @@
  * `migrations/`, so the literal cannot drift from the directory. Bump it in the
  * same commit that adds the migration.
  */
-export const EXPECTED_MIGRATION_VERSION = 3;
+export const EXPECTED_MIGRATION_VERSION = 5;

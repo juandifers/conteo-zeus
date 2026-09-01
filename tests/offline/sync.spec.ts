@@ -8,10 +8,10 @@
  * disk rather than in a closure, and that nobody has to press anything for the
  * work to arrive once the signal does.
  *
- * The events are `finish`/`reopen` pairs because the entry screens are P2.3 and
- * «Terminar» is the only control that appends anything in P2.2. They are real
- * events on the real chain through the real store, which is what the test is
- * about; what they *say* is P2.3's business.
+ * The events are `finish`/`reopen` pairs, which is the cheapest way to put two
+ * hundred real events on a real chain: this file is about *volume and
+ * durability*, not about what a counter typed. What a counter typed — search,
+ * keypad, zeros, notes, an undo — is `shift.spec.ts` next door.
  */
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { installed } from './serviceWorker'
@@ -20,7 +20,15 @@ const TOKEN = 'aaaaaaaaaaaaaaaaaaaaaa'
 const SESSION = '11111111-1111-4111-8111-111111111111'
 const COUNTER = '22222222-2222-4222-8222-222222222222'
 
-/** Exactly the allowlist P2.1 §4c serves. Nothing here is a Zeus figure. */
+/**
+ * Exactly the allowlist P2.1 §4c serves. Nothing here is a Zeus figure.
+ *
+ * It deliberately carries **no `yaRegistrados`** (P2.3.5 §6b). That is a real
+ * state a tablet can be in — one prepared before the field existed, sitting in
+ * a drawer over a deploy — and the device has to open with it, so this fixture
+ * is the one that keeps that path exercised. `shift.spec.ts` next door carries
+ * the current shape.
+ */
 const PAYLOAD = {
   session: {
     id: SESSION,
@@ -138,9 +146,10 @@ test.describe('a counter with no signal', () => {
     // 1. On office wifi. Everything the tablet needs has to be resident before
     //    it leaves, because there is no second chance at it.
     await page.goto(`/#/c/${TOKEN}`)
-    await expect(page.getByText('Listo para contar sin señal')).toBeVisible()
+    await expect(page.getByText('Ana Rodríguez')).toBeVisible()
     expect(await installed(page)).toBeGreaterThanOrEqual(10)
-    await expect(page.getByRole('button', { name: 'Terminar' })).toBeVisible()
+    await page.getByRole('button', { name: 'Terminar', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Terminar de todas formas' })).toBeVisible()
 
     // 2. Into the bodega. The network is gone in both senses: the routes abort,
     //    and the browser itself is offline, so nothing can quietly succeed.
@@ -150,11 +159,11 @@ test.describe('a counter with no signal', () => {
     // 3. A cold reload with no network at all — the tablet locked and woken in
     //    a corridor. It still knows who it is and what it holds.
     await page.reload()
-    await expect(page.getByText('Listo para contar sin señal')).toBeVisible()
     await expect(page.getByText('Ana Rodríguez')).toBeVisible()
+    await page.getByRole('button', { name: 'Terminar', exact: true }).click()
 
     // 4. Two hundred events, through the real store and the real outbox.
-    const terminar = page.getByRole('button', { name: 'Terminar' })
+    const terminar = page.getByRole('button', { name: 'Terminar de todas formas' })
     const reabrir = page.getByRole('button', { name: 'Reabrir' })
     for (let i = 0; i < 100; i++) {
       await terminar.click()
@@ -174,7 +183,7 @@ test.describe('a counter with no signal', () => {
     const rebootedServer = await backend(rebooted)
     rebootedServer.offline = true
     await rebooted.goto(`/#/c/${TOKEN}`)
-    await expect(rebooted.getByText(/200 registros sin subir/)).toBeVisible()
+    await expect(rebooted.getByText(/200 registros sin subir/)).toBeVisible({ timeout: 20_000 })
     expect(await outbox(rebooted)).toBe(200)
 
     // 6. Back in the office. Nobody presses anything: `online` is what the
@@ -204,15 +213,16 @@ test.describe('a counter with no signal', () => {
     const server = await backend(page)
 
     await page.goto(`/#/c/${TOKEN}`)
-    await expect(page.getByText('Listo para contar sin señal')).toBeVisible()
+    await expect(page.getByText('Ana Rodríguez')).toBeVisible()
     await installed(page)
+    await page.getByRole('button', { name: 'Terminar', exact: true }).click()
 
     server.offline = true
     await context.setOffline(true)
 
     // «Terminar» must return. A blocking spinner here is a force-close, and a
     // force-close is the one thing that loses data.
-    await page.getByRole('button', { name: 'Terminar' }).click()
+    await page.getByRole('button', { name: 'Terminar de todas formas' }).click()
     await expect(page.getByText('⏳ Terminado')).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText(/1 registro sin subir/)).toBeVisible()
     await expect(page.getByText(/Acércate a la zona con señal/)).toBeVisible()

@@ -85,12 +85,43 @@ jobs:
         #                reading the DDL cannot tell you.
         #   sessions.pg  the catalogue reassembling out of Postgres to bytes
         #                identical to `source_bytes`, the dispatch gate, and the
-        #                counter payload's allowlist over a real response.
+        #                counter payload's allowlist — over a real response, and
+        #                again after that response has been through the device's
+        #                own store into a real IndexedDB and back.
         #   push.pg      replay, gap and fork as three distinct outcomes; the
         #                finish manifest; device binding; and the `bigserial`
         #                cursor. `unique (counter_id, seq)` is what makes a
         #                replay idempotent and a fork detectable, so none of it
         #                means anything without a real constraint behind it.
+        #   acciones.pg  counters changing hands mid-count (P2.3.5): that a
+        #                reassignment writes no row in `events`, that a stale
+        #                plan and a concurrent one are both refused with nothing
+        #                half-written, that retirement is refused while somebody
+        #                still holds shelves, and that the sealing gate is opened
+        #                only by an action that will be printed on the acta. The
+        #                guards are SQL predicates, and the failure they defend
+        #                against — an unmatched `update` raising nothing — is
+        #                invisible to anything that mocks the driver.
+        #
+        #                It also covers P2.4's waivers, which ride the same
+        #                chain: that a waiver survives a `jsonb` round trip byte
+        #                for byte (the payload is hashed and `jsonb` does not
+        #                preserve key order), that it carries no quantity, and
+        #                that `anular_waiver` withdraws one without deleting it.
+        #
+        #   sellar.pg    P2.5: that the seal freezes both chains and that
+        #                **nothing can be appended between it and the export** —
+        #                asserted by attempting, with every writer in the system
+        #                invited to write and every one of them refusing. The
+        #                guard is a predicate on the insert plus a row lock, so
+        #                it cannot be exercised without a real transaction. Also
+        #                that `export_bytes` is a real `bytea` round trip (a
+        #                re-download that came back as a `\x…` string would be a
+        #                file twice the size and entirely wrong), that a
+        #                re-download is byte-identical, and G2 over a whole
+        #                session: every zero in the count column traces to an
+        #                explicit `add(0)` or to an `existencia` that was already
+        #                zero.
         #
         # These run the handlers' own SQL against a real database rather than a
         # stub: a mock proves a handler calls a function, this proves the query
@@ -102,6 +133,8 @@ jobs:
           tests/backend/schema.pg.test.ts
           tests/backend/sessions.pg.test.ts
           tests/backend/push.pg.test.ts
+          tests/backend/acciones.pg.test.ts
+          tests/backend/sellar.pg.test.ts
 
   offline:
     name: offline (Playwright)
@@ -113,6 +146,13 @@ jobs:
     #
     # It is the only place a service worker, a real IndexedDB and a network that
     # is actually absent come together. jsdom cannot stage any of the three.
+    #
+    #   sync.spec    volume and durability — 200 events, a page teardown, and
+    #                exactly-once delivery when the signal returns.
+    #   shift.spec   a whole afternoon through the screens somebody touches:
+    #                search, 40 entries, 3 empty shelves, 2 notes, a correction
+    #                and «Terminar», with the blind rule checked against the
+    #                rendered page rather than against the source (P2.3).
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

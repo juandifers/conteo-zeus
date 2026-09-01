@@ -192,7 +192,27 @@ export class ConteoDb extends Dexie {
         '[sessionId+counterId+seq], [sessionId+counterId+sync]',
     });
 
-    // ---- before adding v7 -------------------------------------------------
+    // v7 is the handover (P2.3.5 §6a). One more index on `countEvents` and
+    // nothing else — no new table, no reshaping, so a tablet holding an
+    // unposted count opens v7 with that count intact.
+    //
+    //   `sync` on its own answers «which counters on this tablet still have a
+    //   queue». v6's `[sessionId+counterId+sync]` cannot: it is keyed by counter
+    //   first, so there is nothing to look up until you already know the answer,
+    //   and the whole point of the question is that the counter with the queue
+    //   may be somebody who went home. A queue whose owner is not in the
+    //   foreground is a queue nothing looks at, and a queue nothing looks at
+    //   never drains.
+    //
+    // The v6 index list is restated in full because a version declaration
+    // replaces it rather than adding to it.
+    this.version(7).stores({
+      countEvents:
+        'id, sessionId, sync, [sessionId+idarticulo], [sessionId+deviceId+seq], ' +
+        '[sessionId+counterId+seq], [sessionId+counterId+sync]',
+    });
+
+    // ---- before adding v8 -------------------------------------------------
     //
     // From the pilot onwards this database is not empty when a new version
     // arrives. Tablets in the field hold counts that have not been posted, and
@@ -214,5 +234,8 @@ export class ConteoDb extends Dexie {
     //     them in order from whatever the browser has, so an edited v3 runs on
     //     tablets that already ran the old one, and does not run on tablets
     //     that skipped it.
+    //   - Adding an index is safe and is what v7 did; a row written under v6
+    //     is re-indexed by Dexie on upgrade, so the handover query sees a queue
+    //     that was written before the feature existed.
   }
 }

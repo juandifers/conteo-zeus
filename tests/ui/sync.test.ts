@@ -16,8 +16,8 @@ import {
   type ChainedEvent,
 } from '../../src/domain';
 import { ApiError, type Api } from '../../src/ui/api';
-import { CounterSync } from '../../src/ui/counter/sync';
-import { addCount, resetFactory } from '../domain/factory';
+import { CounterSync, sendable } from '../../src/ui/counter/sync';
+import { addCount, resetFactory, retract } from '../domain/factory';
 
 const SESSION = 'session-1';
 const COUNTER = 'counter-ana';
@@ -142,6 +142,137 @@ describe('draining', () => {
     const sync = open(api, store);
     await Promise.all([sync.drain(), sync.drain(), sync.drain()]);
     expect(sent).toHaveLength(1);
+  });
+});
+
+/**
+ * G1 — the wire must not cut a correction in half.
+ *
+ * `appendChainedBatch` made «Corregir» atomic on the device in P2.3: a scoped
+ * withdrawal and its replacement land in one Dexie transaction or neither does.
+ * Nothing made the *push* atomic, so a pair straddling a 200-event boundary
+ * could leave the server holding the retraction and never the replacement:
+ *
+ *     lote 1: … seq 200 = retract(e_88)     ← llega
+ *     lote 2: seq 201 = add(12), …          ← la tableta se pierde
+ *
+ * A count corrected from 12 to 8 folds to `untouched`, and the shape on the
+ * server is indistinguishable from somebody withdrawing an entry on purpose.
+ * Two halves, and shipping only the detector — P2.4's trailing-retraction flag —
+ * would be worse than shipping neither: a flag that fires on a condition nobody
+ * tried to prevent teaches the admin to dismiss it.
+ */
+describe('a correction is never split across two batches (G1)', () => {
+  /** `n` counts, with a scoped retraction at `at` and its replacement after it. */
+  async function withPairAt(at: number, n = 260): Promise<MemoryChain> {
+    resetFactory();
+    const events = [];
+    for (let seq = 1; seq <= n; seq++) {
+      if (seq === at) {
+        events.push(
+          retract(1181, {
+            id: `r${seq}`,
+            sessionId: SESSION,
+            counterId: COUNTER,
+            seq,
+            retractsEventId: `e${seq - 1}`,
+          }),
+        );
+      } else {
+        events.push(
+          addCount(1181, seq, { id: `e${seq}`, sessionId: SESSION, counterId: COUNTER, seq }),
+        );
+      }
+    }
+    const store = new MemoryChain();
+    for (const link of chainEvents(genesisHash(SESSION, COUNTER), events)) {
+      await store.appendChained(link);
+    }
+    return store;
+  }
+
+  it('shrinks the batch to 199 when the 200th is a retraction and the 201st is its replacement', async () => {
+    const store = await withPairAt(200);
+    const { api, sent } = scriptedApi((batch) => ackFor(batch));
+    await open(api, store).drain();
+
+    // 199 and 2, not 200 and 1. The pair crosses together.
+    expect(sent.map((batch) => batch.length)).toEqual([199, 61]);
+    const first = sent[0];
+    expect(first[first.length - 1].event.seq).toBe(199);
+    expect(sent[1][0].event.kind).toBe('retract');
+    expect(sent[1][1].event.kind).toBe('add');
+  });
+
+  it('leaves a full batch alone when the boundary falls anywhere else', async () => {
+    // The same 260 events with the pair well inside the first batch: nothing to
+    // protect, and the drain must not pay for the check by sending short batches
+    // for the rest of the afternoon.
+    const store = await withPairAt(100);
+    const { api, sent } = scriptedApi((batch) => ackFor(batch));
+    await open(api, store).drain();
+    expect(sent.map((batch) => batch.length)).toEqual([200, 60]);
+  });
+
+  it('does not shrink for a retraction whose replacement is not next', async () => {
+    // A withdrawal at the boundary followed by an entry on a *different*
+    // article is not a correction pair — it is two unrelated things — and
+    // shrinking for it would be a rule that fires on nothing in particular.
+    resetFactory();
+    const events = [];
+    for (let seq = 1; seq <= 260; seq++) {
+      if (seq === 200) {
+        events.push(
+          retract(1181, {
+            id: `r${seq}`,
+            sessionId: SESSION,
+            counterId: COUNTER,
+            seq,
+            retractsEventId: 'e199',
+          }),
+        );
+      } else {
+        events.push(
+          addCount(seq === 201 ? 2165 : 1181, seq, {
+            id: `e${seq}`,
+            sessionId: SESSION,
+            counterId: COUNTER,
+            seq,
+          }),
+        );
+      }
+    }
+    const store = new MemoryChain();
+    for (const link of chainEvents(genesisHash(SESSION, COUNTER), events)) {
+      await store.appendChained(link);
+    }
+    const { api, sent } = scriptedApi((batch) => ackFor(batch));
+    await open(api, store).drain();
+    expect(sent.map((batch) => batch.length)).toEqual([200, 60]);
+  });
+
+  it('is a pure decision, so the rule can be read without a drain', () => {
+    // The same call the drain makes, on a window of three: a pair at the
+    // boundary, and the limit that would split it.
+    resetFactory();
+    const events = [
+      addCount(1181, 5, { id: 'a', sessionId: SESSION, counterId: COUNTER, seq: 1 }),
+      retract(1181, {
+        id: 'b',
+        sessionId: SESSION,
+        counterId: COUNTER,
+        seq: 2,
+        retractsEventId: 'a',
+      }),
+      addCount(1181, 8, { id: 'c', sessionId: SESSION, counterId: COUNTER, seq: 3 }),
+    ];
+    const links = chainEvents(genesisHash(SESSION, COUNTER), events);
+    expect(sendable(links, 2).map((link) => link.event.id)).toEqual(['a']);
+    // Nothing to protect: the whole window fits.
+    expect(sendable(links, 3).map((link) => link.event.id)).toEqual(['a', 'b', 'c']);
+    // A batch of one cannot be shrunk and still be a batch — the drain has to
+    // make progress on every pass or it never ends.
+    expect(sendable(links, 1).map((link) => link.event.id)).toEqual(['a']);
   });
 });
 

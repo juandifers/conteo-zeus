@@ -52,12 +52,15 @@ describe('the three actions', () => {
 
   it('stamps every event with who, where and when', async () => {
     const store = await open();
-    store.setZona('CAVA');
     store.setUsuario('beto');
     const event = store.setCount(ID.melon, 12);
 
     expect(event.usuario).toBe('beto');
-    expect(event.zona).toBe('CAVA');
+    // `zona` is whatever the store was opened with and nothing a screen can
+    // set: the `ZONAS` picker is gone (P2.3 G2), because a zone somebody picks
+    // off a list is a claim and the only zone this app recognises now is the
+    // section the admin assigned. A P1 session has no partition, so `''`.
+    expect(event.zona).toBe('ALMACEN');
     expect(event.sessionId).toBe(SESSION_ID);
     expect(event.at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   });

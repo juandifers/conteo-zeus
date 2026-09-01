@@ -99,6 +99,32 @@ export interface CounterPayload {
   session: CounterSessionView;
   counter: CounterView;
   secciones: CounterSection[];
+  /**
+   * Articles in this counter's assignment that already carry a standing event
+   * **from anyone**, as of the moment this payload was built (P2.3.5 §6b).
+   *
+   * Ids only. No quantities, no counter names, no counts — this is the same
+   * information the neutral checkmark already conveys, which is *presence*, and
+   * never magnitude. The blind rule (§2.1) is intact.
+   *
+   * It exists for the handover. P2.3 defines the gap list as «articles in my
+   * sections with no standing events **from me**», which is right while
+   * assignments are disjoint and wrong the moment Pedro inherits 120 articles
+   * of which Luis already counted 60: Pedro's finish screen would list all 120
+   * and send him to recount work already done, which is the double count of
+   * §4b arriving by a second route.
+   *
+   * Two properties worth being explicit about:
+   *
+   *   - **It is a snapshot, not a subscription.** Counter sync stays push-only.
+   *     The device fetches this once, at handover, on wifi — which is exactly
+   *     when a handover happens. Nothing here asks a tablet in a bodega to pull.
+   *   - **It only matters after a handover.** Under disjoint assignments
+   *     «standing event from anyone» and «from me» are the same set; the two
+   *     definitions diverge only for inherited articles, which is the case this
+   *     exists for.
+   */
+  yaRegistrados: number[];
 }
 
 /**
@@ -108,7 +134,12 @@ export interface CounterPayload {
  * runtime, and the test that matters walks the JSON a device actually
  * receives.
  */
-export const COUNTER_PAYLOAD_FIELDS = ['session', 'counter', 'secciones'] as const;
+export const COUNTER_PAYLOAD_FIELDS = [
+  'session',
+  'counter',
+  'secciones',
+  'yaRegistrados',
+] as const;
 export const COUNTER_SESSION_FIELDS = [
   'id',
   'bodega',
@@ -171,6 +202,17 @@ export interface CounterPayloadInput {
   assignments: readonly Assignment[];
   /** The whole catalogue. Everything not assigned to this counter is dropped. */
   items: readonly Item[];
+  /**
+   * Articles anybody has registered something against, session-wide.
+   *
+   * Filtered here to this counter's own assignment: the tablet has no use for
+   * an id outside its sections, and a field nobody needs is a field that only
+   * carries risk (see `CounterItem` on `familia`). Computed by the caller,
+   * because deciding what «registered» means is a fold and the fold is
+   * `registeredArticles` in `ownWork.ts` — there is one definition of it and
+   * this file is not going to grow a second.
+   */
+  registered?: ReadonlySet<number>;
 }
 
 /**
@@ -223,6 +265,7 @@ export function counterPayload(input: CounterPayloadInput): CounterPayload {
     );
   }
 
+  const mineIds = secciones.flatMap((section) => section.items.map((item) => item.idarticulo));
   return {
     session: {
       id: input.session.id,
@@ -233,5 +276,10 @@ export function counterPayload(input: CounterPayloadInput): CounterPayload {
     },
     counter: { id: input.counter.id, nombre: input.counter.nombre },
     secciones,
+    // Sorted, so two builds of one assignment are byte-identical and a test can
+    // compare them without knowing what order a `Set` iterates in.
+    yaRegistrados: mineIds
+      .filter((idarticulo) => input.registered?.has(idarticulo) ?? false)
+      .sort((a, b) => a - b),
   };
 }

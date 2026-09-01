@@ -23,7 +23,12 @@
  * counters have fetched precisely because a tablet that walks in unloaded is a
  * person who walks back out.
  */
-import { counterPayload, type Assignment, type Section } from '../../../src/domain';
+import {
+  counterPayload,
+  registeredArticles,
+  type Assignment,
+  type Section,
+} from '../../../src/domain';
 import { isTokenShaped } from '../../../src/lib/token';
 import { dbFromEnv, NoDatabaseError, type Db } from '../../_db';
 import {
@@ -40,6 +45,7 @@ import {
   findByToken,
   loadAssignments,
   loadCatalogue,
+  loadItemEvents,
   loadSections,
   loadSessionRow,
   recordFetch,
@@ -81,9 +87,39 @@ export async function counterFetch(
     });
   }
 
+  // A retired counter may still **push** and may still resume — their tablet may
+  // be holding the only copy of a morning, and revoking the token is the one
+  // action guaranteed to strand it (P2.3.5 §10). What they may not do is pull a
+  // fresh assignment: they have been taken out of the count, their articles are
+  // somebody else's now, and a payload here would either be empty or, worse,
+  // send them back to shelves Pedro is standing at.
+  if (found.counter.estado === 'retirado') {
+    return fail(
+      409,
+      'Ya no estás en este conteo. Lo que alcanzaste a registrar sigue guardado en ' +
+        'la tableta y se sube solo cuando haya señal — no borres nada y avisa al ' +
+        'administrador.',
+      { code: 'COUNTER_RETIRED', estado: found.counter.estado },
+    );
+  }
+
   const catalogue = await loadCatalogue(db, session.id);
   const sections: Section[] = await loadSections(db, session.id);
   const assignments: Assignment[] = await loadAssignments(db, session.id);
+
+  // What anybody has already registered among **this counter's** articles
+  // (P2.3.5 §6b). Ids, and nothing else: the same information the neutral
+  // checkmark carries, which is presence and never magnitude.
+  //
+  // Folded with `registeredArticles` — the same function the tablet uses —
+  // because deciding what «registered» means in SQL would be a second definition
+  // of the fold, and the two would disagree the first time a scoped retraction
+  // landed. The events are read for the counter's own articles only, so the cost
+  // is proportional to the assignment rather than to the session.
+  const mine = assignments
+    .filter((assignment) => assignment.counterId === found.counter.id)
+    .map((assignment) => assignment.idarticulo);
+  const registered = registeredArticles(await loadItemEvents(db, session.id, mine));
 
   const payload = counterPayload({
     session: {
@@ -103,6 +139,7 @@ export async function counterFetch(
     sections,
     assignments,
     items: catalogue.map((row) => row.item),
+    registered,
   });
 
   // After the payload is built, so a fetch that could not be served is not

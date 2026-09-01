@@ -18,9 +18,12 @@ export {
   type ImportOptions,
 } from './importZeus';
 export {
+  adjustmentFilename,
   exportAdjustment,
   generateAdjustment,
   sourceIntact,
+  writeAdjustment,
+  type SealedAdjustment,
   type Adjustment,
   type ExportAdjustmentOptions,
   type GenerateAdjustmentOptions,
@@ -46,3 +49,11 @@ export {
   unverifiedParameters,
   type PostingParameters,
 } from './parameters';
+export {
+  BUNDLE_FORMAT,
+  bundleJson,
+  type BundleAction,
+  type BundleCounter,
+  type BundleSeals,
+  type SessionBundle,
+} from './bundle';

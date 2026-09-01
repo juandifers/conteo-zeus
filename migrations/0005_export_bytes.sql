@@ -1,0 +1,25 @@
+-- P2.5 — the generated file, stored.
+--
+-- `sealed_at`, `session_hash`, `exported_at` and `file_hash` have been on
+-- `sessions` since 0001, waiting for the task that writes them. This adds the
+-- one column that task discovered it needs, and the reason is worth the width.
+
+-- The bytes handed to Zeus, exactly as the server hashed them.
+--
+-- **Generation happens once; download happens as often as somebody loses the
+-- file.** A re-download that regenerated would be a second run of `writeTxt`
+-- over a second read of the catalogue, and the honest description of the result
+-- would be «a file that ought to be identical» — which is precisely the claim
+-- `file_hash` exists to replace with a fact. Two consequences pay for the
+-- column: a re-download is *provably* the same file, and the verifier can be
+-- handed the bytes that were hashed rather than a reconstruction of them.
+--
+-- `bytea`, like `source_bytes` beside it, and for the same reason: this is
+-- CP850 (ZEUS_FORMAT.md §3), not text. A `text` column would put every `Ñ` in
+-- the catalogue through the connection's client encoding on the way in and out,
+-- and the file would arrive at Zeus as something else.
+--
+-- Null until the export runs. `estado = 'cerrado'` is the flag; a session in
+-- `cerrado` with no bytes is not a state this application can produce, because
+-- both are written in one guarded transaction.
+alter table sessions add column export_bytes bytea;

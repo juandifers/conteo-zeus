@@ -287,25 +287,27 @@ describe('the dispatch sheet', () => {
   });
 
   it('names the tablet nobody has loaded, in the words that matter', () => {
-    render(<Dispatched detail={dispatched} onReload={() => {}} />);
+    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
     const banner = screen.getByRole('status');
     expect(banner.textContent).toMatch(/Todavía sin descargar: Luis/);
     expect(banner.textContent).toMatch(/adentro no hay señal/);
   });
 
   it('shows each counter’s link, as text and as a QR code', () => {
-    render(<Dispatched detail={dispatched} onReload={() => {}} />);
-    const ana = screen.getByText('Ana').closest('section')!;
+    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
+    // By heading: from P2.3.5 the same screen also carries the reassignment
+    // panel, where every counter's name appears in a list and in two selects.
+    const ana = screen.getByRole('heading', { name: 'Ana' }).closest('section')!;
     expect(within(ana).getByText(/#\/c\/A{22}/)).toBeTruthy();
     expect(within(ana).getByRole('img', { name: 'Enlace de Ana' })).toBeTruthy();
     expect(within(ana).getByText(/descargado/)).toBeTruthy();
 
-    const luis = screen.getByText('Luis').closest('section')!;
+    const luis = screen.getByRole('heading', { name: 'Luis' }).closest('section')!;
     expect(within(luis).getByText('pendiente')).toBeTruthy();
   });
 
   it('counts the downloads rather than making somebody read the list', () => {
-    render(<Dispatched detail={dispatched} onReload={() => {}} />);
+    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
     expect(screen.getByText('Descargas: 1 de 2')).toBeTruthy();
   });
 });

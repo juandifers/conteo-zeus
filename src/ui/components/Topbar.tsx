@@ -1,5 +1,5 @@
 /**
- * Where you are, how far you have got, and which zone you are stamping.
+ * Where you are, and how far you have got.
  *
  * The progress bar is one tone. It would be easy to split it into counted and
  * waived, and that would be the first crack in the rule that colour on this
@@ -11,22 +11,12 @@
  * believes, and it is the one figure that says how much of the afternoon is
  * left.
  */
-import { ZONAS } from '../identity';
 import type { CountSnapshot } from '../store';
 
-export function Topbar({
-  snapshot,
-  onZona,
-  onBack,
-}: {
-  snapshot: CountSnapshot;
-  onZona: (zona: string) => void;
-  onBack: () => void;
-}) {
-  const { session, counts, zona, usuario } = snapshot;
+export function Topbar({ snapshot, onBack }: { snapshot: CountSnapshot; onBack: () => void }) {
+  const { session, counts, usuario } = snapshot;
   const verificados = counts.counted + counts.unchanged;
   const total = session.items.length;
-  const zonas = ZONAS.includes(zona as (typeof ZONAS)[number]) ? ZONAS : [zona, ...ZONAS];
 
   return (
     <>
@@ -59,17 +49,12 @@ export function Topbar({
       >
         <div className="progressbar__fill" style={{ width: `${(verificados / total) * 100}%` }} />
       </div>
-      <div className="zonabar">
-        <label htmlFor="zona">Zona</label>
-        <select id="zona" value={zona} onChange={(e) => onZona(e.target.value)}>
-          {zonas.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <span className="hint">cuenta {usuario || 'sin nombre'}</span>
-      </div>
+      {/*
+        The zone picker was here. It is gone rather than hidden (P2.3): a zone
+        somebody chooses from a list is a claim, and the only zone this app now
+        recognises is the one the admin committed to at dispatch.
+      */}
+      <div className="who">cuenta {usuario || 'sin nombre'}</div>
     </>
   );
 }

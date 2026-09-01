@@ -16,7 +16,6 @@ import type { Item } from '../../domain';
 import { EntryCard } from '../components/EntryCard';
 import { ResultRows } from '../components/ResultRows';
 import { Topbar } from '../components/Topbar';
-import { saveZona } from '../identity';
 import { buildIndex, groupByCodigo, resolveEnter, searchItems } from '../search';
 import type { CountStore } from '../store';
 
@@ -95,14 +94,7 @@ export function CountScreen({
 
   return (
     <div className="screen">
-      <Topbar
-        snapshot={snapshot}
-        onBack={onBack}
-        onZona={(zona) => {
-          store.setZona(zona);
-          saveZona(snapshot.session.id, zona);
-        }}
-      />
+      <Topbar snapshot={snapshot} onBack={onBack} />
 
       {faults.length > 0 && !open && (
         <div className="banner" role="alert">

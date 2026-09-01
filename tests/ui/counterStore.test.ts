@@ -19,6 +19,7 @@ import {
   chainEvents,
   genesisHash,
   verifyChain,
+  type ChainedEvent,
   type CountEvent,
 } from '../../src/domain';
 import { CountStore } from '../../src/ui/store';
@@ -77,7 +78,9 @@ describe('what a P2 store stamps', () => {
     const { store, chain } = await open();
     store.setCount(1181, 5);
     store.addCount(1181, 2);
-    store.markUnchanged(330);
+    // No `unchanged`: a counter cannot waive an article whose book figure their
+    // tablet has never seen (P2.3), and the store refuses one in P2 mode.
+    store.addCount(330, 0);
     store.note('caja abierta', 1181);
     await store.settled();
 
@@ -196,12 +199,20 @@ describe('a write that fails is retried as the same chained row', () => {
         }
         return chain.appendChained(link);
       },
+      appendChainedBatch: async (links: readonly ChainedEvent[]) => {
+        if (fail) {
+          fail = false;
+          throw new Error('IndexedDB dijo que no');
+        }
+        return chain.appendChainedBatch(links);
+      },
       unsynced: chain.unsynced.bind(chain),
       localChain: chain.localChain.bind(chain),
       markSynced: chain.markSynced.bind(chain),
       resetFrom: chain.resetFrom.bind(chain),
       markRejected: chain.markRejected.bind(chain),
       rejected: chain.rejected.bind(chain),
+      pendingOutboxes: chain.pendingOutboxes.bind(chain),
     };
     const store = new CountStore(repo, sampleSession(), [], {
       ...fakeIdentity(),
@@ -214,7 +225,7 @@ describe('a write that fails is retried as the same chained row', () => {
     store.addCount(1181, 3);
     await store.settled();
     expect(store.getSnapshot().failures).toHaveLength(1);
-    expect(store.getSnapshot().failures[0].link).not.toBeNull();
+    expect(store.getSnapshot().failures[0].links).not.toBeNull();
 
     store.retryFailures();
     await store.settled();

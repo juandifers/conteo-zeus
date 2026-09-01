@@ -153,7 +153,13 @@ export interface SummaryOptions {
  * keyed on `idarticulo`, so an item nobody opened simply misses.
  */
 export function resolveSession(
-  session: Session,
+  /**
+   * The session. Typed to the two fields this reads so P2.4's review can fold a
+   * catalogue it holds without a `SessionSource` or a `fechaCorte` — the wire
+   * shape the admin screens receive is not a `Session`, and inventing one to
+   * satisfy a parameter would be a second, emptier copy of the real thing.
+   */
+  session: Pick<Session, 'id' | 'items'>,
   events: readonly CountEvent[],
 ): Map<number, Resolution> {
   const known = new Set(session.items.map((item) => item.idarticulo));
@@ -196,7 +202,7 @@ function accumulate(into: Exposure, valor: number, exposicion: number): void {
 }
 
 export function summarizeSession(
-  session: Session,
+  session: Pick<Session, 'id' | 'items'>,
   events: readonly CountEvent[],
   options: SummaryOptions = {},
 ): SessionSummary {

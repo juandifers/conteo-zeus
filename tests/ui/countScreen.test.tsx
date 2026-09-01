@@ -505,12 +505,18 @@ describe('progress', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1');
   });
 
-  it('stamps the zone the counter says they are in', async () => {
+  it('offers no zone picker, and stamps whatever the session was opened with', async () => {
+    // The `ZONAS` dropdown is gone (P2.3 G2). A zone somebody selects from a
+    // list is a *claim*; the only zone this app recognises now is the section
+    // the admin assigned at dispatch, which is the same fact coverage is gated
+    // on — and a P1 session has no partition, so it has no zone to claim.
     const user = draw();
-    await user.selectOptions(screen.getByLabelText('Zona'), 'CAVA');
+    expect(screen.queryByLabelText('Zona')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+
     await user.type(search(), '0112006{Enter}');
     await save(user, 'PAN TAJADO', '81');
 
-    expect(eventsFor(ID.panTajado)[0].zona).toBe('CAVA');
+    expect(eventsFor(ID.panTajado)[0].zona).toBe('ALMACEN');
   });
 });

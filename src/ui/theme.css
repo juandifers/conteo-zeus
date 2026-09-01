@@ -170,27 +170,6 @@ select {
   transition: width 180ms ease-out;
 }
 
-.zonabar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper);
-  font-size: 16px;
-  color: var(--ink-quiet);
-}
-
-.zonabar select,
-.zonabar input {
-  min-height: var(--tap);
-  padding: 6px 10px;
-  border: 1px solid var(--rule-strong);
-  border-radius: 6px;
-  background: var(--paper-raised);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
 
 /* ---- search ------------------------------------------------------------ */
 
@@ -1239,4 +1218,79 @@ select {
   font-size: 16px;
   font-weight: 400;
   color: var(--ink-quiet);
+}
+
+/* ---- the counter's tablet (P2.3) --------------------------------------- */
+
+/*
+ * Four tabs, full width, always visible. A counter with gloves on is switching
+ * between counting and correcting all afternoon, and a hamburger costs a tap
+ * plus a decision every time.
+ */
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.tabs__tab {
+  min-height: var(--tap);
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 4px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink-quiet);
+}
+
+.tabs__tab--on {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/*
+ * An on-screen decimal pad. The OS keyboard puts the digits in a two-hand
+ * layout with a half-height comma; this is one thumb, and the comma is a full
+ * key because much of this catalogue sells by weight.
+ */
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  padding: 1px;
+  background: var(--rule);
+}
+
+.keypad__key {
+  min-height: var(--tap-primary);
+  border: 0;
+  background: var(--paper-raised);
+  font-family: var(--mono);
+  font-size: 26px;
+  color: var(--ink);
+}
+
+.keypad__key:active {
+  background: var(--paper-sunken);
+}
+
+/* The quantity being confirmed, at arm's length. */
+.confirm__qty {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/*
+ * A withdrawn entry stays on the list. Struck through and dimmed, never gone:
+ * the log is append-only, and a correction screen that hid what it corrected
+ * would be lying about the thing it exists to make honest.
+ */
+.row--withdrawn {
+  color: var(--ink-quiet);
+  text-decoration: line-through;
+  opacity: 0.65;
 }

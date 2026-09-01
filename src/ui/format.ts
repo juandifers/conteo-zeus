@@ -61,6 +61,20 @@ export function parseQty(text: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * A quantity worth asking about twice (P2.3 §2).
+ *
+ * Five or more digits before the separator, or more than three after it. Cheap,
+ * needs to know nothing about the article, and catches a good part of the
+ * 80-for-8 class — the slip the variance bar used to catch as a *shape*, which
+ * it could only do against a reference the counter must not have (DOMAIN.md
+ * §2.1). The real outlier checks need book values and live with the admin.
+ */
+export function unusualQty(qty: number): boolean {
+  const [whole, decimals = ''] = String(qty).split('.');
+  return whole.replace('-', '').length > 4 || decimals.length > 3;
+}
+
 const STAMP = new Intl.DateTimeFormat('es-CO', {
   day: '2-digit',
   month: '2-digit',

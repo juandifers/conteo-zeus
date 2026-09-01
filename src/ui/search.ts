@@ -12,6 +12,17 @@
 import type { Item } from '../domain';
 
 /**
+ * What search needs of a row, and nothing more.
+ *
+ * P1 searches `Item`; a counter's tablet searches `CounterItem`, which is five
+ * fields off an allowlist and has no `existencia` to be found by (P2.1 §4c).
+ * Naming the shape rather than the type is what lets one ranking serve both —
+ * and it is the shape that matters here, since the ranking is over `nombre`,
+ * `presentacion` and `codigo` and was never about anything else.
+ */
+export type Searchable = Pick<Item, 'idarticulo' | 'codigo' | 'nombre' | 'presentacion'>;
+
+/**
  * Fold accents and `ñ`, then uppercase.
  *
  * Nobody types `AJÍ`, and nobody types `ÑAME` either — a tablet keyboard makes
@@ -43,8 +54,8 @@ function atWordEnd(blob: string, end: number): boolean {
  * the rank order: an earlier match offset means a match in the name rather
  * than in the packaging, which is what the person was looking at.
  */
-export interface IndexedItem {
-  item: Item;
+export interface IndexedItem<T extends Searchable = Item> {
+  item: T;
   /** Position in the file. Shelf order, and the tie-break of last resort. */
   ord: number;
   blob: string;
@@ -52,13 +63,13 @@ export interface IndexedItem {
 
 export type MatchTier = 'prefix' | 'partial';
 
-export interface SearchHit {
-  item: Item;
+export interface SearchHit<T extends Searchable = Item> {
+  item: T;
   ord: number;
   tier: MatchTier;
 }
 
-export function buildIndex(items: readonly Item[]): IndexedItem[] {
+export function buildIndex<T extends Searchable>(items: readonly T[]): IndexedItem<T>[] {
   return items.map((item, ord) => ({
     item,
     ord,
@@ -124,12 +135,12 @@ function rankMatch(match: TokenMatch): number {
  *    but *stable*: a list that reshuffles between two identical searches is a
  *    list nobody learns the shape of.
  */
-interface Scored extends SearchHit {
+interface Scored<T extends Searchable> extends SearchHit<T> {
   firstOffset: number;
   allWhole: boolean;
 }
 
-function score(entry: IndexedItem, tokens: string[]): Scored | null {
+function score<T extends Searchable>(entry: IndexedItem<T>, tokens: string[]): Scored<T> | null {
   const matches: TokenMatch[] = [];
   for (const token of tokens) {
     const match = bestMatch(entry.blob, token);
@@ -148,11 +159,14 @@ function score(entry: IndexedItem, tokens: string[]): Scored | null {
 
 const TIER_ORDER: Record<MatchTier, number> = { prefix: 0, partial: 1 };
 
-export function searchItems(index: readonly IndexedItem[], query: string): SearchHit[] {
+export function searchItems<T extends Searchable>(
+  index: readonly IndexedItem<T>[],
+  query: string,
+): SearchHit<T>[] {
   const tokens = tokenize(query);
   if (tokens.length === 0) return [];
 
-  const scored: Scored[] = [];
+  const scored: Scored<T>[] = [];
   for (const entry of index) {
     const hit = score(entry, tokens);
     if (hit) scored.push(hit);
@@ -182,8 +196,8 @@ const CODIGO_WIDTH = 7;
  * entry is the default path — but the other 44 are the reason entry can never
  * be *only* inline.
  */
-export function groupByCodigo(items: readonly Item[]): Map<string, Item[]> {
-  const groups = new Map<string, Item[]>();
+export function groupByCodigo<T extends Searchable>(items: readonly T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
   for (const item of items) {
     const group = groups.get(item.codigo);
     if (group) group.push(item);
@@ -192,12 +206,12 @@ export function groupByCodigo(items: readonly Item[]): Map<string, Item[]> {
   return groups;
 }
 
-export interface EnterTarget {
+export interface EnterTarget<T extends Searchable = Item> {
   codigo: string;
   /** Every presentation under that codigo, in file order. */
-  items: Item[];
+  items: T[];
   /** The presentation to open on. */
-  active: Item;
+  active: T;
   /** How the target was chosen — the scanner path, or the ranking. */
   via: 'codigo' | 'ranking';
 }
@@ -218,11 +232,11 @@ export interface EnterTarget {
  * one of five balances by accident. That is ZEUS_FORMAT.md §4's failure mode
  * with a scanner attached to it.
  */
-export function resolveEnter(
-  index: readonly IndexedItem[],
-  groups: ReadonlyMap<string, Item[]>,
+export function resolveEnter<T extends Searchable>(
+  index: readonly IndexedItem<T>[],
+  groups: ReadonlyMap<string, T[]>,
   query: string,
-): EnterTarget | null {
+): EnterTarget<T> | null {
   const digits = query.trim();
   if (/^\d{1,7}$/.test(digits)) {
     const codigo = digits.padStart(CODIGO_WIDTH, '0');

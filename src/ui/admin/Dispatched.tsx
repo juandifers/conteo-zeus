@@ -12,13 +12,55 @@
  * to be loaded on office wifi and this is the last moment anybody can notice
  * that one was not. A counter still reading «pendiente» when people are picking
  * up their tablets is a person who will walk in and walk straight back out.
+ *
+ * From P2.3.5 it also carries `Cambios`, which is everything that can still
+ * change about who counts what: a swap, an extra pair of hands, somebody who
+ * never arrived. That belongs on this screen rather than on its own route
+ * because it is the screen somebody is already looking at when the radio says
+ * Luis has gone home.
+ *
+ * P2.4 adds the second half of an open session's life, and it is a **tab rather
+ * than a route**: watching the count and reviewing it are the same person at the
+ * same desk on the same afternoon, and the reason they are separated at all is
+ * that they poll different things at different rates. `Seguimiento` refreshes
+ * every few seconds off the cheap endpoint; `Revisión` folds five thousand
+ * events and is asked for, not pushed.
  */
+import { useState } from 'react';
+
 import { QrCode } from '../components/QrCode';
+import { Cambios } from './Cambios';
+import { Cierre } from './Cierre';
+import { Monitor } from './Monitor';
+import { Revision } from './Revision';
 import { counterLink } from './links';
 import { formatInstant } from '../format';
+import type { Api } from '../api';
 import type { SessionDetail } from './types';
 
-export function Dispatched({ detail, onReload }: { detail: SessionDetail; onReload: () => void }) {
+type Tab = 'seguimiento' | 'revision' | 'cierre';
+
+/** Sessions whose count is over. Nothing is arriving, so nothing is polled. */
+const FROZEN = new Set(['sellado', 'cerrado']);
+
+export function Dispatched({
+  detail,
+  api,
+  onReload,
+  tab: initialTab,
+}: {
+  detail: SessionDetail;
+  api: Api;
+  onReload: () => void;
+  /** Injected so a test can open a tab directly. */
+  tab?: Tab;
+}) {
+  // A sealed session opens on `Sello y acta`, which is the only thing left to do
+  // with it — and it keeps `Seguimiento` from polling every five seconds for
+  // movement that can no longer happen.
+  const [tab, setTab] = useState<Tab>(
+    initialTab ?? (FROZEN.has(detail.session.estado) ? 'cierre' : 'seguimiento'),
+  );
   const sectionsOf = (counterId: string) =>
     detail.sections.filter((section) => section.counterId === counterId);
   const countOf = (counterId: string) =>
@@ -39,6 +81,37 @@ export function Dispatched({ detail, onReload }: { detail: SessionDetail; onRelo
           · {detail.counters.length} contadores · {detail.session.itemCount} artículos
         </div>
       </div>
+
+      <div className="chips" role="tablist" aria-label="secciones del conteo">
+        {(
+          [
+            ['seguimiento', 'Seguimiento'],
+            ['revision', 'Revisión'],
+            ['cierre', 'Sello y acta'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? 'chipbtn chipbtn--on' : 'chipbtn'}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'revision' && (
+        <Revision detail={detail} api={api} onReload={onReload} />
+      )}
+
+      {tab === 'cierre' && <Cierre detail={detail} api={api} onReload={onReload} />}
+
+      {tab === 'seguimiento' && (
+        <>
+      <Monitor detail={detail} api={api} />
 
       <div className="panel">
         <div className="panel__title">
@@ -68,6 +141,14 @@ export function Dispatched({ detail, onReload }: { detail: SessionDetail; onRelo
           </div>
         </div>
       </div>
+
+      {/*
+        Everything that can still change about who counts what (P2.3.5). Above
+        the printable sheet, because a sheet printed before a swap is a sheet
+        that is wrong, and the person reprinting it needs to have made the change
+        first.
+      */}
+      <Cambios detail={detail} api={api} onReload={onReload} />
 
       <div className="sheet">
         {detail.counters.map((counter) => {
@@ -101,6 +182,8 @@ export function Dispatched({ detail, onReload }: { detail: SessionDetail; onRelo
           );
         })}
       </div>
+        </>
+      )}
     </div>
   );
 }

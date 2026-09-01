@@ -247,6 +247,7 @@ describe('sessionReadyToSeal — gates on the proof, never on the claim', () => 
     forked: false,
     fetchedAt: '2026-08-31T12:00:00.000Z',
     finishReason: null,
+    chainComplete: true,
   };
 
   it('is empty when every counter is confirmed', () => {
@@ -313,5 +314,81 @@ describe('sessionReadyToSeal — gates on the proof, never on the claim', () => 
       'contador-sin-terminar',
       'contador-sin-terminar',
     ]);
+  });
+});
+
+/**
+ * A counter who was taken out of the count, and the one way a session with
+ * somebody missing from it can still be sealed — P2.3.5 §5.
+ *
+ * `retirado` is the only state in `CounterEstado` that is not derived from the
+ * chain: it is an admin decision, recorded in `session_actions` with a reason.
+ * Without it Luis going home at eleven would mean this session could never be
+ * sealed, and «never» is not a state an inventory can be left in.
+ */
+describe('sessionReadyToSeal — a retired counter (P2.3.5 §5)', () => {
+  const retired: CounterSyncState = {
+    id: 'luis',
+    nombre: 'Luis',
+    estado: 'retirado',
+    forked: false,
+    fetchedAt: '2026-08-31T08:00:00.000Z',
+    finishReason: null,
+    chainComplete: true,
+  };
+
+  it('accepts a retired counter whose chain is whole — their counts are real data', () => {
+    // Luis did not finish; that is what retirement records. His sixty counts
+    // still happened and they belong in the file, so the gate is on the chain
+    // being complete rather than on a `finish` that was never written.
+    expect(sessionReadyToSeal({ counters: [retired] })).toEqual([]);
+  });
+
+  it('blocks on a retired counter whose chain has a hole in it', () => {
+    // §5b: the tablet went home in a jacket with seq 61–83 on it, and 84–90
+    // arrived over a moment of signal. What the server can see is the hole.
+    expect(sessionReadyToSeal({ counters: [{ ...retired, chainComplete: false }] })).toEqual([
+      { kind: 'contador-retirado-incompleto', counterId: 'luis', nombre: 'Luis' },
+    ]);
+  });
+
+  it('is satisfied by an explicit `sellar_sin_registros`, and by nothing weaker', () => {
+    // The gate cannot be satisfied by assertion — that is its whole value — so
+    // the only way past it is an action on the chain naming the counter and the
+    // range, which is then printed on the acta.
+    const counters = [{ ...retired, chainComplete: false }];
+    expect(sessionReadyToSeal({ counters })).toHaveLength(1);
+    expect(
+      sessionReadyToSeal({ counters, overrides: [{ counterId: 'luis', faltan: '61–83' }] }),
+    ).toEqual([]);
+    // Signed for somebody else, it does nothing here.
+    expect(
+      sessionReadyToSeal({ counters, overrides: [{ counterId: 'ana', faltan: '4' }] }),
+    ).toHaveLength(1);
+  });
+
+  it('lets a counter who never arrived be resolved by retiring them (§5c)', () => {
+    // «María fue asignada y nunca llegó»: `asignado`, no events, no fetch. Her
+    // articles are reassigned and she is retired, and that *is* the resolution
+    // — blocking on the tablet she never opened would leave the session
+    // unsealable for ever. Her chain is empty, which is complete.
+    expect(
+      sessionReadyToSeal({ counters: [{ ...retired, id: 'maria', nombre: 'María', fetchedAt: null }] }),
+    ).toEqual([]);
+  });
+
+  it('never waives a fork, whatever an admin decided about who is still counting', () => {
+    // Two chains claiming one `seq` means the server holds events it cannot
+    // order. No decision about staffing changes that.
+    expect(sessionReadyToSeal({ counters: [{ ...retired, forked: true }] })).toEqual([
+      { kind: 'contador-bifurcado', counterId: 'luis', nombre: 'Luis' },
+    ]);
+  });
+
+  it('does not ask a retired counter to have finished', () => {
+    // The `contador-sin-terminar` blocker must not also fire: it would be
+    // unanswerable, because the person it names has gone home.
+    const blockers = sessionReadyToSeal({ counters: [{ ...retired, chainComplete: false }] });
+    expect(blockers.map((blocker) => blocker.kind)).toEqual(['contador-retirado-incompleto']);
   });
 });

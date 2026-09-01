@@ -51,7 +51,22 @@ export type CounterEstado =
   | 'asignado'
   | 'contando'
   | 'terminado_confirmado'
-  | 'terminado_incompleto';
+  | 'terminado_incompleto'
+  /**
+   * Taken out of the count by an admin, mid-session (P2.3.5 §5a).
+   *
+   * The one state here that is **not** derived from the chain. The other four
+   * are what the server can see of what arrived; this one is a decision a named
+   * person took, recorded in `session_actions` with a reason, and it is
+   * deliberately sticky: a late push from a retired counter's tablet is still
+   * accepted and still attributed to them, and it must not quietly return them
+   * to `contando`. `insertEventsStatements` guards on exactly that.
+   *
+   * Refused while the counter still holds an article — retirement is not a way
+   * to abandon coverage, so the reassignment comes first. Sequencing it that way
+   * keeps the coverage gate one rule rather than one with an exception.
+   */
+  | 'retirado';
 
 /**
  * One person counting.
@@ -119,7 +134,12 @@ export interface AssignmentCoverage {
  * counts it.
  */
 export function assignmentCoverage(
-  items: readonly Item[],
+  /**
+   * The catalogue. Typed to the one field this reads, so P2.3.5's reassignment
+   * planner can re-run coverage over the post-state without holding 298 `Item`s
+   * — and so that nothing here can start reading a quantity by accident.
+   */
+  items: readonly Pick<Item, 'idarticulo'>[],
   assignments: readonly Assignment[],
 ): AssignmentCoverage {
   const catalogue = new Set(items.map((item) => item.idarticulo));

@@ -8,6 +8,11 @@
  * that refuses a collision, and `borrador -> abierto` has to be a transition
  * two admins cannot both win.
  */
+// Must precede any import that reaches Dexie: Dexie binds the global
+// indexedDB at module load, so a shim installed afterwards is too late. The
+// last test in this file puts the *real* response through the *real* device
+// store, which is the only way to assert what actually lands on a tablet.
+import 'fake-indexeddb/auto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSession, listSessions } from '../../api/sessions/index';
@@ -26,6 +31,8 @@ import {
 import { ingestZeusBytes, toWire } from '../../src/app';
 import { encodeCp850, parseXls, reencode } from '../../src/zeus';
 import { isTokenShaped } from '../../src/lib/token';
+import { NEVER_SENT_TO_A_COUNTER, type CounterPayload } from '../../src/domain';
+import { ConteoDb, DexieAssignmentStore } from '../../src/store';
 import { readSample, SAMPLE_TXT, SAMPLE_XLS } from '../helpers';
 import { openTestDb, type TestDb } from './pgDb';
 
@@ -521,6 +528,57 @@ suite('GET /api/c/:token', () => {
       }
     }
     expect(checked).toBeGreaterThan(100);
+  });
+
+  it('and none of it survives the trip onto the tablet', async () => {
+    /**
+     * The same leak test, run against **what actually landed on the device**.
+     *
+     * The two assertions above are about the response. This one is about the
+     * artefact: the response goes through the real `AssignmentStore` into a
+     * real IndexedDB, comes back out, and is walked again. A store that spread
+     * the payload together with something else, or a schema upgrade that merged
+     * two tables, would leave the projection perfectly correct and the tablet
+     * holding `existencia` anyway — and the tablet is what a counter's screen
+     * renders from.
+     *
+     * `counterAssignments` is also a *durable* table: a figure that reaches it
+     * stays on that tablet across sessions, across upgrades, and until somebody
+     * clears site data.
+     */
+    const result = await counterFetch(db, tokens[0].token);
+    // Through JSON, because that is what crosses the wire.
+    const overTheWire = JSON.parse(JSON.stringify(result.body)) as CounterPayload;
+
+    const device = new ConteoDb(`landed-${Math.random().toString(36).slice(2)}`);
+    const store = new DexieAssignmentStore(device);
+    await store.save(tokens[0].token, overTheWire, '2026-08-31T12:00:00.000Z');
+    const row = await store.load(tokens[0].token);
+    expect(row).not.toBeNull();
+
+    const keys = new Set<string>();
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) return void value.forEach(walk);
+      if (value === null || typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value)) {
+        keys.add(key);
+        walk(child);
+      }
+    };
+    // The whole row, not only the payload: the wrapper carries `token`,
+    // `sessionId`, `counterId` and `fetchedAt`, and a future column on that
+    // table is exactly as durable as one inside the payload.
+    walk(row);
+    for (const forbidden of NEVER_SENT_TO_A_COUNTER) {
+      expect(keys.has(forbidden), `the tablet is holding ${forbidden}`).toBe(false);
+    }
+    expect(Object.keys(row!.payload).sort()).toEqual([...COUNTER_PAYLOAD_FIELDS].sort());
+    for (const section of row!.payload.secciones) {
+      for (const article of section.items) {
+        expect(Object.keys(article).sort()).toEqual([...COUNTER_ITEM_FIELDS].sort());
+      }
+    }
+    device.close();
   });
 
   it('serves only this counter’s articles, grouped into their sections', async () => {

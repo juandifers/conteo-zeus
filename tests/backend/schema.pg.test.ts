@@ -294,6 +294,49 @@ suite('the schema, against Postgres', () => {
     await client.query('rollback to savepoint author');
   });
 
+  it('starts a session at assignments_version 0', async () => {
+    // P2.3.5 §7. Every session already open when the column arrived gets `0`,
+    // and a client that has never seen one sends `0` and is right until the
+    // first change.
+    const { rows } = await client.query(
+      'select assignments_version from sessions where id = $1',
+      [SESSION],
+    );
+    expect(rows[0].assignments_version).toBe(0);
+  });
+
+  it('takes the admin’s chain with the session, and refuses a repeated seq', async () => {
+    await client.query(
+      `insert into session_actions (id, session_id, seq, kind, payload, usuario,
+                                    client_at, prev_hash, hash)
+       values (gen_random_uuid(), $1, 1, 'retirar_contador', '{"nombre":"Luis"}', 'Marta',
+               '2026-08-31T11:00:00.000Z', 'p', 'h')`,
+      [SESSION],
+    );
+    // `unique (session_id, seq)` is what stops two admins writing action 1, and
+    // it is a constraint rather than a check in a handler for the same reason
+    // `unique (counter_id, seq)` is.
+    await client.query('savepoint dup');
+    await expect(
+      client.query(
+        `insert into session_actions (id, session_id, seq, kind, payload, usuario,
+                                      client_at, prev_hash, hash)
+         values (gen_random_uuid(), $1, 1, 'reasignar', '{}', 'Otro',
+                 '2026-08-31T11:01:00.000Z', 'p', 'h2')`,
+        [SESSION],
+      ),
+    ).rejects.toThrow(/unique|duplicate key/i);
+    await client.query('rollback to savepoint dup');
+
+    // And `jsonb` really does hand the object back, which is what
+    // `canonicalJson`'s key sorting exists to survive.
+    const { rows } = await client.query(
+      'select payload from session_actions where session_id = $1',
+      [SESSION],
+    );
+    expect(rows[0].payload).toEqual({ nombre: 'Luis' });
+  });
+
   it('defaults a session to the verified triple', async () => {
     const { rows } = await client.query(
       `select count_target_column, uncounted_policy, difference_column

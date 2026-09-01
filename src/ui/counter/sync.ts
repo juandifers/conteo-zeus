@@ -17,11 +17,65 @@
  * All the state lives in Dexie. This object holds a timer and a snapshot; kill
  * the tab, reboot the tablet, and the outbox is exactly where it was.
  */
-import type { CounterChainRepository, DeviceEstado } from '../../domain';
+import type { ChainedEvent, CounterChainRepository, DeviceEstado } from '../../domain';
 import { ApiError, type Api } from '../api';
 
 /** The device drains in batches of at most this many, contiguous in `seq`. */
 export const BATCH = 200;
+
+/**
+ * The batch to send, never split through the middle of a correction (P2.4 G1).
+ *
+ * `appendChainedBatch` made «Corregir» atomic **on the device** in P2.3: a
+ * scoped withdrawal and its replacement land in one Dexie transaction or
+ * neither does. The wire was still free to cut between them:
+ *
+ *     lote 1: … seq 200 = retract(e_88)     ← llega
+ *     lote 2: seq 201 = add(12), …          ← la tableta se pierde
+ *
+ *     servidor: el retiro sin su reemplazo. Un conteo borrado, y la forma
+ *               es idéntica a la de un retiro legítimo.
+ *
+ * A counter corrected 12 to 8 and the server is holding «12, withdrawn», which
+ * folds to `untouched` — the count is *gone*, and nothing about the row says a
+ * replacement is missing rather than that somebody withdrew an entry on purpose.
+ * The window is real: it needs the pair to straddle the boundary and the tablet
+ * to go quiet in between, which is a corridor and a flat battery.
+ *
+ * So the drain reads one event past the batch and, when the last event of the
+ * batch is a scoped retraction whose replacement is the very next one, sends one
+ * fewer. 200 becomes 199 and 2, and the pair crosses together.
+ *
+ * **Prevention, not detection**, and the two are both needed: P2.4's trailing-
+ * retraction flag is the detector, and a flag that fires on a condition nobody
+ * tried to prevent is a flag the admin learns to dismiss.
+ *
+ * The test for "its replacement" is deliberately shallow — same article, the
+ * next `seq`, a quantity event after a scoped withdrawal — because that is what
+ * `CountStore.correct` writes and because being wrong here costs one event of
+ * throughput. It is never wrong in the direction that matters.
+ */
+export function sendable(
+  window: readonly ChainedEvent[],
+  limit = BATCH,
+): ChainedEvent[] {
+  if (window.length <= limit) return [...window];
+
+  const last = window[limit - 1].event;
+  const next = window[limit].event;
+  const pair =
+    last.kind === 'retract' &&
+    last.retractsEventId !== undefined &&
+    (next.kind === 'add' || next.kind === 'set') &&
+    next.idarticulo === last.idarticulo &&
+    next.seq === last.seq + 1;
+
+  // `limit > 1` because a batch of one cannot be shrunk and still be a batch,
+  // and a drain that sends nothing is a drain that never ends. Unreachable at
+  // BATCH = 200 and stated anyway: the loop that calls this must always make
+  // progress.
+  return window.slice(0, pair && limit > 1 ? limit - 1 : limit);
+}
 
 /** Backoff: doubling, jittered, capped. Reset on any success. */
 const BASE_DELAY = 1_000;
@@ -179,7 +233,10 @@ export class CounterSync {
       // ones that end in a stop.
       await this.refresh();
       for (;;) {
-        const batch = await this.chain.unsynced(this.sessionId, this.counterId, BATCH);
+        // One past the batch, so `sendable` can see whether the boundary falls
+        // between a withdrawal and its replacement (G1).
+        const window = await this.chain.unsynced(this.sessionId, this.counterId, BATCH + 1);
+        const batch = sendable(window, BATCH);
         if (batch.length === 0) {
           await this.refresh();
           this.emit({ draining: false, problem: null, attempts: 0 });
