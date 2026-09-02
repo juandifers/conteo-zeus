@@ -1,9 +1,13 @@
 # Real bodega data and dev-only material — never needs to reach the build host.
+# `tools/*` with a negation rather than `tools/`: a file inside an ignored
+# directory cannot be re-included, and the build imports the verificador
+# (Cierre.tsx bundles it verbatim for «Descargar el verificador»).
 samples/
 tests/
 docs/
 .claude/
-tools/
+tools/*
+!tools/verificador.html
 test-results/
 playwright-report/
 migrations/
