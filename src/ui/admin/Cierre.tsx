@@ -34,11 +34,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  codigoSello,
   reviewSession,
   type CountEvent,
   type CounterEstado,
   type Review,
 } from '../../domain';
+import verificadorHtml from '../../../tools/verificador.html?raw';
 import { ApiError, type Api } from '../api';
 import { browserDownload, type Downloader } from '../download';
 import { fromBase64 } from '../../lib/base64';
@@ -173,6 +175,13 @@ export function Cierre({
       // both. Two downloads of one sealed session are byte-identical.
       download.save(file.filename, new TextEncoder().encode(file.canonical));
     });
+
+  // The acta's «cómo comprobarlo» tells the operator to open verificador.html,
+  // so the screen that prints the acta has to be able to hand it over — the
+  // file lives in the repository, not on any server the operator can reach.
+  // Bundled into this build verbatim; it stays a single self-contained page.
+  const downloadVerificador = () =>
+    download.save('verificador.html', new TextEncoder().encode(verificadorHtml));
 
   if (!loaded) {
     return (
@@ -396,8 +405,8 @@ export function Cierre({
 
             <details className="sello">
               <summary className="sello__line">
-                {'Sello '}
-                <code className="acta__hash">{`${sello.sessionHash.slice(0, 4)}…${sello.sessionHash.slice(-4)}`}</code>
+                {'Código de verificación '}
+                <code className="acta__hash">{codigoSello(sello.sessionHash)}</code>
                 <span className="hint"> Ver ⌄</span>
               </summary>
               <table className="acta__kv">
@@ -491,6 +500,14 @@ export function Cierre({
             )}
             <button type="button" className="btn btn--small" disabled={busy} onClick={downloadBundle}>
               Descargar el paquete de auditoría
+            </button>
+            <button
+              type="button"
+              className="btn btn--small"
+              disabled={busy}
+              onClick={downloadVerificador}
+            >
+              Descargar el verificador
             </button>
             <button
               type="button"

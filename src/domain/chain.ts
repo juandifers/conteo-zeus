@@ -690,3 +690,37 @@ export function sessionHash(input: {
     ),
   );
 }
+
+/**
+ * The seal, sized for a person: `sessionHash` re-spelt as `XXXX-XXXX`.
+ *
+ * Nobody compares 64 hex characters — in every deployment that gets this right
+ * (a DIAN invoice's CUFE, a TLS padlock) the hash stays on the document for
+ * the auditors and the human-facing layer is a short credential plus a tool
+ * that says «coincide» in plain words. This is that credential: the first 40
+ * bits of the session hash in Crockford base32, an alphabet with no I, L, O or
+ * U so no two of its characters can be misread as each other over a phone.
+ *
+ * It appears in three places that must agree — the acta, the seal receipt, and
+ * the verifier's green verdict — and «the same code on every legitimate copy»
+ * is the entire instruction a non-technical reader needs. Forty bits carry no
+ * cryptographic weight on their own; the code is an *identifier* whose meaning
+ * is backed by the full hashes in the acta's annex, which is why it is derived
+ * and never stored.
+ *
+ * Duplicated in `tools/verificador.html` on purpose, like everything else the
+ * verifier recomputes, and pinned to this implementation by
+ * `tests/verificador.test.ts`.
+ */
+export function codigoSello(sessionHash: string): string {
+  const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  let bits = '';
+  for (const nibble of sessionHash.slice(0, 10)) {
+    bits += parseInt(nibble, 16).toString(2).padStart(4, '0');
+  }
+  let code = '';
+  for (let i = 0; i < 40; i += 5) {
+    code += ALPHABET[parseInt(bits.slice(i, i + 5), 2)];
+  }
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}

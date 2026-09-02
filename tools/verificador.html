@@ -71,6 +71,10 @@
              border: 2px solid var(--rule); }
   .verdict--ok { border-color: var(--ok); color: var(--ok); }
   .verdict--bad { border-color: var(--bad); color: var(--bad); }
+  .codigo__label { font-size: .8125rem; text-transform: uppercase; letter-spacing: .08em; }
+  .codigo__value { font-family: ui-monospace, "JetBrains Mono", monospace;
+                   font-size: 2.25rem; letter-spacing: .08em; margin: .25rem 0; }
+  .codigo__note { font-size: .9375rem; font-weight: 400; }
   ul.checks { list-style: none; padding: 0; }
   ul.checks li { border-bottom: 1px solid var(--rule); padding: .5rem 0; }
   .mark { font-weight: 700; margin-right: .5rem; }
@@ -85,9 +89,11 @@
 <body>
 <h1>Verificador de conteo</h1>
 <p class="lead">
-  Recalcula, desde cero y sin conexión, las cadenas de un conteo sellado y los
-  hashes que el acta imprime. No usa la aplicación que los produjo: si los
-  usara, coincidiría por construcción y no probaría nada.
+  Comprueba, sin conexión, que un conteo sellado no cambió: déle los dos
+  archivos y, si todo está intacto, muestra en verde el mismo código de
+  verificación que imprime el acta. Recalcula todo desde cero, sin usar la
+  aplicación que lo produjo: si la usara, coincidiría por construcción y no
+  probaría nada.
 </p>
 
 <fieldset>
@@ -280,6 +286,26 @@ function sessionHash(input) {
     ['contadores', counters],
     ['acciones', input.actionMaxSeq, input.actionHead],
   ]));
+}
+
+/*
+ * El código de verificación que imprime el acta: los primeros 40 bits del
+ * sessionHash en base32 de Crockford (sin I, L, O ni U). El veredicto en verde
+ * lo muestra en grande para que la comprobación humana sea comparar ocho
+ * caracteres con el papel, no sesenta y cuatro. Duplicado de
+ * `codigoSello` en el dominio, como todo lo demás en este archivo.
+ */
+function codigoSello(hash) {
+  const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  let bits = '';
+  for (let i = 0; i < 10; i++) {
+    bits += parseInt(hash[i], 16).toString(2).padStart(4, '0');
+  }
+  let code = '';
+  for (let i = 0; i < 40; i += 5) {
+    code += ALPHABET[parseInt(bits.slice(i, i + 5), 2)];
+  }
+  return code.slice(0, 4) + '-' + code.slice(4);
 }
 
 /* ==========================================================================
@@ -732,15 +758,32 @@ if (bundleInput) {
     });
   };
 
-  const render = function (checks) {
+  const render = function (checks, sealedHash) {
     output.textContent = '';
     const failed = checks.filter(function (entry) { return !entry.ok; });
 
     const verdict = document.createElement('div');
     verdict.className = 'verdict ' + (failed.length === 0 ? 'verdict--ok' : 'verdict--bad');
-    verdict.textContent = failed.length === 0
-      ? 'Verificado. Todo lo que se puede recalcular, coincide.'
-      : failed.length + ' comprobación(es) no coinciden. Abajo está dónde.';
+    if (failed.length === 0 && sealedHash) {
+      // La comprobación humana: ocho caracteres contra los del acta. El código
+      // sale del hash recalculado, no del paquete — un paquete alterado no
+      // llega aquí, y uno intacto produce el mismo código que se imprimió.
+      const label = document.createElement('div');
+      label.className = 'codigo__label';
+      label.textContent = 'Verificado · código de verificación';
+      const value = document.createElement('div');
+      value.className = 'codigo__value';
+      value.textContent = codigoSello(sealedHash);
+      const compare = document.createElement('div');
+      compare.className = 'codigo__note';
+      compare.textContent =
+        'Debe ser el mismo que imprime el acta. Todo lo que se puede recalcular, coincide.';
+      verdict.append(label, value, compare);
+    } else {
+      verdict.textContent = failed.length === 0
+        ? 'Verificado. Todo lo que se puede recalcular, coincide.'
+        : failed.length + ' comprobación(es) no coinciden. Abajo está dónde.';
+    }
     output.append(verdict);
 
     const heading = document.createElement('h2');
@@ -780,12 +823,13 @@ if (bundleInput) {
     readBytes(bundleInput.files[0])
       .then(function (bundleBytes) {
         const bundle = JSON.parse(new TextDecoder().decode(bundleBytes));
+        const sealedHash = bundle && bundle.sellos ? bundle.sellos.sessionHash : null;
         return (txtInput.files.length > 0 ? readBytes(txtInput.files[0]) : Promise.resolve(null))
-          .then(function (txtBytes) { render(verify(bundle, txtBytes)); });
+          .then(function (txtBytes) { render(verify(bundle, txtBytes), sealedHash); });
       })
       .catch(function (cause) {
         render([check(false, 'No se pudo leer el paquete',
-          String(cause && cause.message ? cause.message : cause))]);
+          String(cause && cause.message ? cause.message : cause))], null);
       })
       .then(function () { runButton.disabled = false; });
   });
@@ -804,6 +848,7 @@ if (typeof globalThis !== 'undefined') {
     sha256Hex: sha256Hex,
     canonicalJson: canonicalJson,
     sessionHash: sessionHash,
+    codigoSello: codigoSello,
     resolve: resolve,
     foldBundle: foldBundle,
   };

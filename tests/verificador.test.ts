@@ -26,6 +26,7 @@ import {
   actionGenesisHash,
   chainActionHash,
   chainHash,
+  codigoSello,
   genesisHash,
   sessionHash,
   type CountEvent,
@@ -51,6 +52,7 @@ interface Check {
 interface Verificador {
   verify(bundle: unknown, txtBytes: Uint8Array | null): Check[];
   sha256Hex(bytes: Uint8Array): string;
+  codigoSello(sessionHash: string): string;
 }
 
 /**
@@ -334,6 +336,16 @@ describe('the round trip', () => {
     // the finding. This is that check, run on every commit rather than
     // discovered in three years by somebody holding a printout.
     expect(verificador.sha256Hex(sealed.txt)).toBe(sealed.bundle.sellos.fileHash);
+  });
+
+  it('derives the same código de verificación the acta prints', () => {
+    // The one thing a non-technical reader compares: eight characters, on the
+    // paper and on the green verdict. Both sides derive it from `sessionHash`,
+    // and this is the assertion that they derive the same one.
+    const hash = sealed.bundle.sellos.sessionHash;
+    expect(verificador.codigoSello(hash)).toBe(codigoSello(hash));
+    // Crockford base32: no I, L, O or U to misread, grouped for the phone.
+    expect(verificador.codigoSello(hash)).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
   });
 
   it('folds the same counts the file carries, waiver and all', () => {

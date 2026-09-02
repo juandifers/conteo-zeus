@@ -478,6 +478,44 @@
   margin: 0.5rem 0;
 }
 
+/*
+ * The human layer of §7: one short credential, set large enough to compare
+ * against a screen at arm's length. The full digests it is derived from sit
+ * below it in the annex — this is the only place the acta asks a person to
+ * read characters, so it gets the size.
+ */
+.acta__codigo {
+  display: inline-block;
+  border: 2px solid var(--ink);
+  padding: 0.5rem 1rem;
+  margin: 0.5rem 0;
+}
+
+.acta__codigoLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-quiet);
+}
+
+.acta__codigoValue {
+  font-family: var(--mono, 'JetBrains Mono', monospace);
+  font-size: 1.75rem;
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+
+.acta__steps {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+  font-size: 0.9375rem;
+}
+
+.acta__steps li {
+  margin: 0.25rem 0;
+}
+
 .acta__hash {
   font-family: var(--mono, 'JetBrains Mono', monospace);
   font-size: 0.8125rem;

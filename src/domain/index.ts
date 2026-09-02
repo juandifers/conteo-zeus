@@ -77,6 +77,7 @@ export {
   chainActionHash,
   verifyActionChain,
   sessionHash,
+  codigoSello,
   type ChainLink,
   type ChainVerdict,
   type ChainableAction,

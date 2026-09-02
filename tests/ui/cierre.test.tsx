@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Cierre } from '../../src/ui/admin/Cierre';
 import type { Downloader } from '../../src/ui/download';
-import type { SessionActionRecord } from '../../src/domain';
+import { codigoSello, type SessionActionRecord } from '../../src/domain';
 import { addCount, note, resetFactory } from '../domain/factory';
 import { detailFor, item, reviewApi, selloFor, SESSION_ID } from './reviewHarness';
 
@@ -379,7 +379,7 @@ describe('el acta (§3)', () => {
   it('carries §8 in full, including the sentence about the rows nobody looked at', async () => {
     const page = await acta();
     expect(page.getByText('8 · Alcance de esta certificación')).toBeTruthy();
-    expect(page.getByText('Lo que estos hashes acreditan')).toBeTruthy();
+    expect(page.getByText('Lo que el sello acredita')).toBeTruthy();
     expect(page.getByText(/Quién registró cada evento/)).toBeTruthy();
     expect(page.getByText(/no tiene forma de decir «no lo miramos»/)).toBeTruthy();
     expect(
@@ -390,16 +390,44 @@ describe('el acta (§3)', () => {
     expect(page.getByText(/como si se hubieran contado y coincidido/)).toBeTruthy();
   });
 
-  it('prints every hash and points at the verifier by filename (§7)', async () => {
+  it('leads §7 with the código and keeps the hashes in an annex', async () => {
     const page = await acta();
+    // The human layer first: one short credential, derived from sessionHash,
+    // and the same one the seal receipt shows — a reader who compares the two
+    // has done the whole check the section asks of them.
+    const codigo = codigoSello(selloFor().sessionHash);
+    expect(page.getByText('Código de verificación')).toBeTruthy();
+    expect(screen.getAllByText(codigo).length).toBeGreaterThanOrEqual(2);
+    // Three steps, no vocabulary: the check ends at «este mismo código en verde».
+    expect(page.getByText('Cómo comprobarlo')).toBeTruthy();
+    expect(page.getByText('este mismo código en verde')).toBeTruthy();
+    expect(page.getByText(/verificador\.html/)).toBeTruthy();
+    // The checker still travels with the count rather than living on a server.
+    expect(page.getByText('viaja con el conteo')).toBeTruthy();
+    // And the raw digests stay on the document, demoted, for a formal audit.
+    expect(page.getByText('Anexo técnico')).toBeTruthy();
     expect(page.getByText('sessionHash')).toBeTruthy();
     expect(page.getByText('fileHash')).toBeTruthy();
     expect(page.getByText('sourceHash')).toBeTruthy();
-    expect(page.getByText(/tools\/verificador\.html/)).toBeTruthy();
-    // A hash nobody can check is decoration, so the acta says how — and says
-    // that the checker travels with the count rather than living on a server.
     expect(page.getByText(/qué byte/)).toBeTruthy();
-    expect(page.getByText(/viaja con el conteo/)).toBeTruthy();
+  });
+
+  it('hands over the verifier the steps point at', async () => {
+    // «Abra verificador.html» is an instruction the operator can only follow
+    // if this screen gives them the file — it lives in the repository, not on
+    // any server they can reach.
+    const download = catcher();
+    const { api } = sealed();
+    render(
+      <Cierre detail={DETAIL} api={api} onReload={() => {}} now={() => NOW} download={download} />,
+    );
+    await screen.findByText('Acta de conteo físico');
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar el verificador' }));
+    expect(download.saved).toHaveLength(1);
+    expect(download.saved[0].filename).toBe('verificador.html');
+    const html = new TextDecoder().decode(download.saved[0].bytes);
+    expect(html).toContain('function codigoSello');
+    expect(html).toContain('__verificador');
   });
 
   it('reconciles its counts with the fold', async () => {

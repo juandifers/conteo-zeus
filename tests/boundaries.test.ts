@@ -84,6 +84,12 @@ function edgesFor(layer: Layer): Edge[] {
     for (const match of source.matchAll(IMPORT)) {
       const specifier = match[1];
       const shown = relative(SRC, file);
+      // Asset imports (`?raw`) carry bytes, not code: nothing in them can be
+      // called, so they cannot create the coupling this file guards against.
+      // The one in the tree ships tools/verificador.html to the operator from
+      // the close-out screen — the acta tells them to open it, and a file that
+      // lives only in the repository is a file they could never have.
+      if (specifier.endsWith('?raw')) continue;
       if (specifier.startsWith('.')) {
         const target = relative(SRC, resolvePath(dirname(file), specifier));
         const head = target.split('/')[0] as Layer;

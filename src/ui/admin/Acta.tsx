@@ -25,6 +25,7 @@
  * words rather than leaving it to be inferred from a table.
  */
 import {
+  codigoSello,
   ownSummary,
   type AssignedSection,
   type CountEvent,
@@ -485,6 +486,51 @@ export function Acta({
       {/* ------------------------------------------------------------------ */}
       <section className="acta__section">
         <h2>7 · Integridad</h2>
+        {/*
+          Nobody verifies a hash by reading it — software compares and the
+          person gets a verdict (the pattern of a CUFE on a factura
+          electrónica). So the human layer is one short code plus three steps,
+          and the raw digests move to an annex for the reader who is an
+          auditor. The code is derived from `sessionHash` (never stored), and
+          the verifier prints the same one in green when everything checks.
+        */}
+        <div className="acta__codigo">
+          <div className="acta__codigoLabel">Código de verificación</div>
+          <div className="acta__codigoValue">{codigoSello(sello.sessionHash)}</div>
+        </div>
+        <p className="acta__note">
+          Este código identifica el conteo sellado. Toda copia legítima muestra este
+          mismo código; dos documentos con códigos distintos no son el mismo conteo.
+        </p>
+
+        <h3>Cómo comprobarlo</h3>
+        <ol className="acta__steps">
+          <li>
+            Abra <code>verificador.html</code> en cualquier navegador. Funciona sin
+            internet y sin instalar nada.
+          </li>
+          <li>
+            Déle el paquete de auditoría <code>sesion_{detail.session.id}.json</code>
+            {' '}y el <code>.txt</code> que se subió a Zeus.
+          </li>
+          <li>
+            Si nada cambió desde el sello, muestra <strong>este mismo código en
+            verde</strong>. Si algo cambió, dice exactamente qué y dónde.
+          </li>
+        </ol>
+        <p className="acta__note">
+          El verificador no usa esta aplicación y por eso <strong>viaja con el
+          conteo</strong>: guárdelo en la misma carpeta que el <code>.json</code> y el{' '}
+          <code>.txt</code>, no en un servidor — el momento en que alguien lo busca es
+          justamente aquel en el que la aplicación puede ya no existir.
+        </p>
+
+        <h3>Anexo técnico</h3>
+        <p className="acta__note">
+          Los hashes de los que se deriva el código, para una auditoría formal. El
+          verificador los recalcula desde su origen y, cuando algo no cuadra, dice
+          dónde: qué cadena, qué contador, qué <code>seq</code>, qué byte.
+        </p>
         <table className="acta__kv">
           <tbody>
             <tr>
@@ -539,27 +585,13 @@ export function Acta({
             </tr>
           </tbody>
         </table>
-        <p className="acta__note">
-          Para comprobarlos: abre <code>tools/verificador.html</code> en cualquier
-          navegador, sin conexión, y dale el archivo{' '}
-          <code>sesion_{detail.session.id}.json</code> y el <code>.txt</code>. Recalcula
-          cada cadena desde su origen y compara, y cuando algo no cuadra dice dónde: qué
-          cadena, qué contador, qué <code>seq</code>, qué byte.
-        </p>
-        <p className="acta__note">
-          Es un solo archivo, sin conexión y sin instalar nada, y{' '}
-          <strong>no usa esta aplicación</strong>: si la necesitara no serviría para
-          auditar, porque el momento en que alguien lo busca es justamente aquel en el que
-          la aplicación puede ya no existir. Por eso <strong>viaja con el conteo</strong>:
-          guárdalo junto al <code>.json</code> y al <code>.txt</code>, no en un servidor.
-        </p>
       </section>
 
       {/* ------------------------------------------------------------------ */}
       <section className="acta__section acta__section--scope">
         <h2>8 · Alcance de esta certificación</h2>
 
-        <h3>Lo que estos hashes acreditan</h3>
+        <h3>Lo que el sello acredita</h3>
         <p>
           Que los eventos registrados no fueron alterados después del sello, y que el
           archivo <code>.txt</code> generado corresponde exactamente a ese conjunto de

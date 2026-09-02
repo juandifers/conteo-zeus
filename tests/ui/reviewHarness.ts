@@ -177,7 +177,8 @@ export function syncFor(
 export function selloFor(over: Partial<Sello> = {}): Sello {
   return {
     sealedAt: '2026-08-25T17:00:00.000Z',
-    sessionHash: 's'.repeat(64),
+    // Hex, like a real digest: `codigoSello` derives the printed code from it.
+    sessionHash: '5eab'.repeat(16),
     exportedAt: null,
     fileHash: null,
     sourceHash: 'a'.repeat(64),
