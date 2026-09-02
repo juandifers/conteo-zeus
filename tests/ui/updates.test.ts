@@ -1,12 +1,16 @@
+// @vitest-environment jsdom
 /**
  * The adapter between the service worker and the notice.
  *
  * Small enough to read, and worth pinning anyway, because the two things it
  * must not do are invisible until a tablet does them in a storeroom: take over
- * without being asked, and poll for updates on a timer while offline.
+ * without being asked, and make failing update requests while offline or
+ * hidden. The third thing it must do took a real afternoon to learn: keep
+ * checking while a check is free, because a desk tab left open across four
+ * deploys held the old build the whole time on its single launch check.
  */
-import { describe, expect, it, vi } from 'vitest';
-import { noUpdates, serviceWorkerUpdates, type RegisterSW } from '../../src/ui/updates';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { noUpdates, RECHECK_MS, serviceWorkerUpdates, type RegisterSW } from '../../src/ui/updates';
 
 /** A stand-in for `virtual:pwa-register`, whose callbacks the test fires. */
 function fakeRegister() {
@@ -86,19 +90,57 @@ describe('a waiting service worker', () => {
     expect(seen).toEqual([false]);
   });
 
-  /**
-   * Checked once, at launch. A `setInterval` on a tablet that is offline all
-   * afternoon spends the afternoon failing, and a notice that arrives mid-count
-   * is a notice nobody can act on anyway.
-   */
-  it('checks for a new version at launch, and sets no timer', () => {
-    const sw = fakeRegister();
-    const update = vi.fn(async () => {});
-    serviceWorkerUpdates(sw.register);
-    sw.registered({ update: update as unknown as ServiceWorkerRegistration['update'] });
+  describe('when it checks for a new version', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        configurable: true,
+      });
+    });
 
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(sw.options?.immediate).toBe(true);
+    const registered = () => {
+      const sw = fakeRegister();
+      const update = vi.fn(async () => {});
+      serviceWorkerUpdates(sw.register);
+      sw.registered({ update: update as unknown as ServiceWorkerRegistration['update'] });
+      return { sw, update };
+    };
+
+    it('checks at launch', () => {
+      const { sw, update } = registered();
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(sw.options?.immediate).toBe(true);
+    });
+
+    it('checks again when the tab becomes visible and when the network returns', () => {
+      // The desk's case: a tab left open across a deploy held the old build
+      // forever on its single launch check. Coming back to the tab, or the
+      // wifi coming back, is exactly when a check is free.
+      const { update } = registered();
+      document.dispatchEvent(new Event('visibilitychange'));
+      globalThis.dispatchEvent(new Event('online'));
+      expect(update).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps a slow clock while visible and online', () => {
+      vi.useFakeTimers();
+      const { update } = registered();
+      vi.advanceTimersByTime(RECHECK_MS * 2);
+      expect(update).toHaveBeenCalledTimes(3);
+    });
+
+    it('never checks while the tab is hidden', () => {
+      // A hidden tab makes no requests at all — the tablet-in-a-storeroom
+      // rationale survives the recheck: gates, not a blind timer.
+      const { update } = registered();
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'hidden',
+        configurable: true,
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(update).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('survives a browser that registers nothing', () => {

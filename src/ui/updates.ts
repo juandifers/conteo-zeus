@@ -50,6 +50,9 @@ export function noUpdates(): Updates {
   };
 }
 
+/** How often an open, visible, online tab asks whether a new build exists. */
+export const RECHECK_MS = 10 * 60_000;
+
 export function serviceWorkerUpdates(register: RegisterSW): Updates {
   let waiting = false;
   const listeners = new Set<(waiting: boolean) => void>();
@@ -65,12 +68,28 @@ export function serviceWorkerUpdates(register: RegisterSW): Updates {
       announce();
     },
     onRegistered(registration) {
-      // One check, at launch, and no `setInterval`. A tablet in a storeroom is
-      // offline most of the day, so a timer would spend the afternoon making
-      // failing requests; and a check that lands mid-count can only produce a
-      // notice nobody wants to read right then. The app is opened every
-      // morning, which is a good enough cadence for a pilot.
-      void registration?.update();
+      if (!registration) return;
+      // Checked at launch, and again whenever a check is *free*: the tab
+      // becoming visible, the network coming back, and a slow clock while
+      // both hold. The gates are the point — a tablet offline in a storeroom
+      // makes no failing requests, and a hidden tab makes none at all. What
+      // this buys is the desk: an admin's tab left open across a deploy used
+      // to hold the old build forever, because its one launch-time check had
+      // already happened (2026-09-02, four deploys invisible in a row).
+      const check = () => {
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        registration.update().catch(() => {
+          // Offline after all, or the server is unreachable. The next
+          // visibility or online event asks again; nothing to surface.
+        });
+      };
+      check();
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', check);
+      }
+      globalThis.addEventListener?.('online', check);
+      setInterval(check, RECHECK_MS);
     },
     onRegisterError(error) {
       // Not surfaced. A worker that fails to register costs the offline
