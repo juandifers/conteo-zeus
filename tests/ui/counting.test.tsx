@@ -209,6 +209,18 @@ describe('no running total is reachable in the counting path', () => {
     expect(screen.queryByLabelText('ya registraste algo aquí')).toBeNull();
   });
 
+  it('the entry field never summons the device keyboard over its own keypad', async () => {
+    // The screen carries its own decimal pad; `inputMode="decimal"` made the
+    // tablet raise the OS keyboard on top of it — two keyboards, half a
+    // screen. `none` keeps the field focusable (Enter and hardware keyboards
+    // still work) while the OS keyboard stays down.
+    const { user } = await openTablet();
+    await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
+    await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
+    const field = screen.getByLabelText(/cantidad contada/) as HTMLInputElement;
+    expect(field.getAttribute('inputmode')).toBe('none');
+  });
+
   it('the entry field is never seeded from what is already recorded', async () => {
     // P1 pre-filled it with the running value so a second visit could be
     // corrected rather than retyped. On a shared shelf that pre-fill *is* the

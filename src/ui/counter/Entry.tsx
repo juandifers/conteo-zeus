@@ -169,7 +169,12 @@ export function Entry({
             <input
               autoFocus
               className="readout__input num"
-              inputMode="decimal"
+              // `none`, not `decimal`: this screen carries its own keypad
+              // (below), and `decimal` made the tablet raise the OS keyboard
+              // on top of it — two keyboards, half a screen. `none` keeps the
+              // field focusable and hardware keyboards working; the fields
+              // without an in-app pad (MyEntries, the P1 card) keep `decimal`.
+              inputMode="none"
               autoComplete="off"
               aria-label={`cantidad contada de ${item.nombre}`}
               placeholder="0"
