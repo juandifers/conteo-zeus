@@ -855,21 +855,22 @@ select {
  * Nothing here drops below 16px either. Density is column count and row
  * height, not small type. */
 
-.app:has(.screen--desk) {
-  /* Wide enough for the work column and the 400px rail to both breathe. The
-     counting app keeps its 900px: a tablet held in one hand is not a desk. */
-  max-width: 1200px;
-
-  /*
-   * The desk's own tokens — ADMIN_UI.md §6. Cool and institutional: an
-   * accounting instrument, not a count sheet. The counting tablet keeps the
-   * warm paper above; only the admin panel re-reads these.
-   *
-   * And the desk's second meaning for colour: alongside variance direction
-   * (--short/--over, unchanged), state — ok, warn, stop — on the checklist
-   * marks, the activity dot and the tier chips. A coloured element must mean
-   * one of those two things; decoration still gets none.
-   */
+/*
+ * The desk's own tokens — ADMIN_UI.md §6. Cool and institutional: an
+ * accounting instrument, not a count sheet. The counting tablet keeps the
+ * warm paper above; only the admin panel re-reads these.
+ *
+ * Scoped on `:root:has(...)` because the admin mounts `screen--desk`
+ * directly under #root — there is no `.app` wrapper on that side, and a
+ * selector through `.app` matches nothing (which is also why the old 1400px
+ * desk width was dead CSS).
+ *
+ * And the desk's second meaning for colour: alongside variance direction
+ * (--short/--over, unchanged), state — ok, warn, stop — on the checklist
+ * marks, the activity dot and the tier chips. A coloured element must mean
+ * one of those two things; decoration still gets none.
+ */
+:root:has(.screen--desk) {
   --paper: #f1f2f4;
   --paper-raised: #ffffff;
   --paper-sunken: #e7e9ec;
@@ -883,13 +884,19 @@ select {
   --warn: #b45309;
   --stop: #b3261e;
   --idle: #9aa1ac;
-
-  background: var(--paper);
 }
 
 /* The page ground behind the desk, so the canvas is not framed in cream. */
 body:has(.screen--desk) {
   background: #f1f2f4;
+}
+
+.screen--desk {
+  /* §6: max content width ~1200px. Wide enough for the work column and the
+     400px rail; the counting app keeps its 900px `.app`. */
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 /*

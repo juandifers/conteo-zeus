@@ -158,8 +158,10 @@
 }
 
 /* The sheet while «Cambios» is folded away: gone from the screen, still there
-   for the printer, so reprinting never requires unfolding anything first. */
-.sheet--printonly {
+   for the printer, so reprinting never requires unfolding anything first.
+   Two classes, because the single-class rule loses the cascade to `.sheet`'s
+   own display below — which is exactly how it shipped visible once. */
+.sheet.sheet--printonly {
   display: none;
 }
 
@@ -236,7 +238,7 @@
   }
 
   .sheet,
-  .sheet--printonly {
+  .sheet.sheet--printonly {
     display: block;
     padding: 0;
   }
