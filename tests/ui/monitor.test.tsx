@@ -17,6 +17,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Dispatched } from '../../src/ui/admin/Dispatched';
 import { EventFeed } from '../../src/ui/admin/feed';
 import { Monitor } from '../../src/ui/admin/Monitor';
 import { monitorTier } from '../../src/ui/admin/tiers';
@@ -137,14 +138,19 @@ describe('the three states are visually separate (§1)', () => {
     expect(within(verdict).getByText(/2 sin contar · 6\.000 COP sin verificar/)).toBeTruthy();
   });
 
-  it('renders the seal blockers live, without navigating', async () => {
+  it('keeps the seal blockers standing in the rail, without navigating (§3.2)', async () => {
+    // The rail is the persistent answer to «¿ya puedo sellar?» — one line per
+    // blocker, beside the monitoring work rather than behind the Sello tab.
     const { api } = reviewApi({
       counters: COUNTERS,
       events: [],
       readyToSeal: [{ kind: 'contador-bifurcado', counterId: 'pedro', nombre: 'Pedro' }],
     });
-    render(<Monitor detail={DETAIL} api={api} pollMs={1_000_000} />);
-    expect(await screen.findByText(/La cadena de Pedro se bifurcó/)).toBeTruthy();
+    render(<Dispatched detail={DETAIL} api={api} onReload={() => {}} />);
+    expect(
+      await screen.findByText(/Dos tabletas escribieron con el enlace de Pedro/),
+    ).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Ver →' }).length).toBeGreaterThan(0);
   });
 });
 

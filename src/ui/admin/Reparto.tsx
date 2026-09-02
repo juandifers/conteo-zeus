@@ -431,11 +431,16 @@ export function DeleteSession({
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** §3.5 — the most destructive act in the panel is confirmed by typing, not
+      by a second click a tired thumb gives away for free. */
+  const [typed, setTyped] = useState('');
 
   // The seal is a signed claim about a completed count; its session is the
   // evidence. The server enforces this — hiding the button just keeps the
   // screen from offering what will be refused.
   if (estado === 'sellado' || estado === 'cerrado') return null;
+
+  const armed = typed.trim().toLowerCase() === 'eliminar';
 
   const texto =
     estado === 'borrador'
@@ -458,6 +463,16 @@ export function DeleteSession({
                 {problem}
               </div>
             )}
+            <label className="field__label" htmlFor="eliminar-confirmacion">
+              Escribe «eliminar» para confirmar
+            </label>
+            <input
+              id="eliminar-confirmacion"
+              className="tinput"
+              autoComplete="off"
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+            />
             <div className="actions__pair">
               <button
                 type="button"
@@ -466,6 +481,7 @@ export function DeleteSession({
                 onClick={() => {
                   setAsking(false);
                   setProblem(null);
+                  setTyped('');
                 }}
               >
                 Conservar
@@ -473,7 +489,7 @@ export function DeleteSession({
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={busy}
+                disabled={busy || !armed}
                 onClick={async () => {
                   setBusy(true);
                   setProblem(null);

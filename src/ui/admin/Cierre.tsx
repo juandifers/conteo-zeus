@@ -84,6 +84,8 @@ export function Cierre({
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  /** The .txt download's own ask — it posts balances to Zeus once uploaded. */
+  const [descargando, setDescargando] = useState(false);
   const [usuario, setUsuario] = useState(loadSupervisor);
   const [motivo, setMotivo] = useState('');
   const [sinRegistros, setSinRegistros] = useState('');
@@ -207,38 +209,57 @@ export function Cierre({
         <div className="panel" id="sellar">
           <div className="panel__title">Sellar el conteo</div>
           <div className="panel__body">
-            <div className="hint">
-              Sellar congela las dos cadenas: ninguna tableta puede volver a escribir y
-              ninguna decisión de administración se puede firmar después. El archivo se
-              genera <strong>después</strong> del sello, y por eso corresponde a un estado
-              que quedó registrado.
-            </div>
-
-            <div className="panel__subtitle">Bloquea</div>
-            {blockers.length === 0 ? (
-              <div className="hint">Nada. Las cadenas de todos están completas.</div>
-            ) : (
-              <ul className="checklist">
-                {blockers.map((blocker, index) => (
-                  <li className="checkrow" key={`${blocker.kind}-${index}`}>
-                    <span>{describeSeal(blocker)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {/*
+              §4.3: a checklist, not an essay. Every line is a condition and
+              its status; what sealing does mechanically is said once, inside
+              the confirmation, to the one person about to do the irreversible
+              thing. The Bloquea / no-bloquea split survives as ✕ against ⚠.
+            */}
+            <ul className="gates">
+              {blockers.map((blocker, index) => (
+                <li className="gate gate--stop" key={`${blocker.kind}-${index}`}>
+                  <span className="gate__mark" aria-hidden="true">
+                    ✕
+                  </span>
+                  <span>{describeSeal(blocker)}</span>
+                </li>
+              ))}
+              {blockers.length === 0 && (
+                <li className="gate gate--ok">
+                  <span className="gate__mark" aria-hidden="true">
+                    ✓
+                  </span>
+                  <span>El trabajo de todos está completo en el servidor.</span>
+                </li>
+              )}
+              {review.pendiente.items > 0 ? (
+                <li className="gate gate--warn">
+                  <span className="gate__mark" aria-hidden="true">
+                    ⚠
+                  </span>
+                  <span>
+                    {`${formatQty(review.pendiente.items)} filas sin contar · ` +
+                      `${formatMoney(review.pendiente.exposicion)} COP. No bloquea: se exonera ` +
+                      'en Revisión o se sella así, y el acta lo dice.'}
+                  </span>
+                </li>
+              ) : (
+                <li className="gate gate--ok">
+                  <span className="gate__mark" aria-hidden="true">
+                    ✓
+                  </span>
+                  <span>Todas las filas del catálogo tienen registro o exoneración.</span>
+                </li>
+              )}
+            </ul>
 
             {/* §1a — the one way past a blocking reason, and it is a signature
-                rather than a flag. Offered only for a counter who is already
-                retired: if somebody might still come back, the answer is to
-                wait for the tablet. */}
-            <div className="panel__subtitle">Sellar sin los registros de alguien</div>
-            {retirados.length === 0 ? (
-              <div className="hint">
-                No hay contadores retirados. Esta salida existe solo para una tableta que
-                ya no va a volver, y retirar a quien la tiene es la decisión previa.
-              </div>
-            ) : (
+                rather than a flag. Offered only when a retired counter exists:
+                if somebody might still come back, the answer is to wait for
+                the tablet — and an empty case is not explained, it is absent. */}
+            {retirados.length > 0 && (
               <>
+                <div className="panel__subtitle">Sellar sin los registros de alguien</div>
                 <label className="field__label" htmlFor="sellar-sin">
                   Contador cuyo tramo falta
                 </label>
@@ -258,37 +279,16 @@ export function Cierre({
                 {sinRegistros !== '' && (
                   <div className="banner" role="alert">
                     Vas a cerrar el conteo aceptando que parte del trabajo de esa persona
-                    no está en el archivo y no va a llegar. Queda firmado con tu nombre,
-                    en la cadena, y sale en el acta <strong>sin resumir</strong>.
+                    no está en el archivo y no va a llegar. Queda firmado con tu nombre
+                    y sale en el acta <strong>sin resumir</strong>.
                   </div>
                 )}
               </>
             )}
 
-            <label className="field__label" htmlFor="sellar-usuario">
-              Quién firma
-            </label>
-            <input
-              id="sellar-usuario"
-              className="field"
-              value={usuario}
-              onChange={(event) => setUsuario(event.target.value)}
-              placeholder="tu nombre"
-            />
-            <label className="field__label" htmlFor="sellar-motivo">
-              Motivo
-            </label>
-            <input
-              id="sellar-motivo"
-              className="field"
-              value={motivo}
-              onChange={(event) => setMotivo(event.target.value)}
-              placeholder="por qué se puede cerrar sin ese tramo"
-            />
-
             {confirming && (
-              <div className="banner" role="alert">
-                <div>
+              <div className="confirm">
+                <div className="confirm__text">
                   {`Vas a sellar ${formatQty(review.rows.length)} filas: ` +
                     `${formatQty(review.counts.counted)} contadas, ` +
                     `${formatQty(review.counts.unchanged)} exoneradas, ` +
@@ -300,79 +300,131 @@ export function Cierre({
                   </strong>{' '}
                   Esas filas se van a escribir con la cantidad de Zeus, como si se
                   hubieran contado y coincidido. Después del sello no se puede añadir
-                  nada, ni desde una tableta ni desde aquí.
+                  nada, ni desde una tableta ni desde aquí: ninguna tableta puede
+                  volver a escribir y ninguna decisión se puede firmar después. El
+                  archivo se genera <strong>después</strong> del sello, y por eso
+                  corresponde a un estado que quedó registrado.
+                </div>
+                <label className="field__label" htmlFor="sellar-usuario">
+                  Quién firma
+                </label>
+                <input
+                  id="sellar-usuario"
+                  className="field"
+                  value={usuario}
+                  onChange={(event) => setUsuario(event.target.value)}
+                  placeholder="tu nombre"
+                />
+                <label className="field__label" htmlFor="sellar-motivo">
+                  Motivo
+                </label>
+                <input
+                  id="sellar-motivo"
+                  className="field"
+                  value={motivo}
+                  onChange={(event) => setMotivo(event.target.value)}
+                  placeholder={
+                    sinRegistros === ''
+                      ? 'p. ej. corte del 30 de agosto completo'
+                      : 'por qué se puede cerrar sin ese tramo'
+                  }
+                />
+                <div className="actions__pair">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => setConfirming(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    disabled={busy || blockers.length > 0 || !overrideReady}
+                    onClick={seal}
+                  >
+                    Sí, sellar
+                  </button>
                 </div>
               </div>
             )}
           </div>
-          <div className="actions">
-            {confirming ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  disabled={busy || blockers.length > 0 || !overrideReady}
-                  onClick={seal}
-                >
-                  Sí, sellar
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--small"
-                  disabled={busy}
-                  onClick={() => setConfirming(false)}
-                >
-                  Cancelar
-                </button>
-              </>
-            ) : (
+          {!confirming && (
+            <div className="actions">
+              {/* Opening the confirmation never requires the signature — the
+                  fields live inside it. Only «Sí, sellar» gates on them. */}
               <button
                 type="button"
                 className="btn"
-                disabled={busy || blockers.length > 0 || !overrideReady}
+                disabled={busy || blockers.length > 0}
                 onClick={() => setConfirming(true)}
               >
                 Sellar
               </button>
-            )}
-          </div>
+              {blockers.length > 0 && (
+                <div className="hint">
+                  {blockers.length === 1
+                    ? 'Desactivado hasta resolver 1 bloqueo.'
+                    : `Desactivado hasta resolver ${blockers.length} bloqueos.`}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {sello && (
         <div className="panel" id="sello">
+          {/*
+            §4.4: the admin is producing an official document, so this reads
+            as a receipt. The hash is a credential, not debug output — short
+            form on the line, the full chain behind one disclosure.
+          */}
           <div className="panel__title">
-            {estado === 'cerrado' ? 'Conteo cerrado' : 'Conteo sellado'}
+            {`${estado === 'cerrado' ? 'Conteo cerrado' : 'Conteo sellado'} · ${formatInstant(sello.sealedAt)}`}
           </div>
           <div className="panel__body">
             <div className="hint">
-              {`Sellado ${formatInstant(sello.sealedAt)}` +
+              {`${formatQty(detail.session.itemCount)} artículos · ` +
+                (sync.counters.length === 1
+                  ? '1 contador'
+                  : `${sync.counters.length} contadores`) +
+                (review.exoneradas > 0 ? ` · ${formatQty(review.exoneradas)} exoneradas` : '') +
                 (sello.exportedAt ? ` · archivo generado ${formatInstant(sello.exportedAt)}` : '')}
             </div>
-            <table className="acta__kv">
-              <tbody>
-                <tr>
-                  <th scope="row">sessionHash</th>
-                  <td>
-                    <code className="acta__hash">{sello.sessionHash}</code>
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">fileHash</th>
-                  <td>
-                    <code className="acta__hash">
-                      {sello.fileHash ?? 'todavía no se generó el archivo'}
-                    </code>
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">sourceHash</th>
-                  <td>
-                    <code className="acta__hash">{sello.sourceHash}</code>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+
+            <details className="sello">
+              <summary className="sello__line">
+                {'Sello '}
+                <code className="acta__hash">{`${sello.sessionHash.slice(0, 4)}…${sello.sessionHash.slice(-4)}`}</code>
+                <span className="hint"> Ver ⌄</span>
+              </summary>
+              <table className="acta__kv">
+                <tbody>
+                  <tr>
+                    <th scope="row">sessionHash</th>
+                    <td>
+                      <code className="acta__hash">{sello.sessionHash}</code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">fileHash</th>
+                    <td>
+                      <code className="acta__hash">
+                        {sello.fileHash ?? 'todavía no se generó el archivo'}
+                      </code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">sourceHash</th>
+                    <td>
+                      <code className="acta__hash">{sello.sourceHash}</code>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </details>
 
             {exported && (
               <div className="hint">
@@ -380,6 +432,43 @@ export function Cierre({
                   `${formatQty(exported.contados)} contadas · ` +
                   `${formatQty(exported.exonerados)} exoneradas · ` +
                   `${formatQty(exported.sinTocar)} con la cantidad de Zeus.`}
+              </div>
+            )}
+
+            {descargando && (
+              // Irreversible in effect: once uploaded, this file moves
+              // balances in Zeus. The confirmation also says what re-download
+              // means, which used to be a standing paragraph.
+              <div className="confirm">
+                <div className="confirm__text">
+                  Este archivo escribe los saldos del conteo en Zeus al subirlo.
+                </div>
+                <div className="hint">
+                  Volver a descargar entrega <strong>los mismos bytes</strong>: el archivo
+                  se guardó al generarlo y nunca se vuelve a construir, y por eso el sello
+                  dice cuál de los archivos de la carpeta se subió.
+                </div>
+                <div className="actions__pair">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => setDescargando(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    disabled={busy}
+                    onClick={() => {
+                      setDescargando(false);
+                      void downloadTxt();
+                    }}
+                  >
+                    Sí, descargar
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -390,9 +479,14 @@ export function Cierre({
                 Generar el archivo para Zeus
               </button>
             )}
-            {estado === 'cerrado' && (
-              <button type="button" className="btn btn--primary" disabled={busy} onClick={downloadTxt}>
-                Descargar el .txt
+            {estado === 'cerrado' && !descargando && (
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy}
+                onClick={() => setDescargando(true)}
+              >
+                Descargar archivo para Zeus
               </button>
             )}
             <button type="button" className="btn btn--small" disabled={busy} onClick={downloadBundle}>
@@ -403,19 +497,9 @@ export function Cierre({
               className="btn btn--small"
               onClick={() => globalThis.print?.()}
             >
-              Imprimir el acta
+              Imprimir acta de conteo
             </button>
           </div>
-
-          {estado === 'cerrado' && (
-            <div className="panel__body">
-              <div className="hint">
-                Volver a descargar entrega <strong>los mismos bytes</strong>: el archivo se
-                guardó al generarlo y nunca se vuelve a construir. Por eso el hash de arriba
-                sirve para saber cuál de los archivos que hay en la carpeta se subió.
-              </div>
-            </div>
-          )}
 
           {/* §5. Should always be empty; rendered because «no puede pasar» is not
               something a screen about integrity gets to say. */}

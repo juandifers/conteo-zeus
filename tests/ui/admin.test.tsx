@@ -274,6 +274,13 @@ describe('deleting a session', () => {
     expect(del).not.toHaveBeenCalled();
     expect(screen.getByText(/Se borra este borrador/)).toBeTruthy();
 
+    // §3.5: the most destructive act in the panel is confirmed by typing, not
+    // by a second click a tired thumb gives away for free.
+    expect(
+      (screen.getByRole('button', { name: 'Sí, eliminar' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await userEvent.type(screen.getByLabelText('Escribe «eliminar» para confirmar'), 'eliminar');
+
     await userEvent.click(screen.getByRole('button', { name: 'Sí, eliminar' }));
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
     expect(del).toHaveBeenCalledWith('/api/sessions/sesion-1');
@@ -337,11 +344,12 @@ describe('the dispatch sheet', () => {
     })),
   });
 
-  it('names the tablet nobody has loaded, in the words that matter', () => {
+  it('marks the tablet nobody has loaded on its own card', () => {
+    // The standing wifi paragraph is gone (§5.2); what remains is the state on
+    // the card and, live, the blocker line in the ANTES DE SELLAR rail.
     render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
-    const banner = screen.getByRole('status');
-    expect(banner.textContent).toMatch(/Todavía sin descargar: Luis/);
-    expect(banner.textContent).toMatch(/adentro no hay señal/);
+    const luis = screen.getByRole('heading', { name: 'Luis' }).closest('section')!;
+    expect(within(luis).getByText('pendiente')).toBeTruthy();
   });
 
   it('shows each counter’s link, as text and as a QR code', () => {
@@ -380,9 +388,38 @@ describe('the dispatch sheet', () => {
     expect(await screen.findByText('Cambios durante el conteo')).toBeTruthy();
   });
 
-  it('counts the downloads rather than making somebody read the list', () => {
-    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
-    expect(screen.getByText('Descargas: 1 de 2')).toBeTruthy();
+  it('keeps «¿ya puedo sellar?» standing in the rail (§3.2)', async () => {
+    // The rail replaced the setup receipt: one line per blocker with a way to
+    // act, and a ✓ where a condition is already met.
+    const api = fakeApi({
+      get: vi.fn(async (path: string) => {
+        if (path.endsWith('/sync')) {
+          return {
+            session: {
+              id: 'sesion-1',
+              estado: 'abierto',
+              assignmentsVersion: 1,
+              readyToSeal: [
+                { kind: 'contador-sin-descargar', counterId: 'c2', nombre: 'Luis' },
+              ],
+            },
+            counters: [],
+            acciones: [],
+            sello: null,
+          } as never;
+        }
+        return { events: [], nextCursor: '0' } as never;
+      }),
+    });
+    render(<Dispatched detail={dispatched} api={api} onReload={() => {}} />);
+    const rail = (await screen.findByText('Antes de sellar')).closest('.panel') as HTMLElement;
+    expect(
+      within(rail).getByText('La tableta de Luis nunca descargó su lista.'),
+    ).toBeTruthy();
+    expect(within(rail).getAllByRole('button', { name: 'Ver →' }).length).toBeGreaterThan(0);
+    // No download ✓ while one is missing; the catalogue line is the ⚠.
+    expect(within(rail).queryByText('Tabletas al día')).toBeNull();
+    expect(within(rail).getByText(/filas sin contar/)).toBeTruthy();
   });
 
   it('says «todo el catálogo» for a shared session instead of listing a partition', () => {

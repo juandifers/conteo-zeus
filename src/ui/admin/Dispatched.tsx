@@ -32,10 +32,11 @@ import { QrCode } from '../components/QrCode';
 import { Cambios } from './Cambios';
 import { Cierre } from './Cierre';
 import { DeleteSession } from './Reparto';
-import { Monitor } from './Monitor';
+import { Monitor, sessionPulse, type MonitorLive } from './Monitor';
 import { Revision } from './Revision';
+import { describeSeal } from './blockers';
 import { counterLink } from './links';
-import { formatInstant } from '../format';
+import { formatInstant, formatMoney, formatQty } from '../format';
 import type { Api } from '../api';
 import type { SessionDetail } from './types';
 
@@ -75,6 +76,8 @@ export function Dispatched({
   );
   /** Whether the setup work — cambios, enlaces, QR — is unfolded. See §3.1 above. */
   const [cambios, setCambios] = useState(false);
+  /** The monitor's poll, shared with the rail so both read one clock (§3.2). */
+  const [live, setLive] = useState<MonitorLive | null>(null);
   // No sections means a shared session (P2.6): everybody holds the whole
   // catalogue and the sheet says so instead of listing a partition.
   const compartido = detail.sections.length === 0;
@@ -82,8 +85,6 @@ export function Dispatched({
     detail.sections.filter((section) => section.counterId === counterId);
   const countOf = (counterId: string) =>
     detail.assignments.filter((assignment) => assignment.counterId === counterId).length;
-
-  const pending = detail.counters.filter((counter) => counter.fetchedAt === null);
 
   return (
     <div className="screen screen--desk">
@@ -135,6 +136,7 @@ export function Dispatched({
             <Monitor
               detail={detail}
               api={api}
+              onLive={setLive}
               actions={
                 <>
                   <button
@@ -199,37 +201,106 @@ export function Dispatched({
             </div>
           </div>
 
-          <aside className="desksplit__rail" aria-label="Estado del despacho">
+          <aside className="desksplit__rail" aria-label="Antes de sellar">
+            {/*
+              §3.2: the rail is the standing answer to «¿ya puedo sellar?»,
+              visible without navigating — not a setup receipt that stopped
+              being interesting thirty seconds into the session. Downloads
+              collapse to one line; the destructive act moves behind Ajustes.
+            */}
             <div className="panel">
-              <div className="panel__title">
-                Descargas: {detail.counters.length - pending.length} de {detail.counters.length}
-              </div>
-              <div className="panel__body">
-                {pending.length > 0 ? (
-                  <div className="banner" role="status">
-                    Todavía sin descargar: {pending.map((counter) => counter.nombre).join(', ')}.
-                    Sus tabletas tienen que abrir el enlace <strong>con wifi</strong> antes de
-                    entrar a la bodega; adentro no hay señal y ya no se puede.
-                  </div>
-                ) : (
-                  <div className="hint">Todas las tabletas cargaron su asignación.</div>
-                )}
-                <div className="actions actions--flat">
-                  <button type="button" className="btn btn--small" onClick={onReload}>
-                    Actualizar
-                  </button>
-                </div>
+              <div className="sectionhead__title">Antes de sellar</div>
+              {live === null ? (
+                <div className="hint">Leyendo el conteo…</div>
+              ) : (
+                (() => {
+                  const blockers = live.sync.session.readyToSeal;
+                  const pulse = sessionPulse(detail.items, live.events);
+                  const descargasOk = !blockers.some(
+                    (blocker) => blocker.kind === 'contador-sin-descargar',
+                  );
+                  return (
+                    <ul className="gates">
+                      {blockers.map((blocker, index) => (
+                        <li className="gate gate--stop" key={`${blocker.kind}-${index}`}>
+                          <span className="gate__mark" aria-hidden="true">
+                            ✕
+                          </span>
+                          <span className="gate__text">{describeSeal(blocker)}</span>
+                          <button
+                            type="button"
+                            className="btn btn--small"
+                            onClick={() => setTab('cierre')}
+                          >
+                            Ver →
+                          </button>
+                        </li>
+                      ))}
+                      {blockers.length === 0 && (
+                        <li className="gate gate--ok">
+                          <span className="gate__mark" aria-hidden="true">
+                            ✓
+                          </span>
+                          <span className="gate__text">
+                            El trabajo de todos está completo en el servidor
+                          </span>
+                        </li>
+                      )}
+                      {pulse.sinContar > 0 ? (
+                        <li className="gate gate--warn">
+                          <span className="gate__mark" aria-hidden="true">
+                            ⚠
+                          </span>
+                          <span className="gate__text">
+                            {`${formatQty(pulse.sinContar)} filas sin contar · ` +
+                              `${formatMoney(pulse.sinVerificar)} COP`}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--small"
+                            onClick={() => setTab('revision')}
+                          >
+                            Ver →
+                          </button>
+                        </li>
+                      ) : (
+                        <li className="gate gate--ok">
+                          <span className="gate__mark" aria-hidden="true">
+                            ✓
+                          </span>
+                          <span className="gate__text">Todo el catálogo tiene registro</span>
+                        </li>
+                      )}
+                      {descargasOk && (
+                        <li className="gate gate--ok">
+                          <span className="gate__mark" aria-hidden="true">
+                            ✓
+                          </span>
+                          <span className="gate__text">Tabletas al día</span>
+                        </li>
+                      )}
+                    </ul>
+                  );
+                })()
+              )}
+              <div className="actions actions--flat">
+                <button type="button" className="btn btn--small" onClick={onReload}>
+                  Actualizar
+                </button>
               </div>
             </div>
 
-            <DeleteSession
-              api={api}
-              sessionId={detail.session.id}
-              estado={detail.session.estado}
-              onDeleted={() => {
-                if (globalThis.location) globalThis.location.hash = '#/admin';
-              }}
-            />
+            <details className="railmore">
+              <summary>Ajustes de la sesión</summary>
+              <DeleteSession
+                api={api}
+                sessionId={detail.session.id}
+                estado={detail.session.estado}
+                onDeleted={() => {
+                  if (globalThis.location) globalThis.location.hash = '#/admin';
+                }}
+              />
+            </details>
           </aside>
         </div>
       )}

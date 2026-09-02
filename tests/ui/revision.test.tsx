@@ -239,7 +239,7 @@ describe('the pre-seal panel separates what blocks from what does not (§6)', ()
     expect(within(panel).getByText('Bloquea')).toBeTruthy();
     expect(within(panel).getByText('No bloquea, pero míralo')).toBeTruthy();
     expect(
-      within(panel).getByText(/Luis está retirado y al servidor le faltan registros suyos/),
+      within(panel).getByText(/Luis se retiró y faltan registros suyos/),
     ).toBeTruthy();
     expect(within(panel).getByText('3 filas que nadie tocó')).toBeTruthy();
   });

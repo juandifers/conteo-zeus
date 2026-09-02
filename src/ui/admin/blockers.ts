@@ -144,27 +144,30 @@ export function describeReassign(
  * the question and the answer must not be spelled two ways.
  */
 export function describeSeal(blocker: SealBlocker): string {
+  // Checklist lines, not paragraphs (brief §4.3, §5.2): each names the person
+  // and the condition; the mechanism («el sello exige la cadena completa…»)
+  // is nobody's business on a checklist. The words are the admin's — nobody
+  // is taught «cadena» or «manifiesto» to read their own gate.
   switch (blocker.kind) {
     case 'sin-contadores':
-      return 'Esta sesión no tiene contadores: nadie fue despachado.';
+      return 'Nadie fue despachado: esta sesión no tiene contadores.';
     case 'contador-sin-terminar':
       return (
-        `${blocker.nombre} está en «${blocker.estado}»` +
-        (blocker.detalle ? ` — ${blocker.detalle}` : '') +
-        '. El sello exige la cadena completa de cada contador, no que todos hayan tocado «terminar».'
+        (blocker.estado === 'asignado'
+          ? `${blocker.nombre} no ha empezado a contar`
+          : blocker.estado === 'terminado_incompleto'
+            ? `${blocker.nombre} terminó y faltan registros suyos`
+            : `${blocker.nombre} sigue contando`) +
+        (blocker.detalle ? ` — ${blocker.detalle}` : '')
       );
     case 'contador-bifurcado':
-      return (
-        `La cadena de ${blocker.nombre} se bifurcó: dos tabletas escribieron el mismo número. ` +
-        'Nada de esto se resuelve solo.'
-      );
+      return `Dos tabletas escribieron con el enlace de ${blocker.nombre}: hay que averiguar cuál es cuál.`;
     case 'contador-sin-descargar':
-      return `La tableta de ${blocker.nombre} nunca descargó su asignación.`;
+      return `La tableta de ${blocker.nombre} nunca descargó su lista.`;
     case 'contador-retirado-incompleto':
       return (
-        `${blocker.nombre} está retirado y al servidor le faltan registros suyos. ` +
-        'Lo correcto es esperar la tableta; si no va a volver, hay que sellar sin sus ' +
-        'registros — y eso queda escrito en el acta con nombre propio.'
+        `${blocker.nombre} se retiró y faltan registros suyos. ` +
+        'Espera su tableta, o firma «sellar sin sus registros».'
       );
   }
 }

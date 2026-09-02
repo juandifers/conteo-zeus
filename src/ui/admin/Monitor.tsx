@@ -32,7 +32,6 @@ import {
 } from '../../domain';
 import type { Api } from '../api';
 import { formatMoney, formatQty } from '../format';
-import { describeSeal } from './blockers';
 import { EventFeed } from './feed';
 import { monitorTier, tierClass } from './tiers';
 import type { SessionDetail, SyncSnapshot } from './types';
@@ -55,6 +54,30 @@ const PACE_WINDOW_MS = 20 * 60_000;
 
 /** Active dot: the server heard from this tablet within the last five minutes. */
 const ACTIVE_MS = 5 * 60_000;
+
+/**
+ * The session's one progress answer, shared by the verdict block and the
+ * ANTES DE SELLAR rail so the two can never disagree about what is uncounted
+ * or what it is worth.
+ */
+export function sessionPulse(
+  items: SessionDetail['items'],
+  events: readonly CountEvent[],
+): { registrados: number; total: number; sinContar: number; sinVerificar: number; pct: number } {
+  const registered = registeredArticles(events);
+  const total = items.length;
+  const sinVerificar = items.reduce(
+    (sum, item) => (registered.has(item.idarticulo) ? sum : sum + exposureValue(item)),
+    0,
+  );
+  return {
+    registrados: registered.size,
+    total,
+    sinContar: total - registered.size,
+    sinVerificar,
+    pct: total === 0 ? 0 : Math.round((registered.size / total) * 100),
+  };
+}
 
 /** `hace 3 min`, `hace 2 h` — the monitor's clock words, always relative. */
 function since(at: string | null, now: string): string {
@@ -153,14 +176,7 @@ export function Monitor({
   // fraction is the session's whichever way it was dispatched: in a shared
   // session coverage belongs to everybody at once, and in a sectioned one the
   // sum over the partition is the same number.
-  const registered = live ? registeredArticles(live.events) : new Set<number>();
-  const total = detail.items.length;
-  const sinContar = total - registered.size;
-  const sinVerificar = detail.items.reduce(
-    (sum, item) => (registered.has(item.idarticulo) ? sum : sum + exposureValue(item)),
-    0,
-  );
-  const pct = total === 0 ? 0 : Math.round((registered.size / total) * 100);
+  const pulse = sessionPulse(detail.items, live?.events ?? []);
   // Pace over a trailing window, never a projection: a projected finish that
   // is wrong is worse than none, so the screen reports what actually happened
   // in the last twenty minutes and lets the admin do the arithmetic they
@@ -185,16 +201,16 @@ export function Monitor({
         <div className="verdict">
           <div className="verdict__row">
             <div className="verdict__fraction">
-              <span className="verdict__big num">{registered.size}</span>
-              {` de ${total} artículos`}
+              <span className="verdict__big num">{pulse.registrados}</span>
+              {` de ${pulse.total} artículos`}
             </div>
-            <div className="verdict__pct num">{`${pct} %`}</div>
+            <div className="verdict__pct num">{`${pulse.pct} %`}</div>
           </div>
           <span className="progressbar verdict__bar">
-            <span className="progressbar__fill" style={{ width: `${pct}%` }} />
+            <span className="progressbar__fill" style={{ width: `${pulse.pct}%` }} />
           </span>
           <div className="verdict__context">
-            {`${sinContar} sin contar · ${formatMoney(sinVerificar)} COP sin verificar` +
+            {`${pulse.sinContar} sin contar · ${formatMoney(pulse.sinVerificar)} COP sin verificar` +
               (recientes > 0 ? ` · ${recientes} registros en los últimos 20 min` : '')}
           </div>
         </div>
@@ -262,20 +278,6 @@ export function Monitor({
         </ul>
       )}
 
-      {live && live.sync.session.readyToSeal.length > 0 && (
-        <div className="panel__body">
-          {/* Live rather than a link, so the admin can see what is still
-              outstanding without navigating. */}
-          <div className="panel__subtitle">Para poder sellar</div>
-          <ul className="checklist">
-            {live.sync.session.readyToSeal.map((blocker, index) => (
-              <li className="checkrow" key={`${blocker.kind}-${index}`}>
-                <span>{describeSeal(blocker)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

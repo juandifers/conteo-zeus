@@ -154,10 +154,12 @@ describe('the ordering is the design (§1)', () => {
     render(<Cierre detail={DETAIL} api={api} onReload={() => {}} now={() => NOW} />);
     await screen.findByText('Sellar el conteo');
 
-    expect(screen.getByText(/La cadena de Ana se bifurcó/)).toBeTruthy();
+    expect(screen.getByText(/Dos tabletas escribieron con el enlace de Ana/)).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Sellar' }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+    // §4.3: the disabled state says what it is waiting for.
+    expect(screen.getByText('Desactivado hasta resolver 1 bloqueo.')).toBeTruthy();
   });
 
   it('names what is about to be frozen before it freezes it', async () => {
@@ -199,10 +201,14 @@ describe('the ordering is the design (§1)', () => {
     fireEvent.change(select, { target: { value: 'luis' } });
     expect(screen.getByText(/no está en el archivo y no va a llegar/)).toBeTruthy();
 
+    // §4.3: the signature lives inside the confirmation, in front of the
+    // person about to do the irreversible thing — not as standing page fields.
+    fireEvent.click(screen.getByRole('button', { name: 'Sellar' }));
+    const commit = screen.getByRole('button', { name: 'Sí, sellar' }) as HTMLButtonElement;
+    expect(commit.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Quién firma'), { target: { value: 'Marta' } });
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'no vuelve' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Sellar' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Sí, sellar' }));
+    fireEvent.click(commit);
 
     await waitFor(() => expect(posted.some((call) => call.path.endsWith('/sellar'))).toBe(true));
     const call = posted.find((entry) => entry.path.endsWith('/sellar'))!;
@@ -225,9 +231,14 @@ describe('after the seal (§2, §4a, §5)', () => {
         now={() => NOW}
       />,
     );
-    await screen.findByText('Conteo cerrado');
+    await screen.findByText(/Conteo cerrado/);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Descargar el .txt' }));
+    // §4.4: the download is irreversible in effect — once uploaded, the file
+    // moves balances — so it asks first, and the same-bytes fact lives there.
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar archivo para Zeus' }));
+    expect(download.saved).toHaveLength(0);
+    expect(screen.getByText(/Volver a descargar entrega/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, descargar' }));
     await waitFor(() => expect(download.saved).toHaveLength(1));
     // The name the server chose, carrying the digest's first eight — which is
     // what makes «which one did I upload» answerable.
@@ -236,8 +247,6 @@ describe('after the seal (§2, §4a, §5)', () => {
     // CP850 and a string would put every `Ñ` through UTF-8 on the way to disk.
     expect(download.saved[0].bytes).toBeInstanceOf(Uint8Array);
     expect([...download.saved[0].bytes]).toEqual([0x68, 0x6f, 0x6c, 0x61]);
-
-    expect(screen.getByText(/Volver a descargar entrega/)).toBeTruthy();
   });
 
   it('saves the audit bundle verbatim', async () => {
@@ -246,7 +255,7 @@ describe('after the seal (§2, §4a, §5)', () => {
     render(
       <Cierre detail={DETAIL} api={api} onReload={() => {}} download={download} now={() => NOW} />,
     );
-    await screen.findByText('Conteo cerrado');
+    await screen.findByText(/Conteo cerrado/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Descargar el paquete de auditoría' }));
     await waitFor(() => expect(download.saved).toHaveLength(1));

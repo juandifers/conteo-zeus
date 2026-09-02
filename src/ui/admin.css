@@ -62,6 +62,63 @@
   color: var(--ink-quiet);
 }
 
+/*
+ * The seal checklist and the standing ANTES DE SELLAR rail (brief §3.2, §4.3):
+ * every line is a condition, its status, and — where one exists — the action
+ * that clears it. The mark column keeps the three grades scannable; PR6 gives
+ * the marks their state colours.
+ */
+.gates {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+}
+
+.gate {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 16px;
+}
+
+.gate__mark {
+  flex: 0 0 1.2em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.gate--stop .gate__mark,
+.gate--warn .gate__mark {
+  font-weight: 700;
+}
+
+.gate__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.gate .btn--small {
+  min-height: 32px;
+  padding: 2px 10px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+/* The seal-as-credential line (§4.4): short hash on the line, the full chain
+   behind the disclosure. */
+.sello__line {
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.sello__line::-webkit-details-marker {
+  display: none;
+}
+
 /* The activity dot on a counter row: filled when the server heard from that
    tablet in the last five minutes, hollow when not. */
 .livedot {
@@ -721,4 +778,19 @@
    in the middle of the sentence it belongs to. */
 .desksplit__rail .banner {
   display: block;
+}
+
+/* Session settings at the foot of the rail (§3.5): the destructive act lives
+   behind a disclosure, at the bottom, with none of the visual weight of the
+   monitoring work above it. */
+.railmore {
+  margin: 12px 16px 24px;
+}
+
+.railmore > summary {
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--ink-quiet);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

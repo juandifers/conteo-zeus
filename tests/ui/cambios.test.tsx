@@ -296,7 +296,7 @@ describe('retirement and the seal', () => {
     // Said twice on purpose, in two voices: beside the button, and in the
     // sealing gate's own list of what is standing in the way.
     expect(screen.getByText(/«sellar sin sus registros» deja escrito en el acta/)).toBeTruthy();
-    expect(screen.getByText(/eso queda escrito en el acta con nombre propio/)).toBeTruthy();
+    expect(screen.getByText(/Espera su tableta, o firma «sellar sin sus registros»/)).toBeTruthy();
   });
 
   it('does not offer it when the retired counter’s chain is whole', async () => {
