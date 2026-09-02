@@ -11,10 +11,12 @@
  * the precache, and because the counter link has to work the same way — see
  * `links.ts`.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { httpApi, type Api } from '../api';
+import { UpdateNotice } from '../components/UpdateNotice';
 import { formatInstant } from '../format';
+import { noUpdates, type Updates } from '../updates';
 import { Dispatched } from './Dispatched';
 import { ImportPanel } from './ImportPanel';
 import { Reparto } from './Reparto';
@@ -33,17 +35,28 @@ export function AdminApp({
   navigate = (to: string) => {
     if (globalThis.location) globalThis.location.hash = to;
   },
+  updates: injectedUpdates,
 }: {
   api?: Api;
   /** Injected so a test does not have to drive `window.location`. */
   hash?: string;
   navigate?: (to: string) => void;
+  updates?: Updates;
 }) {
+  const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
   const route = adminRoute(hash) ?? { name: 'list' as const };
-  return route.name === 'list' ? (
-    <SessionList api={api} navigate={navigate} />
-  ) : (
-    <SessionScreen api={api} id={route.id} navigate={navigate} />
+  return (
+    <>
+      {route.name === 'list' ? (
+        <SessionList api={api} navigate={navigate} />
+      ) : (
+        <SessionScreen api={api} id={route.id} navigate={navigate} />
+      )}
+      {/* The same quiet foot-of-page notice the counting app carries. The desk
+          is where a stale build costs the most — it is always online, and its
+          person is the one reading screens this repository just changed. */}
+      <UpdateNotice updates={updates} />
+    </>
   );
 }
 

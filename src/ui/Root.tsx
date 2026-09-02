@@ -58,7 +58,7 @@ export function Root({
     return () => globalThis.removeEventListener?.('hashchange', onChange);
   }, []);
 
-  if (adminRoute(hash)) return <AdminApp api={api} hash={hash} />;
+  if (adminRoute(hash)) return <AdminApp api={api} hash={hash} updates={updates} />;
 
   const token = tokenInHash(hash);
   if (token) {

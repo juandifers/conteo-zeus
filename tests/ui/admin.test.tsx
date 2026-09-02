@@ -148,6 +148,27 @@ describe('uploading a file', () => {
   });
 });
 
+describe('the admin page hears about new versions', () => {
+  it('renders the update notice when a new build is waiting', async () => {
+    // The desk is always online and its person is the one reading screens a
+    // deploy just changed — yet the notice used to be wired only into the
+    // counting app, so an admin could sit on a stale build with no way to know
+    // (the reported bug: «actualizar button doesnt render in admin page»).
+    const updates = {
+      subscribe(listener: (waiting: boolean) => void) {
+        listener(true);
+        return () => {};
+      },
+      apply: vi.fn(async () => {}),
+    };
+    const api = fakeApi({ get: vi.fn(async () => ({ sessions: [] }) as never) });
+    render(<AdminApp api={api} hash="#/admin" navigate={() => {}} updates={updates} />);
+    await screen.findByText('Hay una versión nueva');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(updates.apply).toHaveBeenCalled();
+  });
+});
+
 describe('the list archives finished counts (Conteos anteriores)', () => {
   function summaryFor(over: Record<string, unknown>) {
     return {
