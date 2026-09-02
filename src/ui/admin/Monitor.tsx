@@ -16,8 +16,9 @@
  * decision lives, and it is a pure function so it can be tested without a
  * browser.
  *
- * Colour is not used for any of it. In this product colour carries exactly one
- * meaning — variance direction — and a red counter row would be the second.
+ * On the desk, colour means variance direction or state and nothing else
+ * (ADMIN_UI.md §6): the tier chips and checklist marks may wear the state
+ * hues, and a row never gets a tint — a name and a code carry no state.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

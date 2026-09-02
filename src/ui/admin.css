@@ -144,7 +144,7 @@
 }
 
 .sectionhead__title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -264,12 +264,10 @@
 /* ---- P2.4: the monitor and the review --------------------------------- */
 
 /*
- * The three tiers of the monitor, in rule weight and never in colour.
- *
- * Colour in this product carries exactly one meaning — variance direction —
- * and a red counter row would be the second. So «needs action» is a heavier
- * rule and a bolder word, and «stopped» is a double rule: both read at a
- * glance across a desk, and neither competes with a shortage.
+ * The three tiers of the monitor: rule weight and words first, and — on the
+ * desk only, since ADMIN_UI.md §6 — the state hues (--warn, --stop) defined
+ * in theme.css. On the desk colour means variance direction *or* state and
+ * nothing else; the tablet still means only variance.
  *
  * The neutral case is the default `.chip`, because most of a shift in a bodega
  * with no signal looks exactly like it and a panel that shouts at the normal

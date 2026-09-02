@@ -94,13 +94,14 @@ describe('the three states are visually separate (§1)', () => {
     expect(within(pedro).getByText(/No se arregla\s+solo/)).toBeTruthy();
   });
 
-  it('does not reach for colour, which in this product means variance', async () => {
+  it('never borrows the variance colours for a counter row', async () => {
     const { api } = reviewApi({ counters: COUNTERS, events: [] });
     render(<Monitor detail={DETAIL} api={api} pollMs={1_000_000} />);
     await screen.findByText(/Ana · contando/);
     const monitor = document.getElementById('monitor')!;
-    // `grid--short` / `grid--over` are the only classes that carry a colour, and
-    // a counter's state is not a direction.
+    // On the desk colour means variance direction or state (ADMIN_UI.md §6).
+    // A counter's state wears the state hues on its chip and dot — but the
+    // shortage/overage classes stay in the table, where a direction exists.
     expect(monitor.querySelectorAll('.grid--short, .grid--over')).toHaveLength(0);
   });
 

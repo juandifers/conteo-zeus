@@ -15,7 +15,8 @@
  * A bodega with no connectivity means most of a shift looks like the first line.
  * **Styling it as a warning trains the admin to ignore the panel**, and the
  * second line is the one that costs a morning — so silence is neutral here, and
- * only what somebody has to act on is coloured.
+ * only what somebody has to act on is marked (weight always; on the desk, the
+ * --warn/--stop state hues of ADMIN_UI.md §6 as well).
  *
  * ## What the server can and cannot see
  *

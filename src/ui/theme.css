@@ -858,7 +858,136 @@ select {
 .app:has(.screen--desk) {
   /* Wide enough for the work column and the 400px rail to both breathe. The
      counting app keeps its 900px: a tablet held in one hand is not a desk. */
-  max-width: 1400px;
+  max-width: 1200px;
+
+  /*
+   * The desk's own tokens — ADMIN_UI.md §6. Cool and institutional: an
+   * accounting instrument, not a count sheet. The counting tablet keeps the
+   * warm paper above; only the admin panel re-reads these.
+   *
+   * And the desk's second meaning for colour: alongside variance direction
+   * (--short/--over, unchanged), state — ok, warn, stop — on the checklist
+   * marks, the activity dot and the tier chips. A coloured element must mean
+   * one of those two things; decoration still gets none.
+   */
+  --paper: #f1f2f4;
+  --paper-raised: #ffffff;
+  --paper-sunken: #e7e9ec;
+  --ink: #16191d;
+  --ink-quiet: #5a6270;
+  --rule: #dfe3e8;
+  --rule-strong: #b6bdc7;
+
+  --action: #1b4db1;
+  --ok: #0f7b4f;
+  --warn: #b45309;
+  --stop: #b3261e;
+  --idle: #9aa1ac;
+
+  background: var(--paper);
+}
+
+/* The page ground behind the desk, so the canvas is not framed in cream. */
+body:has(.screen--desk) {
+  background: #f1f2f4;
+}
+
+/*
+ * Desk type — §6. One family; hierarchy from size and weight. Figures leave
+ * the tracked-out monospace («10 . 904 . 483» reads as decoration) for the
+ * sans at tabular-nums; hashes and links keep their mono via their own
+ * classes. Denser roles than the tablet, which is read at arm's length.
+ */
+.screen--desk .num {
+  font-family: var(--sans);
+}
+
+.screen--desk .row__meta,
+.screen--desk .grid__meta,
+.screen--desk .grid__caption {
+  font-size: 14px;
+}
+
+.screen--desk .hint,
+.screen--desk .verdict__context {
+  font-size: 14px;
+}
+
+.screen--desk .row__nombre,
+.screen--desk .grid__nombre {
+  font-size: 16px;
+}
+
+.screen--desk .grid {
+  font-size: 14px;
+}
+
+.screen--desk .grid td,
+.screen--desk .grid tbody th {
+  font-weight: 400;
+}
+
+.screen--desk .grid__n {
+  font-weight: 500;
+}
+
+.screen--desk .panel__body {
+  font-size: 16px;
+}
+
+.screen--desk .chip {
+  font-size: 14px;
+}
+
+/* §6: the tab bar holds still. It is the map of the three questions and it
+   used to scroll away with the answer. */
+.screen--desk .chips[role='tablist'] {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+
+/* The one primary action per screen wears the action blue; everything else
+   stays ink on paper. */
+.screen--desk .btn--primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: #ffffff;
+}
+
+/* State colour, exactly where state lives (§6). */
+.screen--desk .gate--ok .gate__mark,
+.screen--desk .livedot--on {
+  color: var(--ok);
+}
+
+.screen--desk .gate--warn .gate__mark {
+  color: var(--warn);
+}
+
+.screen--desk .gate--stop .gate__mark {
+  color: var(--stop);
+}
+
+.screen--desk .livedot {
+  color: var(--idle);
+}
+
+.screen--desk .livedot--on {
+  color: var(--ok);
+}
+
+.screen--desk .chip--action {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.screen--desk .chip--stopped {
+  border-color: var(--stop);
+  color: var(--stop);
 }
 
 /* A mouse-driven header on a screen that is mostly table: the two lines of
