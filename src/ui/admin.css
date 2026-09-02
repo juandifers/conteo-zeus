@@ -19,6 +19,41 @@
   border-radius: 2px;
 }
 
+/*
+ * A section header with its actions on the same line: the counters table above,
+ * the rare acts (cambios, reprint) behind small controls beside the title
+ * rather than as standing forms below it (brief §3.1).
+ */
+.sectionhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.sectionhead__title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.sectionhead__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The sheet while «Cambios» is folded away: gone from the screen, still there
+   for the printer, so reprinting never requires unfolding anything first. */
+.sheet--printonly {
+  display: none;
+}
+
 .sheet {
   display: grid;
   /* Two-up on a desk, one per row on anything narrow: five QR cards in one
@@ -91,9 +126,14 @@
     display: none !important;
   }
 
-  .sheet {
+  .sheet,
+  .sheet--printonly {
     display: block;
     padding: 0;
+  }
+
+  .sectionhead {
+    display: none !important;
   }
 
   .sheet__counter {

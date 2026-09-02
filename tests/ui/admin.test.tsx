@@ -357,6 +357,17 @@ describe('the dispatch sheet', () => {
     expect(within(luis).getByText('pendiente')).toBeTruthy();
   });
 
+  it('keeps the setup work folded until somebody opens «Cambios» (§3.1)', async () => {
+    // The monitoring screen is refreshed every ten minutes; a swap form
+    // standing in its middle has to justify itself in paragraphs. Folded, it
+    // appears attached to the act — and the QR sheet stays printable without
+    // unfolding anything.
+    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
+    expect(screen.queryByText('Cambios durante el conteo')).toBeNull();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Cambios ⌄' }));
+    expect(await screen.findByText('Cambios durante el conteo')).toBeTruthy();
+  });
+
   it('counts the downloads rather than making somebody read the list', () => {
     render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
     expect(screen.getByText('Descargas: 1 de 2')).toBeTruthy();

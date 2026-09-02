@@ -39,6 +39,17 @@ import { formatInstant } from '../format';
 import type { Api } from '../api';
 import type { SessionDetail } from './types';
 
+/**
+ * §3.1 of the admin brief: setup work leaves the monitoring screen.
+ *
+ * `Cambios`, the add/retire forms and the QR cards are rare, deliberate acts.
+ * Sitting in the vertical middle of the screen the admin refreshes every ten
+ * minutes, they must explain themselves in standing paragraphs; attached to the
+ * moment somebody opens «Cambios», the explanation becomes short and obvious.
+ * The sheet still exists in the DOM while collapsed — hidden on screen, shown
+ * to the printer — so «Imprimir hoja de reparto» works without opening anything.
+ */
+
 type Tab = 'seguimiento' | 'revision' | 'cierre';
 
 /** Sessions whose count is over. Nothing is arriving, so nothing is polled. */
@@ -62,6 +73,8 @@ export function Dispatched({
   const [tab, setTab] = useState<Tab>(
     initialTab ?? (FROZEN.has(detail.session.estado) ? 'cierre' : 'seguimiento'),
   );
+  /** Whether the setup work — cambios, enlaces, QR — is unfolded. See §3.1 above. */
+  const [cambios, setCambios] = useState(false);
   // No sections means a shared session (P2.6): everybody holds the whole
   // catalogue and the sheet says so instead of listing a partition.
   const compartido = detail.sections.length === 0;
@@ -121,15 +134,36 @@ export function Dispatched({
           <div className="desksplit__main">
             <Monitor detail={detail} api={api} />
 
+            <div className="sectionhead">
+              <div className="sectionhead__title">Contadores</div>
+              <div className="sectionhead__actions">
+                <button
+                  type="button"
+                  className="btn btn--small"
+                  aria-expanded={cambios}
+                  onClick={() => setCambios((open) => !open)}
+                >
+                  {cambios ? 'Cambios ▴' : 'Cambios ⌄'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--small"
+                  onClick={() => globalThis.print?.()}
+                >
+                  Imprimir hoja de reparto
+                </button>
+              </div>
+            </div>
+
             {/*
               Everything that can still change about who counts what (P2.3.5).
               Above the printable sheet, because a sheet printed before a swap
               is a sheet that is wrong, and the person reprinting it needs to
               have made the change first.
             */}
-            <Cambios detail={detail} api={api} onReload={onReload} />
+            {cambios && <Cambios detail={detail} api={api} onReload={onReload} />}
 
-            <div className="sheet">
+            <div className={cambios ? 'sheet' : 'sheet sheet--printonly'}>
               {detail.counters.map((counter) => {
                 const link = counterLink(counter.token);
                 return (
@@ -182,13 +216,6 @@ export function Dispatched({
                 <div className="actions actions--flat">
                   <button type="button" className="btn btn--small" onClick={onReload}>
                     Actualizar
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--small"
-                    onClick={() => globalThis.print?.()}
-                  >
-                    Imprimir hoja de reparto
                   </button>
                 </div>
               </div>
