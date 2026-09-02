@@ -15,7 +15,7 @@
  * reopens it — including a badge reading «3 registros», since entry counts
  * correlate with how big a stack is.
  */
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -50,6 +50,26 @@ function heldAssignment(payload: CounterPayload): AssignmentStore {
 }
 
 /**
+ * The device's two stores, sharing what the real device shares.
+ *
+ * On a tablet `DexieCounterChain` and `DexieCountRepository` are two views of
+ * **one** `countEvents` table (src/store/repository.ts), which is what lets a
+ * reload hydrate the screen from the rows the chain wrote. The memory fakes
+ * are separate stores, so the harness wires the chain through the way the
+ * shared table does: a chained append is also a stored event.
+ */
+function sharedDevice() {
+  const repo = new MemoryRepository();
+  const chain = new MemoryChain();
+  const append = chain.appendChainedBatch.bind(chain);
+  chain.appendChainedBatch = async (links) => {
+    await append(links);
+    for (const link of links) await repo.appendEvent(link.event);
+  };
+  return { repo, chain };
+}
+
+/**
  * A tablet in a bodega: the assignment is on the device, and the network is
  * not there. Every screen below therefore renders from Dexie alone, which is
  * the condition the whole product runs in.
@@ -60,12 +80,13 @@ async function openTablet(
     brokenDatabase?: boolean;
     /** Articles somebody else registered before this tablet fetched (P2.3.5 §6b). */
     yaRegistrados?: readonly number[];
+    /** An existing device, for the reload tests: same stores, fresh screen. */
+    device?: ReturnType<typeof sharedDevice>;
   } = {},
 ) {
   const payload = samplePayload(options);
-  const repo = new MemoryRepository();
-  await repo.createSession(sampleSession());
-  const chain = new MemoryChain();
+  const { repo, chain } = options.device ?? sharedDevice();
+  if (!options.device) await repo.createSession(sampleSession());
   if (options.brokenDatabase) {
     // A tablet whose IndexedDB has stopped taking writes. Not a hypothetical:
     // it is what a full disk or an evicted origin looks like from in here.
@@ -84,7 +105,7 @@ async function openTablet(
       throw new Error('sin red');
     },
   };
-  render(
+  const view = render(
     <CounterScreen
       token={TOKEN}
       api={api}
@@ -96,7 +117,7 @@ async function openTablet(
   const user = userEvent.setup();
   // Boot: the assignment read, the device identified, the chain started.
   await screen.findByRole('button', { name: 'Contar' });
-  return { user, chain, payload };
+  return { user, chain, repo, payload, unmount: () => view.unmount() };
 }
 
 const tab = (name: string) => screen.getByRole('button', { name });
@@ -473,5 +494,56 @@ describe('when the tablet stops saving', () => {
     expect(screen.queryByRole('button', { name: 'Mis registros' })).toBeNull();
     expect(screen.queryByLabelText('buscar artículo')).toBeNull();
     expect(screen.getByRole('button', { name: /Reintentar guardado/ })).toBeTruthy();
+  });
+});
+
+describe('a reload mid-count', () => {
+  it('reopens with «Mis registros» intact, and the entry still correctable', async () => {
+    // The bug this pins down: the screen used to seed its store with an empty
+    // log on every boot, so a crash, an evicted tab or a plain reload made the
+    // one screen that exists to correct mistakes forget them — while the
+    // device's rows and the server's copy were both fine. The chain continued
+    // (no fork); only the display had amnesia.
+    const device = sharedDevice();
+    await device.repo.createSession(sampleSession());
+
+    const first = await openTablet({ device });
+    await registrar(first.user, 'TAJADO', '4');
+    // The chained write is asynchronous; a reload races it in real life too,
+    // but the test waits so what is being tested is hydration, not the race.
+    await waitFor(async () => {
+      expect((await device.chain.localChain(SESSION_ID, COUNTER))?.maxSeq).toBe(1);
+    });
+    first.unmount();
+
+    const second = await openTablet({ device });
+    await second.user.click(tab('Mis registros'));
+    expect(await screen.findByText('4')).toBeTruthy();
+
+    // And it is not a picture of the past: withdrawing it appends seq 2 onto
+    // the same chain, which is the difference between hydration and a fork.
+    await second.user.click(screen.getByRole('button', { name: 'Deshacer' }));
+    expect(await screen.findByText('deshecho')).toBeTruthy();
+    await waitFor(async () => {
+      expect((await device.chain.localChain(SESSION_ID, COUNTER))?.maxSeq).toBe(2);
+    });
+  });
+
+  it('restores the registrado marks in the search, not only the list', async () => {
+    const device = sharedDevice();
+    await device.repo.createSession(sampleSession());
+
+    const first = await openTablet({ device });
+    await registrar(first.user, 'TAJADO', '4');
+    await waitFor(async () => {
+      expect((await device.chain.localChain(SESSION_ID, COUNTER))?.maxSeq).toBe(1);
+    });
+    first.unmount();
+
+    const second = await openTablet({ device });
+    await second.user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
+    const marks = await screen.findAllByLabelText('ya registraste algo aquí');
+    expect(marks.length).toBeGreaterThan(0);
+    for (const mark of marks) expect(mark.textContent).toBe('✓');
   });
 });

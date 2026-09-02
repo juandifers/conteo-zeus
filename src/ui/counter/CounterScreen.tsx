@@ -114,6 +114,19 @@ export function CounterScreen({
         if (!alive) return;
 
         const catalogue = catalogueOf(payload);
+
+        // The device's own log, back onto the screen. A tablet that reloads
+        // mid-count — a crash, a low-memory eviction, a tab closed by accident
+        // — must reopen with «Mis registros» intact: the chain already
+        // continued from these rows (`localChain`, above), and a correction
+        // screen that forgot what it exists to correct would send somebody to
+        // recount work the server is already holding. The whole session's rows
+        // on this device, not one counter's: after a handover this tablet can
+        // hold two counters' logs, the fold is built to merge them, and
+        // `ownLog` still scopes «Mis registros» to this counter alone.
+        const held = await repo.eventsForSession(payload.session.id);
+        if (!alive) return;
+
         // Shaped for the counting store, built from the *allowlisted* payload
         // and nothing else — see the module note on why `items` is empty.
         const session = {
@@ -124,7 +137,7 @@ export function CounterScreen({
           createdAt: '1970-01-01T00:00:00.000Z',
           items: [],
         };
-        const store = new CountStore(repo, session, [], {
+        const store = new CountStore(repo, session, held, {
           usuario: payload.counter.nombre,
           deviceId: boot.device.deviceId,
           nextSeq: boot.nextSeq,
