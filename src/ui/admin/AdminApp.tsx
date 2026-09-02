@@ -19,6 +19,7 @@ import { Dispatched } from './Dispatched';
 import { ImportPanel } from './ImportPanel';
 import { Reparto } from './Reparto';
 import { adminRoute } from './links';
+import { sessionWord } from './vocabulario';
 import type { SessionDetail, SessionSummary } from './types';
 
 type Load<T> =
@@ -112,7 +113,7 @@ function SessionList({ api, navigate }: { api: Api; navigate: (to: string) => vo
                     <span
                       className={session.estado === 'borrador' ? 'chip' : 'chip chip--counted'}
                     >
-                      {session.estado}
+                      {sessionWord(session.estado)}
                     </span>
                   </div>
                 </li>

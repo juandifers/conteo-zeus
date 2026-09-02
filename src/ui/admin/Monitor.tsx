@@ -34,6 +34,7 @@ import type { Api } from '../api';
 import { formatMoney, formatQty } from '../format';
 import { EventFeed } from './feed';
 import { monitorTier, tierClass } from './tiers';
+import { counterWord, unos } from './vocabulario';
 import type { SessionDetail, SyncSnapshot } from './types';
 
 /** How often the cheap poll runs. Injected so a test does not wait in real time. */
@@ -247,18 +248,18 @@ export function Monitor({
                   {activo ? '●' : '○'}
                 </span>
                 <div className="row__main">
-                  <div className="row__nombre">{`${counter.nombre} · ${counter.estado}`}</div>
+                  <div className="row__nombre">{`${counter.nombre} · ${counterWord(counter.estado)}`}</div>
                   <div className="row__meta">
                     {(compartido
                       ? `${suyo.registrados} artículos registrados`
                       : `${suyo.registrados} de ${asignados} artículos · faltan ${suyo.sinRegistrar}`) +
-                      ` · ${suyo.registros} registros · ${suyo.ceros} en cero · ${suyo.notas} notas` +
-                      ` · ${since(counter.lastServerAt, live.at)}`}
+                      ` · ${unos(suyo.registros, 'registro')} · ${suyo.ceros} en cero · ` +
+                      `${unos(suyo.notas, 'nota')} · ${since(counter.lastServerAt, live.at)}`}
                   </div>
                   <div className="row__meta">
                     {`${counter.storedMaxSeq} en el servidor` +
                       (counter.deviceIds.length > 0
-                        ? ` · ${counter.deviceIds.length} tabletas`
+                        ? ` · ${unos(counter.deviceIds.length, 'tableta')}`
                         : '') +
                       (counter.clockSkewMs === null
                         ? ''

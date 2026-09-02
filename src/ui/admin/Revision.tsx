@@ -42,6 +42,7 @@ import { loadSupervisor, saveSupervisor } from '../identity';
 import { Aggregate } from './Aggregate';
 import { describeAdvisory, describeSeal } from './blockers';
 import { EventFeed } from './feed';
+import { counterWord } from './vocabulario';
 import { Amendments, Notas, Overlaps, Superseded, Trailing, Zeros } from './Hallazgos';
 import type { SessionDetail, SyncSnapshot } from './types';
 
@@ -195,31 +196,36 @@ export function Revision({
         </div>
       )}
 
-      {/* §2a. Both scopes, both measures, together — and recomputed live, so
-          the second one visibly does not move when the first one does. */}
+      {/* §2a, presented per brief §4.2: one figure while the two are equal,
+          the split only when a waiver has made them differ — a three-line
+          explanation of why two identical numbers differ explained nothing.
+          Recomputed live, so the second one visibly does not move when the
+          first one does. */}
       <div className="panel" id="cifras">
-        <div className="panel__title">Lo que falta, y lo que nadie verificó</div>
         <div className="panel__figures">
           <div>
-            <div className="figure__label">pendiente · falta por hacer</div>
-            <div className="figure__value num">{formatMoney(review.pendiente.exposicion)}</div>
-            <div className="hint">{`${review.pendiente.items} filas que nadie tocó`}</div>
-          </div>
-          <div>
-            <div className="figure__label">sin verificar · nadie lo contó</div>
+            <div className="figure__label">Sin verificar</div>
             <div className="figure__value num">{formatMoney(review.sinVerificar.exposicion)}</div>
             <div className="hint">
-              {`${review.pendiente.items} sin tocar + ${review.exoneradas} exoneradas`}
+              {review.exoneradas > 0
+                ? `${review.sinVerificar.items} filas`
+                : `${review.sinVerificar.items} de ${review.rows.length} filas`}
             </div>
           </div>
+          {review.exoneradas > 0 && (
+            <div>
+              <div className="figure__label">Pendiente</div>
+              <div className="figure__value num">{formatMoney(review.pendiente.exposicion)}</div>
+              <div className="hint">
+                {`${review.pendiente.items} filas · ${review.exoneradas} exon.`}
+              </div>
+            </div>
+          )}
         </div>
         <div className="panel__body">
-          <div className="hint">
-            Exonerar baja <strong>pendiente</strong> y no mueve{' '}
-            <strong>sin verificar</strong>, porque una exoneración acepta el
-            riesgo, no lo retira. La segunda cifra es la que dice cuánto vale
-            este conteo como evidencia.
-          </div>
+          {review.exoneradas > 0 && (
+            <div className="hint">↳ Exonerar acepta el riesgo, no lo retira.</div>
+          )}
           <div className="hint">
             {`Cobertura ${Math.round(review.cobertura.fraccionValor * 100)}% del valor · ` +
               `${Math.round(review.cobertura.fraccionFilas * 100)}% de las filas · ` +
@@ -367,11 +373,6 @@ export function Revision({
       <div className="panel">
         <div className="panel__title">Exonerar lo que nadie contó</div>
         <div className="panel__body">
-          <div className="hint">
-            Firmar por filas que nadie caminó. Queda en la cadena con tu nombre y
-            tu motivo, y sale impreso en el acta. Un conteo nunca se pierde por
-            una exoneración: si una tableta sincroniza después, manda el conteo.
-          </div>
           <div className="actions">
             <button
               type="button"
@@ -421,11 +422,15 @@ export function Revision({
 
           {confirming && (
             // §4d, in front of the person, before every bulk waiver. The
-            // sentence is the consequence in the file, not a summary of it.
+            // sentence is the consequence in the file, not a summary of it —
+            // and the «firmar por filas que nadie caminó» paragraph lives
+            // here now, attached to the decision (§5.2).
             <div className="banner" role="alert">
               <div>
                 {`Vas a exonerar ${preview.filas} filas por ${formatMoney(preview.valor)} COP ` +
-                  `en libros (${formatMoney(preview.exposicion)} COP de exposición).`}
+                  `en libros (${formatMoney(preview.exposicion)} COP de exposición). Es firmar ` +
+                  'por filas que nadie caminó: queda con tu nombre y tu motivo, y sale ' +
+                  'impreso en el acta.'}
               </div>
               <div>
                 <strong>
@@ -433,7 +438,9 @@ export function Revision({
                   Zeus, como si se hubieran contado y coincidido.
                 </strong>{' '}
                 El formato no tiene forma de decir «no fuimos». Por eso existe el
-                acta, y por eso «sin verificar» no va a bajar.
+                acta, y por eso «sin verificar» no va a bajar. Un conteo nunca se
+                pierde por una exoneración: si una tableta sincroniza después,
+                manda el conteo.
               </div>
             </div>
           )}
@@ -601,7 +608,9 @@ function Readiness({
           </ul>
         )}
 
-        <div className="panel__subtitle">Qué tan probada está cada cadena</div>
+        <div className="panel__subtitle">Qué respalda el trabajo de cada uno</div>
+        {/* §6a in the admin's words (§5.3): the two grades of evidence stay
+            apart, but nobody is taught «cadena» or «manifiesto» to read them. */}
         <ul className="rows">
           {sync.counters.map((counter) => {
             const retirado = counter.estado === 'retirado';
@@ -609,15 +618,15 @@ function Readiness({
             return (
               <li className="row row--static" key={counter.id}>
                 <div className="row__main">
-                  <div className="row__nombre">{`${counter.nombre} · ${counter.estado}`}</div>
+                  <div className="row__nombre">{`${counter.nombre} · ${counterWord(counter.estado)}`}</div>
                   <div className="row__meta">
                     {counter.estado === 'terminado_confirmado'
-                      ? 'verificado: la cadena cuadra con el manifiesto que firmó su tableta'
+                      ? 'verificado: su tableta declaró cuánto registró y el servidor lo tiene todo'
                       : retirado
-                        ? 'solo contigüidad: no hay manifiesto, así que un tramo final que ' +
-                          'nadie ha oído nombrar no se puede descartar' +
+                        ? 'sin verificar: se retiró sin tocar «Terminar», y un tramo final que ' +
+                          'no alcanzó a subir no se puede descartar' +
                           (motivo ? ` · retirado: ${motivo}` : '')
-                        : 'todavía sin manifiesto'}
+                        : 'todavía contando'}
                   </div>
                 </div>
               </li>

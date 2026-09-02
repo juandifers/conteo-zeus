@@ -117,7 +117,7 @@ describe('the three states are visually separate (§1)', () => {
     const ana = (await screen.findByText(/Ana · contando/)).closest('.row') as HTMLElement;
     // Two of her two articles registered, three entries, one of them a zero.
     expect(within(ana).getByText(/2 de 2 artículos · faltan 0 · 3 registros · 1 en cero/)).toBeTruthy();
-    expect(within(ana).getByText(/43 en el servidor · 1 tabletas/)).toBeTruthy();
+    expect(within(ana).getByText(/43 en el servidor · 1 tableta ·/)).toBeTruthy();
   });
 
   it('answers «¿vamos bien?» first, in the largest figures on the page (§4.1)', async () => {

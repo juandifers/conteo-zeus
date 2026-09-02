@@ -52,6 +52,7 @@ import { formatInstant } from '../format';
 import { loadSupervisor, saveSupervisor } from '../identity';
 import { describeReassign, describeSeal } from './blockers';
 import { counterLink } from './links';
+import { counterWord, unos } from './vocabulario';
 import type {
   AdminCounter,
   ReassignRefusal,
@@ -250,11 +251,7 @@ export function Cambios({
         <div className="panel__title">Cambios durante el conteo</div>
         <div className="panel__body">
           <div className="hint">
-            {compartido
-              ? 'Agregar a alguien que llegó o retirar a quien se fue. Todo lo de aquí queda ' +
-                'firmado con tu nombre y tu motivo, y se imprime en el acta.'
-              : 'Mover artículos, agregar a alguien o retirar a quien se fue. Todo lo de aquí ' +
-                'queda firmado con tu nombre y tu motivo, y se imprime en el acta.'}
+            Todo lo de aquí queda firmado con tu nombre y tu motivo, y sale en el acta.
           </div>
           <label className="field__label" htmlFor="cambios-usuario">
             Quién decide
@@ -299,10 +296,6 @@ export function Cambios({
               onChange={(event) => setNuevoNombre(event.target.value)}
               placeholder="Carla"
             />
-            <div className="hint">
-              Recibe su propio enlace con el catálogo completo, igual que los demás. Tiene que
-              abrirlo <strong>con wifi</strong> antes de entrar a la bodega.
-            </div>
           </div>
           <div className="actions">
             <button
@@ -444,10 +437,9 @@ export function Cambios({
           <div className="panel__body">
             {done.movidos > 0 && <div className="hint">{`Se movieron ${done.movidos} artículos.`}</div>}
             {done.movidos === 0 && done.nuevos.length > 0 && (
-              <div className="hint">
-                Ya está en el conteo. Pásale este enlace — con wifi — o imprímele la hoja de
-                reparto de nuevo.
-              </div>
+              // §5.2: the wifi paragraph compressed to the one line that
+              // matters, attached to the link it is about.
+              <div className="hint">Ábrelo con wifi antes de entrar a la bodega.</div>
             )}
             {done.sinSincronizar.length > 0 && (
               <div className="banner" role="alert">
@@ -489,16 +481,15 @@ export function Cambios({
               <div>
                 <strong>¿Tienes la tableta a mano?</strong> Pídele que toque
                 «Terminar» antes de irse. Son diez segundos y cambian lo que el
-                acta puede afirmar: con «Terminar» el servidor comprueba la
-                cadena contra el manifiesto que firmó la tableta; sin él solo
-                puede decir que no hay huecos, y un tramo final que nadie ha oído
-                nombrar no se ve.
+                acta puede afirmar: con «Terminar» su tableta declara cuánto
+                registró en total, y el servidor puede comprobar que llegó todo;
+                sin eso, un tramo final que no alcanzó a subir no se detecta.
               </div>
             </div>
             <div className="hint">
               <strong>Retirar no tiene vuelta atrás.</strong> Si vuelve a las dos
-              de la tarde, entra como contador nuevo, con enlace nuevo y cadena
-              nueva; lo de la mañana se queda con su identidad anterior y las dos
+              de la tarde, entra como contador nuevo, con enlace nuevo y registro
+              aparte; lo de la mañana se queda con su identidad anterior y los dos
               salen en el acta.
             </div>
           </div>
@@ -537,11 +528,11 @@ export function Cambios({
                   {/* One string, not two nodes: a sentence assembled out of JSX
                       expressions renders as separate text nodes, which reads the
                       same and is a different thing to anything querying by text. */}
-                  <div className="row__nombre">{`${counter.nombre} · ${counter.estado}`}</div>
+                  <div className="row__nombre">{`${counter.nombre} · ${counterWord(counter.estado)}`}</div>
                   <div className="row__meta">
-                    {`${compartido ? 'todo el catálogo' : `${held} artículos`} · ${row?.storedMaxSeq ?? 0} registros`}
+                    {`${compartido ? 'todo el catálogo' : `${held} artículos`} · ${unos(row?.storedMaxSeq ?? 0, 'registro')}`}
                     {row?.lastServerAt ? ` · visto ${formatInstant(row.lastServerAt)}` : ' · sin sincronizar'}
-                    {row && !row.chainComplete && ' · cadena incompleta'}
+                    {row && !row.chainComplete && ' · faltan registros suyos'}
                   </div>
                   {override && (
                     <div className="row__meta">{`sellado sin sus registros: faltan ${override.faltan}`}</div>

@@ -36,6 +36,8 @@ import { Monitor, sessionPulse, type MonitorLive } from './Monitor';
 import { Revision } from './Revision';
 import { describeSeal } from './blockers';
 import { counterLink } from './links';
+import { elapsed } from './tiers';
+import { sessionWord, unos } from './vocabulario';
 import { formatInstant, formatMoney, formatQty } from '../format';
 import type { Api } from '../api';
 import type { SessionDetail } from './types';
@@ -93,13 +95,25 @@ export function Dispatched({
           ← Conteos
         </a>
         <div className="masthead__title">
-          Bodega {detail.session.bodega} · corte {detail.session.fechaCorte} · despachada
+          Bodega {detail.session.bodega} · corte {detail.session.fechaCorte}
         </div>
+        {/*
+          One vocabulary (§5.3): the session is «en curso», not despachada
+          here and abierta there — dispatch is the only door into this state
+          and `dispatchedAt` is its clock. The dot marks a session that can
+          still move; sealed and closed hold still.
+        */}
         <div className="hint">
-          {detail.session.dispatchedAt
-            ? `Despachada ${formatInstant(detail.session.dispatchedAt)}`
-            : 'Abierta'}{' '}
-          · {detail.counters.length} contadores · {detail.session.itemCount} artículos
+          {(FROZEN.has(detail.session.estado) ? '' : '● ') +
+            sessionWord(detail.session.estado) +
+            (() => {
+              const abierto = FROZEN.has(detail.session.estado)
+                ? null
+                : elapsed(detail.session.dispatchedAt, live?.at ?? new Date().toISOString());
+              return abierto ? ` · ${abierto}` : '';
+            })() +
+            ` · ${unos(detail.counters.length, 'contador', 'contadores')}` +
+            ` · ${detail.session.itemCount} artículos`}
         </div>
       </div>
 

@@ -50,21 +50,22 @@ async function open(over: Parameters<typeof reviewApi>[0]) {
   const { api, posted, acciones } = reviewApi(over);
   const user = userEvent.setup();
   render(<Revision detail={DETAIL} api={api} onReload={() => {}} />);
-  await screen.findByText(/Lo que falta, y lo que nadie verificó/);
+  await screen.findByText('Sin verificar');
   return { user, api, posted, acciones };
 }
 
-describe('the two figures, side by side (§2a)', () => {
-  it('shows both scopes with their item counts', async () => {
+describe('the two figures, and when the second one earns its place (§2a, §4.2)', () => {
+  it('shows one figure while nothing is waived — two identical numbers explain nothing', async () => {
     await open({ counters: COUNTERS, events: counted() });
 
-    // pendiente: items 2, 3 and 4 — 1 000 + 5 000 + 12 000 of exposure. Both
-    // figures are the same until somebody waives something, which is the point:
-    // they come apart only for the reason §5 says they do.
+    // pendiente: items 2, 3 and 4 — 1 000 + 5 000 + 12 000 of exposure. The
+    // figures are the same until somebody waives something, so only one is
+    // rendered, with the split reserved for when a split exists.
     const cifras = within(document.getElementById('cifras')!);
-    expect(cifras.getAllByText(formatMoney(18000))).toHaveLength(2);
-    expect(cifras.getByText('3 filas que nadie tocó')).toBeTruthy();
-    expect(cifras.getByText('3 sin tocar + 0 exoneradas')).toBeTruthy();
+    expect(cifras.getAllByText(formatMoney(18000))).toHaveLength(1);
+    expect(cifras.getByText('3 de 4 filas')).toBeTruthy();
+    expect(cifras.queryByText('Pendiente')).toBeNull();
+    expect(cifras.queryByText(/acepta el riesgo/)).toBeNull();
   });
 
   it('waiving lowers pendiente and leaves sinVerificar exactly where it was', async () => {
@@ -77,18 +78,18 @@ describe('the two figures, side by side (§2a)', () => {
     await user.click(screen.getByRole('button', { name: 'Exonerar 1 filas' }));
     await user.click(screen.getByRole('button', { name: 'Sí, exonerar 1 filas' }));
 
+    // The waiver creates the split, so the second figure appears now — with
+    // the one-line reason the two differ (§4.2).
     await waitFor(() =>
-      expect(
-        within(document.getElementById('cifras')!).getByText('2 filas que nadie tocó'),
-      ).toBeTruthy(),
+      expect(within(document.getElementById('cifras')!).getByText('Pendiente')).toBeTruthy(),
     );
     const cifras = within(document.getElementById('cifras')!);
     // pendiente fell by the waived row…
     expect(cifras.getByText(formatMoney(13000))).toBeTruthy();
-    // …and sinVerificar did not move by a peso. It is still 18 000, and it now
-    // says how much of it is a decision somebody signed rather than work left.
+    expect(cifras.getByText('2 filas · 1 exon.')).toBeTruthy();
+    // …and sinVerificar did not move by a peso. It is still 18 000.
     expect(cifras.getByText(formatMoney(18000))).toBeTruthy();
-    expect(cifras.getByText('2 sin tocar + 1 exoneradas')).toBeTruthy();
+    expect(cifras.getByText('↳ Exonerar acepta el riesgo, no lo retira.')).toBeTruthy();
   });
 
   it('says what waiving does to the file, before it is signed (§4d)', async () => {
@@ -138,10 +139,11 @@ describe('the two figures, side by side (§2a)', () => {
 
     await waitFor(() => expect(posted).toHaveLength(2));
     expect(posted[1].body).toMatchObject({ kind: 'anular_waiver', waiverId: 'accion-1' });
-    // Back to three untouched rows, and the original action is still on the chain.
+    // Back to three untouched rows and a collapsed header — no standing
+    // waivers, no split — and the original action is still on the chain.
     await waitFor(() =>
       expect(
-        within(document.getElementById('cifras')!).getByText('3 filas que nadie tocó'),
+        within(document.getElementById('cifras')!).getByText('3 de 4 filas'),
       ).toBeTruthy(),
     );
   });
@@ -248,10 +250,10 @@ describe('the pre-seal panel separates what blocks from what does not (§6)', ()
     await open({ counters: COUNTERS, events: counted() });
     const panel = document.getElementById('sellado')!;
     expect(
-      within(panel).getByText(/verificado: la cadena cuadra con el manifiesto/),
+      within(panel).getByText(/verificado: su tableta declaró cuánto registró/),
     ).toBeTruthy();
     expect(
-      within(panel).getByText(/solo contigüidad: no hay manifiesto/),
+      within(panel).getByText(/sin verificar: se retiró sin tocar «Terminar»/),
     ).toBeTruthy();
   });
 });
