@@ -187,6 +187,56 @@ export function Revision({
 
   const { review, sync } = loaded;
   const advisory = reviewChecklist(review);
+  const compartido = detail.sections.length === 0;
+
+  // §3.4: how many rows carry each flag, for the attention queue and the
+  // Marcas dropdown. Counted as rows, because «Revisar →» filters rows and a
+  // queue that promises 3 and shows 5 teaches nobody to trust it.
+  const flagCounts = new Map<string, number>();
+  for (const row of review.rows) {
+    for (const kind of new Set(row.flags.map((flag) => flag.kind))) {
+      flagCounts.set(kind, (flagCounts.get(kind) ?? 0) + 1);
+    }
+  }
+
+  /** The flag taxonomy in the admin's words — also the Marcas dropdown. */
+  const uno = (n: number, un: string, varios: string) =>
+    n === 1 ? `1 artículo ${un}` : `${n} artículos ${varios}`;
+  const MARCAS: readonly { key: string; label: (n: number) => string }[] = [
+    // In a shared session two counters on one article is the fold working,
+    // not a breach, so it does not queue for attention there.
+    ...(compartido
+      ? []
+      : [
+          {
+            key: 'overlap',
+            label: (n: number) =>
+              uno(n, 'contado por dos personas', 'contados por dos personas'),
+          },
+        ]),
+    {
+      key: 'post-finish',
+      label: (n: number) =>
+        uno(n, 'con registros después de terminar', 'con registros después de terminar'),
+    },
+    { key: 'cero', label: (n: number) => uno(n, 'registrado en cero', 'registrados en cero') },
+    {
+      key: 'retraccion-final',
+      label: (n: number) => uno(n, 'donde lo último fue deshacer', 'donde lo último fue deshacer'),
+    },
+    {
+      key: 'waiver-superado',
+      label: (n: number) =>
+        uno(n, 'exonerado que alguien contó después', 'exonerados que alguien contó después'),
+    },
+    {
+      key: 'outlier',
+      label: (n: number) => uno(n, 'con cantidad atípica', 'con cantidades atípicas'),
+    },
+  ];
+  const cola = MARCAS.filter((marca) => (flagCounts.get(marca.key) ?? 0) > 0);
+  const notasSueltas = review.notes.sueltas.length;
+  const atencion = cola.reduce((sum, marca) => sum + (flagCounts.get(marca.key) ?? 0), 0) + notasSueltas;
 
   return (
     <>
@@ -245,6 +295,49 @@ export function Revision({
         </div>
       </div>
 
+      {/*
+        §3.4: a queue, not a filter taxonomy. Only what is nonzero renders,
+        each line already counted and one tap from the rows it names; when
+        nothing needs attention the block does not exist. Eleven chips with
+        eleven zeros communicated nothing.
+      */}
+      {atencion > 0 && (
+        <div className="panel" id="atencion">
+          <div className="sectionhead">
+            <div className="sectionhead__title">Requiere atención</div>
+            <span className="num">{atencion}</span>
+          </div>
+          <ul className="gates">
+            {cola.map((marca) => (
+              <li className="gate gate--warn" key={marca.key}>
+                <span className="gate__mark" aria-hidden="true">
+                  ⚠
+                </span>
+                <span className="gate__text">{marca.label(flagCounts.get(marca.key) ?? 0)}</span>
+                <button
+                  type="button"
+                  className="btn btn--small"
+                  onClick={() => setFilters({ ...EMPTY, flag: marca.key })}
+                >
+                  Revisar →
+                </button>
+              </li>
+            ))}
+            {notasSueltas > 0 && (
+              <li className="gate gate--warn">
+                <span className="gate__mark" aria-hidden="true">
+                  ⚠
+                </span>
+                <span className="gate__text">
+                  {`${notasSueltas === 1 ? '1 nota' : `${notasSueltas} notas`} sin artículo — ` +
+                    'mercancía que el archivo no puede representar'}
+                </span>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
       <div className="panel">
         <div className="panel__title">Filtrar</div>
         <div className="panel__body">
@@ -277,28 +370,24 @@ export function Revision({
               </button>
             ))}
           </div>
-          <div className="chips">
-            {(
-              [
-                ['', 'sin filtro de marca'],
-                ['overlap', 'dos contadores'],
-                ['post-finish', 'después de terminar'],
-                ['cero', 'en cero'],
-                ['retraccion-final', 'terminó deshaciendo'],
-                ['waiver-superado', 'exoneración superada'],
-                ['outlier', 'atípicos'],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key || 'ninguna'}
-                type="button"
-                className={filters.flag === key ? 'chipbtn chipbtn--on' : 'chipbtn'}
-                onClick={() => setFilters({ ...filters, flag: key })}
-              >
-                {label}
-              </button>
+          {/* The full taxonomy waits in a dropdown with its counts (§3.4);
+              the queue above already surfaced whatever is nonzero. */}
+          <label className="field__label" htmlFor="rev-marca">
+            Marcas
+          </label>
+          <select
+            id="rev-marca"
+            className="field"
+            value={filters.flag}
+            onChange={(event) => setFilters({ ...filters, flag: event.target.value })}
+          >
+            <option value="">todas</option>
+            {MARCAS.map((marca) => (
+              <option key={marca.key} value={marca.key}>
+                {marca.label(flagCounts.get(marca.key) ?? 0)}
+              </option>
             ))}
-          </div>
+          </select>
           <label className="field__label" htmlFor="rev-contador">
             Contador
           </label>

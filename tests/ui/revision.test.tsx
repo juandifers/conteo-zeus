@@ -149,6 +149,35 @@ describe('the two figures, and when the second one earns its place (§2a, §4.2)
   });
 });
 
+describe('the attention queue (§3.4)', () => {
+  it('renders only nonzero flags, counted, with a way to the rows', async () => {
+    // One explicit zero on a row the ERP believes holds 20 — that flags. The
+    // rest of the taxonomy is zero and therefore absent: no chips, no counts
+    // of nothing.
+    const { user } = await open({
+      counters: COUNTERS,
+      events: [
+        addCount(1, 12, { counterId: 'ana', sessionId: SESSION_ID, seq: 1 }),
+        addCount(2, 0, { counterId: 'ana', sessionId: SESSION_ID, seq: 2 }),
+      ],
+    });
+    const queue = within(document.getElementById('atencion')!);
+    expect(queue.getByText('Requiere atención')).toBeTruthy();
+    expect(queue.getByText('1 artículo registrado en cero')).toBeTruthy();
+    expect(queue.queryByText(/contados por dos personas/)).toBeNull();
+
+    // «Revisar →» is the filter, applied — not a taxonomy to learn.
+    await user.click(queue.getByRole('button', { name: 'Revisar →' }));
+    const grid = document.querySelector('.gridscroll') as HTMLElement;
+    expect(grid.dataset.rows).toBe('1');
+  });
+
+  it('does not render at all when nothing needs attention', async () => {
+    await open({ counters: COUNTERS, events: counted() });
+    expect(document.getElementById('atencion')).toBeNull();
+  });
+});
+
 describe('the lists somebody walks before sealing', () => {
   it('gives explicit zeros their own list, priced, with no bulk dismiss', async () => {
     await open({
