@@ -390,19 +390,21 @@ function SessionSettings({
               }
             }}
           />
-          Mostrar la marca «registrado» en la pantalla de conteo
+          Marcar en las tabletas los artículos que ya tienen registro
         </label>
+        {/* Conclusions, not mechanisms (ADMIN_UI.md §5): what the mark tells a
+            counter and how fresh it is, in one line each. Apagarla = conteo a
+            ciegas, which is why it is a toggle and not a constant. */}
         <div className="hint">
-          En un conteo compartido la marca también avisa cuando otra persona ya registró un
-          artículo — al descargar y al actualizar en wifi, no en vivo.
+          En un conteo compartido incluye lo de los compañeros, puesto al día cuando la
+          tableta tiene wifi — no en vivo. Apagada, cada quien cuenta a ciegas.
         </div>
         <div className="hint">
-          Los parámetros de subida son {detail.session.parameters.countTargetColumn} ·{' '}
-          {detail.session.parameters.uncountedPolicy} ·{' '}
-          {detail.session.parameters.differenceColumn}
           {detail.session.parametrosVerificados
-            ? ' — los verificados contra Zeus (§7.1).'
-            : ` — SIN verificar: ${detail.session.parametrosSinVerificar.join(', ')}.`}
+            ? 'El archivo para Zeus se escribirá tal como se comprobó contra el ERP.'
+            : 'El archivo para Zeus se escribiría con una configuración que nunca se ha ' +
+              `comprobado contra el ERP (${detail.session.parametrosSinVerificar.join(', ')}). ` +
+              'El acta lo va a advertir.'}
         </div>
       </div>
     </div>
