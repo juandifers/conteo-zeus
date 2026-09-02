@@ -7,7 +7,7 @@
  * that the coverage gate is a gate rather than a warning, and that the
  * dispatch screen names the tablet nobody has loaded.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,7 +34,7 @@ if (typeof File !== 'undefined' && !File.prototype.arrayBuffer) {
 import { AdminApp } from '../../src/ui/admin/AdminApp';
 import { DeleteSession, Reparto } from '../../src/ui/admin/Reparto';
 import { Dispatched } from '../../src/ui/admin/Dispatched';
-import { EMPTY_PLAN, savePlan } from '../../src/ui/admin/plan';
+import { savePlan } from '../../src/ui/admin/plan';
 import type { Api } from '../../src/ui/api';
 import { ApiError } from '../../src/ui/api';
 import { deriveFamilies } from '../../src/domain';
@@ -148,43 +148,36 @@ describe('uploading a file', () => {
   });
 });
 
-describe('the coverage gate', () => {
-  it('refuses to dispatch while any article has no owner, and says which', async () => {
+describe('the shared dispatch', () => {
+  it('refuses to dispatch while nobody is on the roster, and says so', () => {
     localStorage.clear();
-    const api = fakeApi();
     render(
-      <Reparto detail={detailFor()} api={api} onDispatched={() => {}} onReload={() => {}} />,
+      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
     );
 
     const button = screen.getByRole('button', {
       name: /Despachar y generar enlaces/,
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(screen.getByText(/298 artículos no están asignados a nadie/)).toBeTruthy();
     expect(screen.getByText(/No hay contadores/)).toBeTruthy();
   });
 
-  it('ranks the gap by exposure and names the families, not a count', async () => {
+  it('still shows the catalogue by family and exposure, as context', () => {
     localStorage.clear();
     render(
       <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
     );
-    // Fresh produce is 54 rows of which 31 are booked at zero. It has to be
-    // visible in the gap list, which a value-ordered one would bury.
+    // Fresh produce is 54 rows of which 31 are booked at zero. It stays
+    // visible even though nothing is assigned here any more: the admin still
+    // ranks what the file holds before handing it to five people.
     expect(screen.getAllByText(/PAPA CRIOLLA/).length).toBeGreaterThan(0);
+    // And nothing on the screen offers to move or split anything.
+    expect(screen.queryByText(/mover a…/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /repartir en/ })).toBeNull();
   });
 
-  it('opens the gate once every article is assigned to somebody', async () => {
-    // The plan is restored from the draft rather than built by 298 clicks; what
-    // is under test is the gate, and the draft is the same structure the
-    // screen writes.
+  it('dispatches names and nothing else once somebody is on the roster', async () => {
     localStorage.clear();
-    savePlan('sesion-1', {
-      ...EMPTY_PLAN,
-      sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Ana' }],
-      asignado: Object.fromEntries(catalogue.map((item) => [item.idarticulo, 's1'])),
-    });
-
     const post = vi.fn(async () => ({ estado: 'abierto' }) as never);
     render(
       <Reparto
@@ -195,91 +188,46 @@ describe('the coverage gate', () => {
       />,
     );
 
+    await userEvent.type(screen.getByLabelText('Nombre de un contador nuevo'), 'Ana{enter}');
+    await userEvent.type(screen.getByLabelText('Nombre de un contador nuevo'), 'Luis{enter}');
+    expect(screen.getAllByText('todo el catálogo').length).toBe(2);
+
     const button = screen.getByRole('button', {
       name: /Despachar y generar enlaces/,
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
-
     await userEvent.click(button);
+
     await waitFor(() => expect(post).toHaveBeenCalled());
-    const [path, body] = post.mock.calls[0] as [
-      string,
-      { counters: { nombre: string; secciones: { nombre: string; idarticulos: number[] }[] }[] },
-    ];
-    expect(path).toBe('/api/sesion-1/dispatch'.replace('/api/', '/api/sessions/'));
-    expect(body.counters).toHaveLength(1);
-    expect(body.counters[0].nombre).toBe('Ana');
-    expect(body.counters[0].secciones[0].idarticulos).toHaveLength(catalogue.length);
+    const [path, body] = post.mock.calls[0] as [string, { counters: { nombre: string }[] }];
+    expect(path).toBe('/api/sessions/sesion-1/dispatch');
+    expect(body).toEqual({ counters: [{ nombre: 'Ana' }, { nombre: 'Luis' }] });
+    // No `secciones` key anywhere: its absence is what asks for the shared mode.
+    expect(JSON.stringify(body)).not.toMatch(/secciones/);
   });
 
-  it('closes again when a section is removed, releasing its articles', async () => {
+  it('closes again when the last person is removed', async () => {
     localStorage.clear();
-    savePlan('sesion-1', {
-      ...EMPTY_PLAN,
-      sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Ana' }],
-      asignado: Object.fromEntries(catalogue.map((item) => [item.idarticulo, 's1'])),
-    });
+    savePlan('sesion-1', { roster: ['Ana'] });
     render(
       <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
     );
-    expect((screen.getByRole('button', { name: /Despachar y generar/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: /Despachar y generar/ }) as HTMLButtonElement).disabled,
+    ).toBe(false);
 
-    await userEvent.click(screen.getByRole('button', { name: 'quitar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Quitar a Ana' }));
 
-    expect((screen.getByRole('button', { name: /Despachar y generar/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/298 artículos no están asignados/)).toBeTruthy();
-  });
-
-  it('splits a family into contiguous sections rather than dealing it round-robin', async () => {
-    // The order is the order Zeus exported, which is roughly shelf order.
-    // Dealing every third row to a different person sends three people down one
-    // aisle.
-    localStorage.clear();
-    render(
-      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
-    );
-    const abarrotes = screen.getByLabelText('Partes para la familia 09') as HTMLInputElement;
-    fireEvent.change(abarrotes, { target: { value: '3' } });
-    await userEvent.click(screen.getByRole('button', { name: /repartir en 3/ }));
-
-    const stored = JSON.parse(localStorage.getItem('conteo.reparto.sesion-1')!) as {
-      sections: { id: string; nombre: string }[];
-      asignado: Record<number, string>;
-    };
-    expect(stored.sections).toHaveLength(3);
-    const familia = deriveFamilies(catalogue)!.find((group) => group.prefix === '09')!;
-    expect(Object.keys(stored.asignado)).toHaveLength(familia.rows);
-    // Contiguous: the first chunk is the first 41 in catalogue order.
-    const first = familia.idarticulos.slice(0, 41);
-    expect(first.every((id) => stored.asignado[id] === stored.sections[0].id)).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: /Despachar y generar/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/No hay contadores/)).toBeTruthy();
   });
 });
 
 describe('the roster', () => {
-  it('is people first: a name added once is what every section offers', async () => {
-    localStorage.clear();
-    render(
-      <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
-    );
-
-    await userEvent.type(screen.getByLabelText('Nombre de un contador nuevo'), 'Ana');
-    await userEvent.click(screen.getByRole('button', { name: 'Agregar' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Nueva sección' }));
-
-    const quien = screen.getByLabelText('Contador de SECCIÓN 1') as HTMLSelectElement;
-    expect([...quien.options].map((option) => option.textContent)).toContain('Ana');
-    await userEvent.selectOptions(quien, 'Ana');
-
-    const stored = JSON.parse(localStorage.getItem('conteo.reparto.sesion-1')!) as {
-      roster: string[];
-      sections: { counterNombre: string }[];
-    };
-    expect(stored.roster).toEqual(['Ana']);
-    expect(stored.sections[0].counterNombre).toBe('Ana');
-  });
-
-  it('folds the counters of a pre-roster draft back onto the list', async () => {
-    // A plan saved before the roster existed keeps its people: they are in the
+  it('folds the counters of a sectioned draft back onto the list', () => {
+    // A plan saved by the pre-P2.6 planner keeps its people: they are in the
     // sections, and a screen that opened claiming nobody counts would be lying.
     localStorage.clear();
     localStorage.setItem(
@@ -293,24 +241,17 @@ describe('the roster', () => {
     render(
       <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
     );
-    // On the roster row and in the section's select both — the point is it survived.
     expect(screen.getAllByText('Marta').length).toBeGreaterThan(0);
   });
 
-  it('removing a person leaves their sections asking, not reassigned', async () => {
+  it('does not add the same name twice', async () => {
     localStorage.clear();
-    savePlan('sesion-1', {
-      ...EMPTY_PLAN,
-      roster: ['Ana'],
-      sections: [{ id: 's1', nombre: 'TODO', counterNombre: 'Ana' }],
-      asignado: Object.fromEntries(catalogue.map((item) => [item.idarticulo, 's1'])),
-    });
+    savePlan('sesion-1', { roster: ['Ana'] });
     render(
       <Reparto detail={detailFor()} api={fakeApi()} onDispatched={() => {}} onReload={() => {}} />,
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Quitar a Ana' }));
-    expect((screen.getByLabelText('Contador de TODO') as HTMLSelectElement).value).toBe('');
-    expect(screen.getByText(/no dice quién la cuenta/)).toBeTruthy();
+    await userEvent.type(screen.getByLabelText('Nombre de un contador nuevo'), 'Ana{enter}');
+    expect(screen.getAllByText('Ana')).toHaveLength(1);
   });
 });
 
@@ -419,5 +360,21 @@ describe('the dispatch sheet', () => {
   it('counts the downloads rather than making somebody read the list', () => {
     render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
     expect(screen.getByText('Descargas: 1 de 2')).toBeTruthy();
+  });
+
+  it('says «todo el catálogo» for a shared session instead of listing a partition', () => {
+    const compartida = detailFor({
+      session: {
+        ...detailFor().session,
+        estado: 'abierto',
+        dispatchedAt: '2026-08-31T13:00:00.000Z',
+      },
+      counters: dispatched.counters,
+      sections: [],
+      assignments: [],
+    });
+    render(<Dispatched detail={compartida} api={fakeApi()} onReload={() => {}} />);
+    const ana = screen.getByRole('heading', { name: 'Ana' }).closest('section')!;
+    expect(within(ana).getByText(`todo el catálogo · ${catalogue.length} artículos`)).toBeTruthy();
   });
 });

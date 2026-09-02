@@ -28,6 +28,7 @@ import { counterResume } from './_resume.js';
 import {
   counterPayload,
   registeredArticles,
+  sharedScope,
   type Assignment,
   type Section,
 } from '../../../src/domain/index.js';
@@ -106,8 +107,21 @@ export async function counterFetch(
   }
 
   const catalogue = await loadCatalogue(db, session.id);
-  const sections: Section[] = await loadSections(db, session.id);
-  const assignments: Assignment[] = await loadAssignments(db, session.id);
+  const stored: Section[] = await loadSections(db, session.id);
+
+  // A session with no sections is a **shared** session (P2.6): dispatch wrote
+  // counters and nothing else, the bodega is divided outside the app, and every
+  // tablet receives the whole catalogue as one synthesized section. Same
+  // payload shape, same allowlist, same leak test — the tablet cannot tell.
+  // A sectioned session cannot lose its last section (reassignment preserves
+  // coverage), so the two kinds cannot be confused.
+  const compartido = stored.length === 0;
+  const scope = compartido
+    ? sharedScope(
+        found.counter.id,
+        catalogue.map((row) => row.item),
+      )
+    : { sections: stored, assignments: (await loadAssignments(db, session.id)) as Assignment[] };
 
   // What anybody has already registered among **this counter's** articles
   // (P2.3.5 §6b). Ids, and nothing else: the same information the neutral
@@ -117,8 +131,9 @@ export async function counterFetch(
   // because deciding what «registered» means in SQL would be a second definition
   // of the fold, and the two would disagree the first time a scoped retraction
   // landed. The events are read for the counter's own articles only, so the cost
-  // is proportional to the assignment rather than to the session.
-  const mine = assignments
+  // is proportional to the assignment rather than to the session — which, in a
+  // shared session, is the same thing.
+  const mine = scope.assignments
     .filter((assignment) => assignment.counterId === found.counter.id)
     .map((assignment) => assignment.idarticulo);
   const registered = registeredArticles(await loadItemEvents(db, session.id, mine));
@@ -138,8 +153,8 @@ export async function counterFetch(
       estado: found.counter.estado as 'asignado',
       fetchedAt: found.counter.fetchedAt,
     },
-    sections,
-    assignments,
+    sections: scope.sections,
+    assignments: scope.assignments,
     items: catalogue.map((row) => row.item),
     registered,
   });

@@ -21,6 +21,8 @@ import {
 import {
   counterPayload,
   dispatchBlockers,
+  sharedDispatchBlockers,
+  sharedScope,
   type Assignment,
   type Counter,
   type Section,
@@ -47,17 +49,37 @@ import {
 import { fileIsIntact, parametersOf } from './index.js';
 
 /**
- * The partition, as the admin built it.
+ * The plan, as the admin built it.
  *
  * Names and article ids, not database ids: the counters and sections do not
  * exist yet, and letting the browser choose their primary keys would mean
  * trusting a client with the identity the hash chain is later anchored to.
+ *
+ * Two shapes share this body, told apart by whether any counter carries
+ * `secciones` (P2.6):
+ *
+ *   - **Shared** — names only. Every counter's tablet receives the whole
+ *     catalogue; no sections and no assignments are written, and the bodega is
+ *     divided outside the app by the people standing in it. This is what the
+ *     admin screen sends.
+ *   - **Sectioned** — the P2.1 partition, kept working because the machinery
+ *     under it (reassignment, zonas, the coverage gate) is disabled for now
+ *     rather than removed, and because every dispatched session before P2.6
+ *     was built this way.
+ *
+ * Mixing the two — one counter with sections, one without — is a malformed
+ * body, not a plan.
  */
 export interface DispatchBody {
   counters: {
     nombre: string;
-    secciones: { nombre: string; idarticulos: number[] }[];
+    secciones?: { nombre: string; idarticulos: number[] }[];
   }[];
+}
+
+/** Whether a body asks for the shared dispatch: no counter names a section. */
+export function isSharedBody(body: DispatchBody): boolean {
+  return body.counters.every((counter) => counter.secciones === undefined);
 }
 
 export interface DispatchOptions {
@@ -78,7 +100,7 @@ export function planFrom(
   for (const counter of body.counters) {
     const counterId = options.newId();
     counters.push({ id: counterId, nombre: counter.nombre.trim(), token: options.mintToken() });
-    for (const section of counter.secciones) {
+    for (const section of counter.secciones ?? []) {
       const sectionId = options.newId();
       sections.push({ id: sectionId, nombre: section.nombre.trim(), counterId });
       for (const idarticulo of section.idarticulos) {
@@ -106,6 +128,15 @@ export function malformed(body: unknown): string | null {
       return `hay dos contadores llamados «${counter.nombre.trim()}»`;
     }
     nombres.add(counter.nombre.trim());
+    // No `secciones` at all is the shared dispatch (P2.6) — but only if it is
+    // nobody's. Half a partition is not a plan, and the honest reading of one
+    // counter with sections and one without is a bug in whatever sent this.
+    if (counter.secciones === undefined) {
+      if (!input.counters.every((other) => other?.secciones === undefined)) {
+        return 'unos contadores traen secciones y otros no: eso no es ni un reparto ni un conteo compartido';
+      }
+      continue;
+    }
     if (!Array.isArray(counter.secciones)) return `«${counter.nombre}» no trae secciones`;
     for (const section of counter.secciones) {
       if (typeof section?.nombre !== 'string' || section.nombre.trim() === '') {
@@ -154,18 +185,26 @@ export async function dispatchSession(
     estado: 'asignado',
     fetchedAt: null,
   }));
+  const compartido = isSharedBody(body as DispatchBody);
   const sections: Section[] = plan.sections;
   const assignments: Assignment[] = plan.assignments;
 
-  const blockers = dispatchBlockers({
-    estado: session.estado as SessionEstado,
-    items,
-    counters,
-    sections,
-    assignments,
-    archivoIntacto: await fileIsIntact(db, session),
-    parametrosVerificados: isVerifiedTriple(parameters),
-  });
+  const blockers = compartido
+    ? sharedDispatchBlockers({
+        estado: session.estado as SessionEstado,
+        counters,
+        archivoIntacto: await fileIsIntact(db, session),
+        parametrosVerificados: isVerifiedTriple(parameters),
+      })
+    : dispatchBlockers({
+        estado: session.estado as SessionEstado,
+        items,
+        counters,
+        sections,
+        assignments,
+        archivoIntacto: await fileIsIntact(db, session),
+        parametrosVerificados: isVerifiedTriple(parameters),
+      });
   if (blockers.length > 0) {
     return fail(409, 'la sesión todavía no se puede despachar', { blockers });
   }
@@ -174,9 +213,11 @@ export async function dispatchSession(
   // where an article falls in a section its counter does not hold, and finding
   // that out after the transaction would mean an open session with a tablet
   // that cannot be loaded. It is also the cheapest possible rehearsal of the
-  // endpoint the counters are about to hit.
-  const payloads = counters.map((counter) =>
-    counterPayload({
+  // endpoint the counters are about to hit. A shared dispatch rehearses the
+  // same synthesized scope `GET /api/c/:token` will serve.
+  const payloads = counters.map((counter) => {
+    const scope = compartido ? sharedScope(counter.id, items) : { sections, assignments };
+    return counterPayload({
       session: {
         id: session.id,
         bodega: session.bodega,
@@ -185,11 +226,11 @@ export async function dispatchSession(
         mostrarMarcaRegistrado: session.mostrarMarcaRegistrado,
       },
       counter,
-      sections,
-      assignments,
+      sections: scope.sections,
+      assignments: scope.assignments,
       items,
-    }),
-  );
+    });
+  });
 
   const results = await db.transaction(dispatchStatements(id, plan, now()));
   // The final statement is `update … where estado = 'borrador' returning id`.

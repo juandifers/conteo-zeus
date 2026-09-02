@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
 import {
   assignmentCoverage,
   dispatchBlockers,
+  sharedDispatchBlockers,
+  sharedScope,
   unassignedByFamily,
   type Assignment,
   type Counter,
@@ -252,5 +254,45 @@ describe('dispatchBlockers', () => {
     const gap = blockers.find((blocker) => blocker.kind === 'sin-asignar');
     expect(gap).toBeDefined();
     expect(gap!.kind === 'sin-asignar' && gap!.idarticulos).toHaveLength(catalogue.length);
+  });
+});
+
+describe('sharedDispatchBlockers (P2.6)', () => {
+  const SHARED = {
+    estado: 'borrador' as const,
+    counters: [{ id: 'ana', nombre: 'Ana' }],
+    archivoIntacto: true,
+    parametrosVerificados: true,
+  };
+
+  it('gates on the session, never on a partition: one name is dispatchable', () => {
+    expect(sharedDispatchBlockers(SHARED)).toEqual([]);
+  });
+
+  it('still refuses everything that is about the session itself', () => {
+    const blockers = sharedDispatchBlockers({
+      ...SHARED,
+      estado: 'abierto',
+      counters: [],
+      archivoIntacto: false,
+      parametrosVerificados: false,
+    });
+    expect(blockers.map((blocker) => blocker.kind).sort()).toEqual([
+      'archivo-cambiado',
+      'estado',
+      'parametros-sin-verificar',
+      'sin-contadores',
+    ]);
+  });
+});
+
+describe('sharedScope (P2.6)', () => {
+  it('hands one counter the whole catalogue as one constant section', () => {
+    const items = [{ idarticulo: 3 }, { idarticulo: 1 }, { idarticulo: 2 }];
+    const scope = sharedScope('ana', items);
+    expect(scope.sections).toEqual([{ id: 'todo', nombre: 'BODEGA', counterId: 'ana' }]);
+    // Catalogue order preserved: the shelf and the printed list share it.
+    expect(scope.assignments.map((assignment) => assignment.idarticulo)).toEqual([3, 1, 2]);
+    expect(scope.assignments.every((assignment) => assignment.counterId === 'ana')).toBe(true);
   });
 });

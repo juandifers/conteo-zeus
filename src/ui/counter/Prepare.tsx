@@ -181,10 +181,14 @@ export function Prepare({
         <div className="panel__title">Listo para contar sin señal</div>
         <div className="panel__body">
           <div className="hint">
-            {total} artículos en {payload.secciones.length}{' '}
-            {payload.secciones.length === 1 ? 'sección' : 'secciones'}, descargados{' '}
-            {formatInstant(fetchedAt)}. Ya puedes entrar a la bodega: esta tableta no necesita
-            volver a conectarse.
+            {payload.secciones.length === 1 && payload.secciones[0].id === 'todo'
+              ? `El catálogo completo — ${total} artículos — descargado ${formatInstant(fetchedAt)}. ` +
+                'Qué cuenta cada quien se coordina en la bodega. Ya puedes entrar: esta tableta ' +
+                'no necesita volver a conectarse.'
+              : `${total} artículos en ${payload.secciones.length} ` +
+                `${payload.secciones.length === 1 ? 'sección' : 'secciones'}, descargados ` +
+                `${formatInstant(fetchedAt)}. Ya puedes entrar a la bodega: esta tableta no ` +
+                'necesita volver a conectarse.'}
           </div>
           {phase.refreshing && <div className="hint">Buscando cambios…</div>}
           {phase.problem && (

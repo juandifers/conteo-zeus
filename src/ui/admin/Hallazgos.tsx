@@ -21,7 +21,14 @@ import type {
 } from '../../domain';
 import { formatInstant, formatMoney, formatQty } from '../format';
 
-export function Overlaps({ overlaps }: { overlaps: readonly Overlap[] }) {
+export function Overlaps({
+  overlaps,
+  compartido = false,
+}: {
+  overlaps: readonly Overlap[];
+  /** A shared session (P2.6): two people on one article is expected, not a breach. */
+  compartido?: boolean;
+}) {
   if (overlaps.length === 0) return null;
   return (
     <div className="panel" id="hallazgo-overlap">
@@ -30,11 +37,16 @@ export function Overlaps({ overlaps }: { overlaps: readonly Overlap[] }) {
         <div className="hint">
           {/* The two causes want opposite reactions, which is the whole reason
               they are told apart instead of counted together. */}
-          El reparto es disjunto, así que un artículo con registros de dos
-          personas siempre vale una mirada. Si cambió de manos durante el conteo,
-          es el residuo esperado de un relevo. Si nadie lo reasignó, o las
-          secciones se tocaron físicamente o alguien contó fuera de su pasillo —
-          y ese es el conteo doble que la suma no puede detectar sola.
+          {compartido
+            ? 'En un conteo compartido las entradas de los dos se suman. Eso es correcto ' +
+              'cuando contaron partes distintas del mismo artículo — dos estibas, dos ' +
+              'estantes — y es un conteo doble cuando los dos contaron lo mismo. La suma ' +
+              'no puede distinguirlos sola: pregunta por radio.'
+            : 'El reparto es disjunto, así que un artículo con registros de dos ' +
+              'personas siempre vale una mirada. Si cambió de manos durante el conteo, ' +
+              'es el residuo esperado de un relevo. Si nadie lo reasignó, o las ' +
+              'secciones se tocaron físicamente o alguien contó fuera de su pasillo — ' +
+              'y ese es el conteo doble que la suma no puede detectar sola.'}
         </div>
       </div>
       <ul className="rows">
@@ -47,7 +59,9 @@ export function Overlaps({ overlaps }: { overlaps: readonly Overlap[] }) {
                   ? `cambió de manos ${formatInstant(overlap.movimiento.at)} · ` +
                     `${overlap.movimiento.from} → ${overlap.movimiento.to} ` +
                     `(${overlap.movimiento.usuario}): ${overlap.movimiento.motivo}`
-                  : 'nadie lo reasignó — dos secciones, o alguien contó fuera de su pasillo'}
+                  : compartido
+                    ? 'dos personas registraron este artículo — ¿partes distintas, o lo mismo dos veces?'
+                    : 'nadie lo reasignó — dos secciones, o alguien contó fuera de su pasillo'}
               </div>
               {overlap.contribuciones.map((part) => (
                 <div className="row__meta" key={part.counterId}>

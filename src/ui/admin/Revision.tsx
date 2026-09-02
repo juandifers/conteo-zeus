@@ -309,22 +309,28 @@ export function Revision({
               </option>
             ))}
           </select>
-          <label className="field__label" htmlFor="rev-seccion">
-            Sección
-          </label>
-          <select
-            id="rev-seccion"
-            className="field"
-            value={filters.seccion}
-            onChange={(event) => setFilters({ ...filters, seccion: event.target.value })}
-          >
-            <option value="">todas</option>
-            {secciones.map((nombre) => (
-              <option key={nombre} value={nombre}>
-                {nombre}
-              </option>
-            ))}
-          </select>
+          {/* A shared session (P2.6) has no sections: a filter over an empty
+              list is a control that teaches people controls do nothing. */}
+          {secciones.length > 0 && (
+            <>
+              <label className="field__label" htmlFor="rev-seccion">
+                Sección
+              </label>
+              <select
+                id="rev-seccion"
+                className="field"
+                value={filters.seccion}
+                onChange={(event) => setFilters({ ...filters, seccion: event.target.value })}
+              >
+                <option value="">todas</option>
+                {secciones.map((nombre) => (
+                  <option key={nombre} value={nombre}>
+                    {nombre}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           <label className="field__label" htmlFor="rev-familia">
             Familia
           </label>
@@ -346,6 +352,7 @@ export function Revision({
 
       <Aggregate
         rows={shown}
+        compartido={detail.sections.length === 0}
         chosen={chosen}
         onToggle={(idarticulo) =>
           setChosen((current) => {
@@ -516,7 +523,7 @@ export function Revision({
         </div>
       )}
 
-      <Overlaps overlaps={review.overlaps} />
+      <Overlaps overlaps={review.overlaps} compartido={detail.sections.length === 0} />
       <Zeros zeros={review.zeros} />
       <Amendments amendments={review.amendments} />
       <Trailing trailing={review.trailing} />

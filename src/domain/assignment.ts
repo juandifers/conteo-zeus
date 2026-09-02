@@ -233,6 +233,43 @@ export type DispatchBlocker =
   | { kind: 'seccion-desconocida'; sectionIds: string[] }
   | { kind: 'contador-desconocido'; counterIds: string[] };
 
+/**
+ * What a **shared** dispatch is gated on (P2.6).
+ *
+ * A shared dispatch hands every counter the whole catalogue and writes no
+ * sections and no assignments: the bodega is divided outside the app, by the
+ * people standing in it, and the app deliberately stays out of that. So there
+ * is no partition to check — coverage is trivially everybody's — and what
+ * remains is everything about the *session*: it is still a draft, the file
+ * still hashes to what was imported, the posting parameters are the verified
+ * triple, and there is at least one person to hand a link to.
+ *
+ * A subset of `DispatchInput` rather than the whole of it, so a caller cannot
+ * accidentally feed a partition into the gate that ignores partitions.
+ */
+export interface SharedDispatchInput {
+  estado: SessionEstado;
+  counters: readonly Pick<Counter, 'id' | 'nombre'>[];
+  archivoIntacto: boolean;
+  parametrosVerificados: boolean;
+}
+
+/**
+ * Everything standing between a shared session and `abierto`.
+ *
+ * The same `DispatchBlocker` vocabulary as the sectioned gate — one list, two
+ * presentations — minus every kind that is about a partition, because there is
+ * none to be wrong about.
+ */
+export function sharedDispatchBlockers(input: SharedDispatchInput): DispatchBlocker[] {
+  const blockers: DispatchBlocker[] = [];
+  if (input.estado !== 'borrador') blockers.push({ kind: 'estado', estado: input.estado });
+  if (!input.archivoIntacto) blockers.push({ kind: 'archivo-cambiado' });
+  if (!input.parametrosVerificados) blockers.push({ kind: 'parametros-sin-verificar' });
+  if (input.counters.length === 0) blockers.push({ kind: 'sin-contadores' });
+  return blockers;
+}
+
 export interface DispatchInput {
   estado: SessionEstado;
   items: readonly Item[];

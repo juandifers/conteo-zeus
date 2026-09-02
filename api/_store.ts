@@ -1121,6 +1121,64 @@ export function retireStatements(sessionId: string, writes: RetireWrites): State
   ];
 }
 
+export interface AddCounterWrites {
+  counter: { id: string; nombre: string; token: string };
+  action: ActionWire;
+  expectedActionSeq: number;
+  estados: readonly string[];
+}
+
+/**
+ * Add a counter to a **shared** session mid-count, and record why (P2.6).
+ *
+ * Shared sessions have no partition, so «metamos a Carla» stops being a
+ * reassignment with a counter riding along and becomes exactly this: a counter
+ * row, a link, and a line on the chain. The action insert carries the guards —
+ * the session is still open, the chain is where the handler read it, the name
+ * is not already somebody's, and the session really is shared (no sections) —
+ * and the counter insert hangs off the action having landed, so there is no
+ * ordering in which a link exists and the record of why does not.
+ *
+ * The name check lives in the same statement as the insert because `counters`
+ * has no unique constraint on `(session_id, nombre)`: two admins adding «Carla»
+ * at once must produce one Carla and one refusal, and only a guard under the
+ * row lock can promise that.
+ */
+export function addCounterStatements(sessionId: string, writes: AddCounterWrites): Statement[] {
+  const estados = [...writes.estados];
+  return [
+    { text: `select id from sessions where id = $1 for update`, params: [sessionId] },
+    {
+      text: `${INSERT_ACTIONS.replace('$ACTIONS', '$5')}
+             where (select estado from sessions where id = $1) = any($2::text[])
+               and (select coalesce(max(seq), 0) from session_actions where session_id = $1) = $3
+               and not exists (select 1 from counters where session_id = $1 and nombre = $4)
+               and not exists (select 1 from sections where session_id = $1)`,
+      params: [
+        sessionId,
+        estados,
+        writes.expectedActionSeq,
+        writes.counter.nombre,
+        actionRows(sessionId, [writes.action]),
+      ],
+    },
+    {
+      text: `insert into counters (id, session_id, nombre, token, estado)
+             select $2::uuid, $1::uuid, $3, $4, 'asignado'
+             where (select hash from session_actions where session_id = $1 and seq = $5) = $6
+             returning id`,
+      params: [
+        sessionId,
+        writes.counter.id,
+        writes.counter.nombre,
+        writes.counter.token,
+        writes.action.seq,
+        writes.action.hash,
+      ],
+    },
+  ];
+}
+
 export interface ActionOnlyWrites {
   action: ActionWire;
   expectedActionSeq: number;

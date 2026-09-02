@@ -21,7 +21,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { ownSummary, type AssignedSection, type CountEvent } from '../../domain';
+import {
+  ownSummary,
+  registeredArticles,
+  type AssignedSection,
+  type CountEvent,
+} from '../../domain';
 import type { Api } from '../api';
 import { formatInstant, formatQty } from '../format';
 import { describeSeal } from './blockers';
@@ -84,16 +89,29 @@ export function Monitor({
     };
   }, [poll, pollMs]);
 
+  // No sections means a shared session (P2.6): everybody holds the whole
+  // catalogue, so «12 de 298» per person would be a debt nobody owes. Progress
+  // is per person's own work, and coverage is the session's, shown once above.
+  const compartido = detail.sections.length === 0;
+  const todo: AssignedSection[] = [
+    {
+      id: 'todo',
+      nombre: 'todo el catálogo',
+      items: detail.items.map((item) => ({ idarticulo: item.idarticulo })),
+    },
+  ];
   const sectionsOf = (counterId: string): AssignedSection[] =>
-    detail.sections
-      .filter((section) => section.counterId === counterId)
-      .map((section) => ({
-        id: section.id,
-        nombre: section.nombre,
-        items: detail.assignments
-          .filter((assignment) => assignment.sectionId === section.id)
-          .map((assignment) => ({ idarticulo: assignment.idarticulo })),
-      }));
+    compartido
+      ? todo
+      : detail.sections
+          .filter((section) => section.counterId === counterId)
+          .map((section) => ({
+            id: section.id,
+            nombre: section.nombre,
+            items: detail.assignments
+              .filter((assignment) => assignment.sectionId === section.id)
+              .map((assignment) => ({ idarticulo: assignment.idarticulo })),
+          }));
 
   return (
     <div className="panel" id="monitor">
@@ -111,8 +129,14 @@ export function Monitor({
               const registros = live.events.filter(
                 (event) => event.kind === 'add' || event.kind === 'set',
               ).length;
+              // In a shared session coverage belongs to everybody at once, so
+              // it is said once, here, instead of pretended per person below.
+              const cobertura = compartido
+                ? ` · ${registeredArticles(live.events).size} de ${detail.items.length} artículos registrados entre todos`
+                : '';
               return (
                 `${live.sync.counters.length} contadores · ${registros} registros` +
+                cobertura +
                 (abierto ? ` · abierta hace ${abierto}` : '')
               );
             })()}
@@ -139,8 +163,11 @@ export function Monitor({
                 <div className="row__main">
                   <div className="row__nombre">{`${counter.nombre} · ${counter.estado}`}</div>
                   <div className="row__meta">
-                    {`${suyo.registrados} de ${asignados} artículos · faltan ${suyo.sinRegistrar} · ` +
-                      `${suyo.registros} registros · ${suyo.ceros} en cero · ${suyo.notas} notas`}
+                    {compartido
+                      ? `${suyo.registrados} artículos registrados · ${suyo.registros} registros · ` +
+                        `${suyo.ceros} en cero · ${suyo.notas} notas`
+                      : `${suyo.registrados} de ${asignados} artículos · faltan ${suyo.sinRegistrar} · ` +
+                        `${suyo.registros} registros · ${suyo.ceros} en cero · ${suyo.notas} notas`}
                   </div>
                   <div className="row__meta">
                     {secciones.map((section) => section.nombre).join(' · ') || 'sin secciones'}

@@ -62,6 +62,9 @@ export function Dispatched({
   const [tab, setTab] = useState<Tab>(
     initialTab ?? (FROZEN.has(detail.session.estado) ? 'cierre' : 'seguimiento'),
   );
+  // No sections means a shared session (P2.6): everybody holds the whole
+  // catalogue and the sheet says so instead of listing a partition.
+  const compartido = detail.sections.length === 0;
   const sectionsOf = (counterId: string) =>
     detail.sections.filter((section) => section.counterId === counterId);
   const countOf = (counterId: string) =>
@@ -133,10 +136,11 @@ export function Dispatched({
                   <section className="sheet__counter" key={counter.id}>
                     <h2 className="sheet__nombre">{counter.nombre}</h2>
                     <div className="sheet__meta">
-                      {countOf(counter.id)} artículos ·{' '}
-                      {sectionsOf(counter.id)
-                        .map((section) => section.nombre)
-                        .join(' · ')}
+                      {compartido
+                        ? `todo el catálogo · ${detail.session.itemCount} artículos`
+                        : `${countOf(counter.id)} artículos · ${sectionsOf(counter.id)
+                            .map((section) => section.nombre)
+                            .join(' · ')}`}
                     </div>
                     <div className="sheet__body">
                       <QrCode value={link} title={`Enlace de ${counter.nombre}`} />

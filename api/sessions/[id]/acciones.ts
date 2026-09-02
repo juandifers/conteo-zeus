@@ -72,6 +72,7 @@ import {
 } from '../../_http.js';
 import {
   actionStatements,
+  addCounterStatements,
   loadAssignments,
   loadCatalogueIds,
   loadCounterChain,
@@ -97,6 +98,15 @@ export type ActionBody =
       /** Counters minted in the same transaction. §3: they cannot arrive empty-handed. */
       nuevos?: NewCounter[];
     }
+  /**
+   * P2.6 — a counter added to a **shared** session mid-count.
+   *
+   * Only shared sessions take this: with no partition there is no work to hand
+   * over, so «metamos a Carla» is a counter row, a link and a line on the
+   * chain. A sectioned session still adds counters through `reasignar`,
+   * because there a counter cannot arrive empty-handed (§3).
+   */
+  | { kind: 'agregar_contador'; usuario: string; motivo: string; nombre: string }
   | { kind: 'retirar_contador'; usuario: string; motivo: string; counterId: string }
   | { kind: 'sellar_sin_registros'; usuario: string; motivo: string; counterId: string }
   /**
@@ -203,6 +213,10 @@ function malformed(body: unknown): string | null {
       }
       return null;
     }
+    case 'agregar_contador':
+      return typeof input.nombre === 'string' && input.nombre.trim() !== ''
+        ? null
+        : 'falta el nombre del contador nuevo';
     case 'retirar_contador':
     case 'sellar_sin_registros':
       return typeof input.counterId === 'string' && input.counterId !== ''
@@ -292,6 +306,8 @@ export async function postAction(
         mintToken,
         staleAfterMs: options.staleAfterMs,
       });
+    case 'agregar_contador':
+      return addCounter(db, session.id, input, { now, newId, mintToken });
     case 'retirar_contador':
       return retire(db, session.id, input, { now, newId });
     case 'sellar_sin_registros':
@@ -574,6 +590,79 @@ async function reassign(
       token: tokens.get(counter.id)!,
     })),
   });
+}
+
+/**
+ * `agregar_contador` on its own — the shared-session way in (P2.6).
+ *
+ * The checks here produce the readable refusal; the guards inside
+ * `addCounterStatements` are what stays true under concurrency, including the
+ * name check, because `counters` has no unique constraint on the name.
+ */
+async function addCounter(
+  db: Db,
+  sessionId: string,
+  input: Extract<ActionBody, { kind: 'agregar_contador' }>,
+  options: Required<Pick<ActionOptions, 'now' | 'newId' | 'mintToken'>>,
+): Promise<ApiResult> {
+  const nombre = input.nombre.trim();
+
+  const sections = await loadSections(db, sessionId);
+  if (sections.length > 0) {
+    // A sectioned session's counters cannot arrive empty-handed (§3): the link
+    // and the work are minted together, through `reasignar`.
+    return fail(
+      409,
+      'esta sesión tiene un reparto por secciones: un contador nuevo entra por ' +
+        '«reasignar», con trabajo en la mano.',
+      { code: 'SESSION_HAS_SECTIONS' },
+    );
+  }
+
+  const counters = await loadCounters(db, sessionId);
+  if (counters.some((counter) => counter.nombre.trim() === nombre)) {
+    // Two counters called "Ana" on one printed sheet are two people nobody can
+    // tell apart when a chain turns out to have a gap in it (P2.1).
+    return fail(409, `ya hay alguien llamado «${nombre}» en este conteo`, {
+      code: 'NOMBRE_REPETIDO',
+    });
+  }
+
+  const counterId = options.newId();
+  const payload: AgregarContadorPayload = { counterId, nombre, motivo: input.motivo };
+  const point = await chainPoint(db, sessionId);
+  const action = link(
+    {
+      id: options.newId(),
+      sessionId,
+      seq: point.expectedSeq + 1,
+      kind: 'agregar_contador',
+      payload,
+      usuario: input.usuario,
+      at: options.now(),
+    },
+    point.head,
+  );
+
+  const token = options.mintToken();
+  const results = await db.transaction(
+    addCounterStatements(sessionId, {
+      counter: { id: counterId, nombre, token },
+      action,
+      expectedActionSeq: point.expectedSeq,
+      estados: ESTADOS,
+    }),
+  );
+  const inserted = results[results.length - 1];
+  if (!inserted || inserted.length === 0) {
+    return fail(409, 'alguien más escribió al mismo tiempo; vuelve a intentarlo', {
+      code: 'CONCURRENT_ACTION',
+    });
+  }
+
+  // The link for the printable sheet: a counter added at eleven needs the same
+  // QR and the same 22 characters as one dispatched at eight.
+  return ok({ id: counterId, nombre, token });
 }
 
 async function retire(

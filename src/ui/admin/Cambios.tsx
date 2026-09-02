@@ -117,6 +117,9 @@ export function Cambios({
     [detail.sections],
   );
 
+  // No sections means a shared session (P2.6): there is no partition to move,
+  // so «metamos a Carla» is its own action and the reassignment panel is gone.
+  const compartido = detail.sections.length === 0;
   const activos = detail.counters.filter((counter) => counter.estado !== 'retirado');
   const source = detail.counters.find((counter) => counter.id === from) ?? null;
   const mine = source ? sectionsOf(source.id) : [];
@@ -193,6 +196,25 @@ export function Cambios({
       },
     );
 
+  const agregar = () =>
+    void send(
+      { kind: 'agregar_contador', usuario, motivo, nombre: nuevoNombre },
+      (result) => {
+        saveSupervisor(usuario);
+        const counter = result as { id: string; nombre: string; token: string };
+        setDone({
+          assignmentsVersion: detail.session.assignmentsVersion,
+          movidos: 0,
+          seccionesCreadas: [],
+          seccionesReapuntadas: [],
+          sinSincronizar: [],
+          nuevos: [counter],
+        });
+        setMotivo('');
+        setNuevoNombre('');
+      },
+    );
+
   const retirar = (counter: AdminCounter) =>
     void send(
       { kind: 'retirar_contador', usuario, motivo, counterId: counter.id },
@@ -228,8 +250,11 @@ export function Cambios({
         <div className="panel__title">Cambios durante el conteo</div>
         <div className="panel__body">
           <div className="hint">
-            Mover artículos, agregar a alguien o retirar a quien se fue. Todo lo de aquí queda
-            firmado con tu nombre y tu motivo, y se imprime en el acta.
+            {compartido
+              ? 'Agregar a alguien que llegó o retirar a quien se fue. Todo lo de aquí queda ' +
+                'firmado con tu nombre y tu motivo, y se imprime en el acta.'
+              : 'Mover artículos, agregar a alguien o retirar a quien se fue. Todo lo de aquí ' +
+                'queda firmado con tu nombre y tu motivo, y se imprime en el acta.'}
           </div>
           <label className="field__label" htmlFor="cambios-usuario">
             Quién decide
@@ -260,6 +285,39 @@ export function Cambios({
         </div>
       )}
 
+      {compartido && (
+        <div className="panel">
+          <div className="panel__title">Agregar contador</div>
+          <div className="panel__body">
+            <label className="field__label" htmlFor="cambios-agregar">
+              Nombre
+            </label>
+            <input
+              id="cambios-agregar"
+              className="field"
+              value={nuevoNombre}
+              onChange={(event) => setNuevoNombre(event.target.value)}
+              placeholder="Carla"
+            />
+            <div className="hint">
+              Recibe su propio enlace con el catálogo completo, igual que los demás. Tiene que
+              abrirlo <strong>con wifi</strong> antes de entrar a la bodega.
+            </div>
+          </div>
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy || !ready || nuevoNombre.trim() === ''}
+              onClick={agregar}
+            >
+              Agregar y generar enlace
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!compartido && (
       <div className="panel">
         <div className="panel__title">Mover secciones</div>
         <div className="panel__body">
@@ -378,12 +436,19 @@ export function Cambios({
           </button>
         </div>
       </div>
+      )}
 
       {done && (
         <div className="panel">
           <div className="panel__title">Listo</div>
           <div className="panel__body">
-            <div className="hint">{`Se movieron ${done.movidos} artículos.`}</div>
+            {done.movidos > 0 && <div className="hint">{`Se movieron ${done.movidos} artículos.`}</div>}
+            {done.movidos === 0 && done.nuevos.length > 0 && (
+              <div className="hint">
+                Ya está en el conteo. Pásale este enlace — con wifi — o imprímele la hoja de
+                reparto de nuevo.
+              </div>
+            )}
             {done.sinSincronizar.length > 0 && (
               <div className="banner" role="alert">
                 {`Quedó registrado que ${done.sinSincronizar
@@ -474,7 +539,7 @@ export function Cambios({
                       same and is a different thing to anything querying by text. */}
                   <div className="row__nombre">{`${counter.nombre} · ${counter.estado}`}</div>
                   <div className="row__meta">
-                    {`${held} artículos · ${row?.storedMaxSeq ?? 0} registros`}
+                    {`${compartido ? 'todo el catálogo' : `${held} artículos`} · ${row?.storedMaxSeq ?? 0} registros`}
                     {row?.lastServerAt ? ` · visto ${formatInstant(row.lastServerAt)}` : ' · sin sincronizar'}
                     {row && !row.chainComplete && ' · cadena incompleta'}
                   </div>

@@ -60,6 +60,7 @@ export function Aggregate({
   height = 620,
   onToggle,
   chosen,
+  compartido = false,
 }: {
   rows: readonly ReviewRow[];
   /** The scroll window, in pixels. Declared rather than measured — see above. */
@@ -67,6 +68,8 @@ export function Aggregate({
   /** Selecting a row for a waiver. Absent when nothing can be waived. */
   onToggle?: (idarticulo: number) => void;
   chosen?: ReadonlySet<number>;
+  /** A shared session (P2.6): overlap flags read as normal, not as a breach. */
+  compartido?: boolean;
 }) {
   const [top, setTop] = useState(0);
 
@@ -138,7 +141,7 @@ export function Aggregate({
                 </span>
                 {row.flags.map((flag) => (
                   <span className="grid__flag" key={flagKey(flag)}>
-                    {describeFlag(flag)}
+                    {describeFlag(flag, { compartido })}
                   </span>
                 ))}
               </th>

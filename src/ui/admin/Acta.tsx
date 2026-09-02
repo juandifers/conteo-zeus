@@ -159,10 +159,15 @@ export function Acta({
               <li className="acta__participant" key={counter.id}>
                 <div className="acta__participantName">{counter.nombre}</div>
                 <div className="acta__meta">
-                  {secciones.map((section) => section.nombre).join(' · ') || 'sin secciones'}
+                  {detail.sections.length === 0
+                    ? 'todo el catálogo (conteo compartido: la bodega se dividió fuera del sistema)'
+                    : secciones.map((section) => section.nombre).join(' · ') || 'sin secciones'}
                 </div>
                 <div className="acta__meta">
-                  {`${formatQty(asignados)} artículos asignados · ${formatQty(suyo.registrados)} registrados · ` +
+                  {(detail.sections.length === 0
+                    ? ''
+                    : `${formatQty(asignados)} artículos asignados · `) +
+                    `${formatQty(suyo.registrados)} registrados · ` +
                     `${formatQty(suyo.registros)} registros · ${formatQty(suyo.ceros)} en cero · ` +
                     `${formatQty(suyo.notas)} notas`}
                 </div>
@@ -309,7 +314,9 @@ export function Acta({
                   <strong>{`${overlap.item.codigo} · ${overlap.item.nombre}`}</strong>{' '}
                   {overlap.causa === 'reasignado'
                     ? '— reasignado durante el conteo'
-                    : '— dos secciones: nadie lo reasignó'}
+                    : detail.sections.length === 0
+                      ? '— conteo compartido: dos personas registraron este artículo'
+                      : '— dos secciones: nadie lo reasignó'}
                 </div>
                 {overlap.movimiento && (
                   <div className="acta__meta">
@@ -759,6 +766,17 @@ function waivedArticles(review: Review): Set<number> {
 }
 
 function sectionsOf(detail: SessionDetail, counterId: string): AssignedSection[] {
+  // No sections is a shared session (P2.6): everybody's scope is the whole
+  // catalogue, and the summary of one person's afternoon is computed over it.
+  if (detail.sections.length === 0) {
+    return [
+      {
+        id: 'todo',
+        nombre: 'todo el catálogo',
+        items: detail.items.map((item) => ({ idarticulo: item.idarticulo })),
+      },
+    ];
+  }
   return detail.sections
     .filter((section) => section.counterId === counterId)
     .map((section) => ({

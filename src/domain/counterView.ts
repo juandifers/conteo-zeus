@@ -184,6 +184,38 @@ export const NEVER_SENT_TO_A_COUNTER = [
   'differenceColumn',
 ] as const;
 
+/**
+ * The scope a **shared** session hands every counter: one section, the whole
+ * catalogue (P2.6).
+ *
+ * A shared session stores no sections and no assignments — the bodega is
+ * divided outside the app — so the server synthesizes this at fetch time and
+ * feeds it to the same `counterPayload` a sectioned session uses. The tablet
+ * cannot tell the difference, which is the point: one payload shape, one
+ * allowlist, one leak test.
+ *
+ * The section's name becomes `zona` on every event, and `BODEGA` is the honest
+ * value: the zone concept carries no information when everybody holds
+ * everything, and a constant says so instead of inventing distinctions. The id
+ * is a constant for the same reason — it is not a database row, and a stable
+ * id keeps a tablet's refetch from seeing a "different" section every time.
+ */
+export const SECCION_COMPARTIDA = { id: 'todo', nombre: 'BODEGA' } as const;
+
+export function sharedScope(
+  counterId: string,
+  items: readonly Pick<Item, 'idarticulo'>[],
+): { sections: Section[]; assignments: Assignment[] } {
+  return {
+    sections: [{ ...SECCION_COMPARTIDA, counterId }],
+    assignments: items.map((item) => ({
+      idarticulo: item.idarticulo,
+      counterId,
+      sectionId: SECCION_COMPARTIDA.id,
+    })),
+  };
+}
+
 /** One row, projected. A literal, never a spread — see the module note. */
 export function counterItem(item: Item): CounterItem {
   return {

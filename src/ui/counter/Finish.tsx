@@ -24,11 +24,14 @@
  * fact, and conflating them is how somebody ends up pressing a button twice to
  * have finished once.
  *
- * **The gap review is what P2.1's scoped assignment bought.** Before the
- * confirm, the counter sees the articles *in their own sections* with nothing
- * standing against them — shelves this person physically walked past, which is
- * what makes the list both well-defined and actionable. It would be neither
- * against the whole catalogue.
+ * **The gap review reads differently under the two dispatch modes.** In a
+ * sectioned session it is the articles *in this counter's own sections* with
+ * nothing standing against them — shelves this person physically walked past.
+ * In a shared session (P2.6) everybody holds the whole catalogue, so «faltan
+ * 240» is not a debt this person owes: the list becomes «what nobody had
+ * registered when this tablet last fetched, and you have not touched», the
+ * screen says so, and finishing over it is the ordinary case rather than the
+ * excused one.
  *
  * There is deliberately **no «sin novedad»** here. The only resolutions are
  * counting it or declaring the location empty; waiving an uncounted row means
@@ -154,7 +157,11 @@ export function FinishPanel({
               </li>
             )}
             <li className="checkrow">
-              <span>sin registrar</span>
+              <span>
+                {catalogue.compartido
+                  ? 'sin registrar por nadie (a la última descarga)'
+                  : 'sin registrar'}
+              </span>
               <span className="num">{summary.sinRegistrar}</span>
             </li>
             <li className="checkrow">
@@ -171,8 +178,19 @@ export function FinishPanel({
 
       {progress.map((section) => (
         <div className="panel" key={section.id}>
-          <div className="panel__title">{`Tu sección: ${section.nombre} · ${section.total} artículos`}</div>
+          <div className="panel__title">
+            {catalogue.compartido
+              ? `Sin registrar por nadie · ${section.faltan.length} de ${section.total} artículos`
+              : `Tu sección: ${section.nombre} · ${section.total} artículos`}
+          </div>
           <div className="panel__body">
+            {catalogue.compartido && (
+              <div className="hint">
+                Lo que nadie había registrado cuando esta tableta descargó, y tú tampoco has
+                tocado. La lista no se actualiza sin señal: coordina con los demás qué falta de
+                verdad.
+              </div>
+            )}
             <ul className="checklist">
               <li className="checkrow">
                 <span>registrados</span>
@@ -263,7 +281,12 @@ export function FinishPanel({
 
       <div className="actions">
         <button type="button" className="btn btn--primary" onClick={terminar}>
-          {summary.sinRegistrar > 0 ? 'Terminar de todas formas' : 'Terminar'}
+          {/* In a shared session a personal gap is the ordinary case — the rest
+              of the list is somebody else's afternoon — so the button does not
+              apologise for it. */}
+          {!catalogue.compartido && summary.sinRegistrar > 0
+            ? 'Terminar de todas formas'
+            : 'Terminar'}
         </button>
       </div>
     </>

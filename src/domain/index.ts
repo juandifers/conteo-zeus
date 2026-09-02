@@ -149,6 +149,8 @@ export {
   assignmentCoverage,
   unassignedByFamily,
   dispatchBlockers,
+  sharedDispatchBlockers,
+  type SharedDispatchInput,
   type Assignment,
   type AssignmentCoverage,
   type Counter,
@@ -162,6 +164,8 @@ export {
 export {
   counterItem,
   counterPayload,
+  SECCION_COMPARTIDA,
+  sharedScope,
   COUNTER_PAYLOAD_FIELDS,
   COUNTER_SESSION_FIELDS,
   COUNTER_COUNTER_FIELDS,

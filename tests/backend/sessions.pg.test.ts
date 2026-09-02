@@ -453,6 +453,132 @@ suite('dispatch', () => {
   });
 });
 
+suite('dispatch compartido (P2.6)', () => {
+  let sessionId: string;
+  let items: Item[];
+
+  beforeAll(async () => {
+    db = await openTestDb(URL!, 'a');
+  });
+  afterAll(async () => {
+    await db.reset();
+    await db.close();
+  });
+  beforeEach(async () => {
+    await db.reset();
+    sessionId = ((await upload(XLS)).body as { id: string }).id;
+    items = ((await getSession(db, sessionId)).body as { items: Item[] }).items;
+  });
+
+  it('opens the session with counters only: no sections, no assignments', async () => {
+    const result = await dispatchSession(db, sessionId, {
+      counters: [{ nombre: 'Ana' }, { nombre: 'Luis' }],
+    });
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      counters: { nombre: string; token: string; articulos: number }[];
+    };
+    expect(body.counters.map((c) => c.nombre)).toEqual(['Ana', 'Luis']);
+    // Everybody gets everything — the response says so per counter.
+    for (const counter of body.counters) {
+      expect(counter.articulos).toBe(items.length);
+      expect(isTokenShaped(counter.token)).toBe(true);
+    }
+    expect(new Set(body.counters.map((c) => c.token)).size).toBe(2);
+
+    const session = await db.query<{ estado: string }>('select estado from sessions where id = $1', [
+      sessionId,
+    ]);
+    expect(session[0].estado).toBe('abierto');
+    // The durable marker of the shared mode: the partition tables stay empty.
+    const sections = await db.query<{ n: string }>(
+      'select count(*) as n from sections where session_id = $1',
+      [sessionId],
+    );
+    const assignments = await db.query<{ n: string }>(
+      'select count(*) as n from assignments where session_id = $1',
+      [sessionId],
+    );
+    expect(Number(sections[0].n)).toBe(0);
+    expect(Number(assignments[0].n)).toBe(0);
+  });
+
+  it('refuses an empty roster', async () => {
+    const result = await dispatchSession(db, sessionId, { counters: [] });
+    expect(result.status).toBe(409);
+    expect(
+      (result.body as { detalle: { blockers: { kind: string }[] } }).detalle.blockers.map(
+        (b) => b.kind,
+      ),
+    ).toContain('sin-contadores');
+  });
+
+  it('still gates on the file and the parameters — the session checks are not partition checks', async () => {
+    await db.query("update sessions set uncounted_policy = 'zero' where id = $1", [sessionId]);
+    const result = await dispatchSession(db, sessionId, { counters: [{ nombre: 'Ana' }] });
+    expect(result.status).toBe(409);
+    expect(
+      (result.body as { detalle: { blockers: { kind: string }[] } }).detalle.blockers.map(
+        (b) => b.kind,
+      ),
+    ).toContain('parametros-sin-verificar');
+  });
+
+  it('refuses half a partition: some counters with sections, some without', async () => {
+    const result = await dispatchSession(db, sessionId, {
+      counters: [
+        { nombre: 'Ana' },
+        { nombre: 'Luis', secciones: [{ nombre: 'BAR', idarticulos: [items[0].idarticulo] }] },
+      ],
+    });
+    expect(result.status).toBe(400);
+    expect((result.body as { error: string }).error).toMatch(/unos contadores traen secciones/);
+  });
+
+  it('serves every tablet the whole catalogue, as one synthesized section', async () => {
+    const dispatched = await dispatchSession(db, sessionId, {
+      counters: [{ nombre: 'Ana' }, { nombre: 'Luis' }],
+    });
+    const tokens = (dispatched.body as { counters: { token: string }[] }).counters;
+
+    for (const { token } of tokens) {
+      const payload = (await counterFetch(db, token)).body as CounterPayload;
+      expect(payload.secciones).toHaveLength(1);
+      expect(payload.secciones[0].id).toBe('todo');
+      expect(payload.secciones[0].nombre).toBe('BODEGA');
+      // The whole catalogue, in the order Zeus exported it — the shelf order.
+      expect(payload.secciones[0].items.map((item) => item.idarticulo)).toEqual(
+        items.map((item) => item.idarticulo),
+      );
+      // The allowlist holds: the same projection as a sectioned session.
+      expect(Object.keys(payload).sort()).toEqual([...COUNTER_PAYLOAD_FIELDS].sort());
+      for (const article of payload.secciones[0].items) {
+        expect(Object.keys(article).sort()).toEqual([...COUNTER_ITEM_FIELDS].sort());
+      }
+    }
+  });
+
+  it('tells a refetching tablet what anybody has already registered — ids only', async () => {
+    const dispatched = await dispatchSession(db, sessionId, {
+      counters: [{ nombre: 'Ana' }, { nombre: 'Luis' }],
+    });
+    const tokens = (dispatched.body as { counters: { id: string; token: string }[] }).counters;
+
+    // Ana counts one article; the row lands as the ingest path would store it.
+    const counted = items[7].idarticulo;
+    await db.query(
+      `insert into events (id, session_id, counter_id, seq, kind, idarticulo, cantidad,
+                           usuario, zona, client_at, device_id, prev_hash, hash)
+       values ($1, $2, $3, 1, 'add', $4, '5', 'Ana', 'BODEGA',
+               '2026-09-01T15:00:00.000Z', 'tablet-1', $5, $6)`,
+      [ids('e')(), sessionId, tokens[0].id, counted, 'p'.repeat(64), 'h'.repeat(64)],
+    );
+
+    const luis = (await counterFetch(db, tokens[1].token)).body as CounterPayload;
+    expect(luis.yaRegistrados).toEqual([counted]);
+  });
+});
+
 suite('GET /api/c/:token', () => {
   let sessionId: string;
   let items: Item[];

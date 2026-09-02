@@ -12,11 +12,19 @@
  * admin committed to at dispatch and never something a person selects. The
  * `ZONAS` dropdown that used to answer this question is gone.
  */
-import type { CounterItem, CounterPayload, CounterSection } from '../../domain';
+import { SECCION_COMPARTIDA, type CounterItem, type CounterPayload, type CounterSection } from '../../domain';
 import { buildIndex, groupByCodigo, type IndexedItem } from '../search';
 
 export interface CounterCatalogue {
   sections: readonly CounterSection[];
+  /**
+   * A shared session (P2.6): this tablet holds the whole catalogue, and so
+   * does everybody else's. The screens read it to stop talking about «tu
+   * sección» — the gap list is «what nobody had registered», not a debt.
+   * Recognised by the synthesized section's constant id, which no sectioned
+   * session can carry: real section ids are uuids minted at dispatch.
+   */
+  compartido: boolean;
   /** Every assigned article, in catalogue order across sections. */
   items: readonly CounterItem[];
   byId: ReadonlyMap<number, CounterItem>;
@@ -51,6 +59,8 @@ export function catalogueOf(payload: CounterPayload): CounterCatalogue {
   }
   return {
     sections: payload.secciones,
+    compartido:
+      payload.secciones.length === 1 && payload.secciones[0].id === SECCION_COMPARTIDA.id,
     items,
     byId,
     groups: groupByCodigo(items),

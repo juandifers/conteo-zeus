@@ -219,6 +219,101 @@ suite('POST /api/sessions/:id/acciones', () => {
     await db.reset();
   });
 
+  describe('agregar contador, compartido (P2.6)', () => {
+    /** A shared session: two counters, no sections, the whole catalogue each. */
+    async function sharedDispatched() {
+      const parsed = ingestZeusBytes(TXT);
+      const created = await createSession(
+        db,
+        {
+          sourceBytesBase64: toBase64(TXT),
+          sourceName: 'COMESTIBLES ALMACEN.txt',
+          rows: parsed.rows.map(toWire),
+        },
+        { newId: ids('b') },
+      );
+      const sessionId = (created.body as { id: string }).id;
+      const result = await dispatchSession(
+        db,
+        sessionId,
+        { counters: [{ nombre: 'Ana' }, { nombre: 'Luis' }] },
+        { newId: ids('d') },
+      );
+      expect(result.status).toBe(200);
+      const body = result.body as { counters: { id: string; nombre: string; token: string }[] };
+      return {
+        sessionId,
+        luis: body.counters.find((c) => c.nombre === 'Luis')!,
+        total: parsed.rows.length,
+      };
+    }
+
+    it('mints the counter, the link and the acta line in one act', async () => {
+      const d = await sharedDispatched();
+      const result = await postAction(
+        db,
+        d.sessionId,
+        { kind: 'agregar_contador', usuario: 'Marta', motivo: 'llegó a ayudar', nombre: 'Carla' },
+        { now: () => NOW, newId: ids('f'), mintToken: () => 'C'.repeat(22) },
+      );
+      expect(result.status).toBe(200);
+      const carla = result.body as { id: string; nombre: string; token: string };
+      expect(carla.nombre).toBe('Carla');
+      expect(carla.token).toBe('C'.repeat(22));
+
+      // Her tablet gets what everybody else's got: the whole catalogue.
+      const payload = (await counterFetch(db, carla.token)).body as CounterPayload;
+      expect(payload.secciones).toHaveLength(1);
+      expect(payload.secciones[0].items).toHaveLength(d.total);
+
+      // And the decision is on the chain, in the acta's own words.
+      const log = await actions(d.sessionId);
+      expect(log.map((action) => action.kind)).toEqual(['agregar_contador']);
+      expect(actaLines(log)[0]).toMatch(/Se agregó a Carla durante el conteo \(Marta\): llegó a ayudar/);
+    });
+
+    it('refuses a name already in the count', async () => {
+      const d = await sharedDispatched();
+      const result = await postAction(
+        db,
+        d.sessionId,
+        { kind: 'agregar_contador', usuario: 'Marta', motivo: 'llegó', nombre: ' Luis ' },
+        { now: () => NOW, newId: ids('f') },
+      );
+      expect(result.status).toBe(409);
+      expect((result.body as { error: string }).error).toMatch(/ya hay alguien llamado «Luis»/);
+    });
+
+    it('refuses a sectioned session: there, a counter cannot arrive empty-handed', async () => {
+      const d = await dispatched();
+      const result = await postAction(
+        db,
+        d.sessionId,
+        { kind: 'agregar_contador', usuario: 'Marta', motivo: 'llegó', nombre: 'Carla' },
+        { now: () => NOW, newId: ids('f') },
+      );
+      expect(result.status).toBe(409);
+      expect((result.body as { detalle: { code: string } }).detalle.code).toBe(
+        'SESSION_HAS_SECTIONS',
+      );
+    });
+
+    it('lets a shared counter be retired directly — they hold no articles to reassign', async () => {
+      const d = await sharedDispatched();
+      const result = await postAction(
+        db,
+        d.sessionId,
+        { kind: 'retirar_contador', usuario: 'Marta', motivo: 'se fue enfermo', counterId: d.luis.id },
+        { now: () => NOW, newId: ids('f') },
+      );
+      expect(result.status).toBe(200);
+      const rows = await db.query<{ estado: string }>('select estado from counters where id = $1', [
+        d.luis.id,
+      ]);
+      expect(rows[0].estado).toBe('retirado');
+    });
+  });
+
   describe('reassignment', () => {
     it('moves a whole section by repointing it — same name, same zona, new holder', async () => {
       const d = await dispatched();

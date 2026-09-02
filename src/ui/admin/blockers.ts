@@ -44,10 +44,7 @@ export function describeBlocker(
         'a propósito y con quién lo autorizó por escrito.'
       );
     case 'sin-contadores':
-      return (
-        'No hay contadores. Agrega los nombres en «Quiénes cuentan hoy» y elige uno en ' +
-        'cada sección.'
-      );
+      return 'No hay contadores. Agrega los nombres en «Quiénes cuentan hoy».';
     case 'sin-asignar':
       return (
         `${blocker.idarticulos.length} artículos no están asignados a nadie: ` +
@@ -207,12 +204,18 @@ export function describeAdvisory(item: AdvisoryItem): string {
  * saw, and an admin adjusting it here would be entering a number nobody
  * observed.
  */
-export function describeFlag(flag: ReviewFlag): string {
+export function describeFlag(
+  flag: ReviewFlag,
+  /** A shared session (P2.6): two counters on one article is normal, not a breach. */
+  options: { compartido?: boolean } = {},
+): string {
   switch (flag.kind) {
     case 'overlap':
       return flag.causa === 'reasignado'
         ? 'dos contadores · cambió de manos durante el conteo'
-        : 'dos contadores · nadie lo reasignó';
+        : options.compartido
+          ? 'dos contadores · las entradas se suman'
+          : 'dos contadores · nadie lo reasignó';
     case 'post-finish':
       return 'registrado después de terminar';
     case 'cero':
