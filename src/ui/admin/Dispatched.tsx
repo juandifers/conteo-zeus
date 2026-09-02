@@ -76,8 +76,21 @@ export function Dispatched({
   const [tab, setTab] = useState<Tab>(
     initialTab ?? (FROZEN.has(detail.session.estado) ? 'cierre' : 'seguimiento'),
   );
-  /** Whether the setup work — cambios, enlaces, QR — is unfolded. See §3.1 above. */
-  const [cambios, setCambios] = useState(false);
+  /**
+   * Whether the setup work — cambios, enlaces, QR — is unfolded. See §3.1 above.
+   *
+   * Open on a fresh dispatch: until some tablet has downloaded its assignment,
+   * handing out the links IS the current task, and the fold would hide the only
+   * thing left to do on the screen the admin just landed on. The fold hides
+   * finished setup, not pending setup; once the first tablet pulls, it starts
+   * folded again.
+   */
+  const [cambios, setCambios] = useState(
+    () =>
+      !FROZEN.has(detail.session.estado) &&
+      detail.counters.length > 0 &&
+      detail.counters.every((counter) => counter.fetchedAt === null),
+  );
   /** The monitor's poll, shared with the rail so both read one clock (§3.2). */
   const [live, setLive] = useState<MonitorLive | null>(null);
   // No sections means a shared session (P2.6): everybody holds the whole
@@ -159,7 +172,7 @@ export function Dispatched({
                     aria-expanded={cambios}
                     onClick={() => setCambios((open) => !open)}
                   >
-                    {cambios ? 'Cambios ▴' : 'Cambios ⌄'}
+                    {cambios ? 'Enlaces y cambios ▴' : 'Enlaces y cambios ⌄'}
                   </button>
                   <button
                     type="button"

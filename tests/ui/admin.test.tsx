@@ -475,8 +475,46 @@ describe('the dispatch sheet', () => {
     });
     render(<Dispatched detail={dispatched} api={api} onReload={() => {}} />);
     expect(screen.queryByText('Cambios durante el conteo')).toBeNull();
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Cambios ⌄' }));
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Enlaces y cambios ⌄' }));
     expect(await screen.findByText('Cambios durante el conteo')).toBeTruthy();
+  });
+
+  it('starts unfolded on a fresh dispatch, when the links are the task', () => {
+    // The admin who just clicked «Despachar y generar enlaces» came here to
+    // hand out the links. Until a tablet downloads something, folding them
+    // away would hide the only thing left to do (the reported bug: «no me
+    // muestra los enlaces al agregar los contadores»).
+    const fresh = detailFor({
+      ...dispatched,
+      counters: dispatched.counters.map((counter) => ({
+        ...counter,
+        fetchedAt: null,
+        fetchCount: 0,
+      })),
+    });
+    // Unfolded, `Cambios` polls /sync on its own — it needs a real snapshot.
+    const api = fakeApi({
+      get: vi.fn(async (path: string) =>
+        path.endsWith('/sync')
+          ? ({
+              session: { id: 'sesion-1', estado: 'abierto', assignmentsVersion: 1, readyToSeal: [] },
+              counters: [],
+              acciones: [],
+              sello: null,
+            } as never)
+          : ({} as never),
+      ),
+    });
+    render(<Dispatched detail={fresh} api={api} onReload={() => {}} />);
+    // Unfolded: the sheet is on screen, not print-only.
+    expect(document.querySelector('.sheet')!.className).toBe('sheet');
+    expect(screen.getByRole('button', { name: 'Enlaces y cambios ▴' })).toBeTruthy();
+    // And once one tablet has pulled (the original fixture), it starts folded.
+    cleanup();
+    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
+    expect(document.querySelector('.sheet')!.className).toBe('sheet sheet--printonly');
   });
 
   it('keeps «¿ya puedo sellar?» standing in the rail (§3.2)', async () => {
