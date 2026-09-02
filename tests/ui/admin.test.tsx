@@ -148,6 +148,97 @@ describe('uploading a file', () => {
   });
 });
 
+describe('the list archives finished counts (Conteos anteriores)', () => {
+  function summaryFor(over: Record<string, unknown>) {
+    return {
+      id: 'sesion-x',
+      bodega: '01',
+      fechaCorte: '2025/04/30',
+      nombre: null,
+      estado: 'abierto',
+      sourceName: 'COMESTIBLES ALMACEN.xls',
+      sourceHash: 'a'.repeat(64),
+      createdAt: '2026-08-31T12:00:00.000Z',
+      dispatchedAt: null,
+      itemCount: 100,
+      mostrarMarcaRegistrado: true,
+      assignmentsVersion: 1,
+      ...over,
+    };
+  }
+
+  const SESSIONS = [
+    summaryFor({ id: 'viva', bodega: '44', fechaCorte: '2026/08/28', sourceName: 'LICORES BAR.xls' }),
+    summaryFor({ id: 'vieja', estado: 'cerrado', fechaCorte: '2025/04/30' }),
+    summaryFor({
+      id: 'sellada',
+      estado: 'sellado',
+      fechaCorte: '2025/03/31',
+      sourceName: 'PANADERIA MARZO.xls',
+      createdAt: '2025-04-01T09:00:00.000Z',
+    }),
+  ];
+
+  function listWith(sessions: unknown[]) {
+    const api = fakeApi({ get: vi.fn(async () => ({ sessions }) as never) });
+    render(<AdminApp api={api} hash="#/admin" navigate={() => {}} />);
+  }
+
+  it('keeps the working list to what is still moving', async () => {
+    listWith(SESSIONS);
+    // The open session is a plain row; the finished two live in their own
+    // section below, so the page that answers «¿qué está pasando hoy?» does
+    // not grow by one row per month forever.
+    await screen.findByText(/Bodega 44 · corte 2026\/08\/28/);
+    const archive = screen.getByRole('region', { name: 'Conteos anteriores' });
+    expect(within(archive).getByText(/corte 2025\/04\/30/)).toBeTruthy();
+    expect(within(archive).getByText(/corte 2025\/03\/31/)).toBeTruthy();
+    expect(within(archive).getByText('2 conteos sellados')).toBeTruthy();
+    // And the archived rows say what the search matches on: the file.
+    expect(within(archive).getByText(/PANADERIA MARZO\.xls/)).toBeTruthy();
+  });
+
+  it('finds an old count by its file name', async () => {
+    listWith(SESSIONS);
+    const search = await screen.findByLabelText('Buscar conteos anteriores');
+    await userEvent.type(search, 'panaderia');
+    const archive = screen.getByRole('region', { name: 'Conteos anteriores' });
+    expect(within(archive).getByText(/PANADERIA MARZO\.xls/)).toBeTruthy();
+    expect(within(archive).queryByText(/COMESTIBLES ALMACEN\.xls/)).toBeNull();
+    // The one still counting is not part of the archive and never filters.
+    expect(screen.getByText(/Bodega 44 · corte 2026\/08\/28/)).toBeTruthy();
+  });
+
+  it('finds an old count by a date, and says when nothing matches', async () => {
+    listWith(SESSIONS);
+    const search = await screen.findByLabelText('Buscar conteos anteriores');
+    await userEvent.type(search, '2025/03');
+    const archive = screen.getByRole('region', { name: 'Conteos anteriores' });
+    expect(within(archive).getByText(/corte 2025\/03\/31/)).toBeTruthy();
+    expect(within(archive).queryByText(/corte 2025\/04\/30/)).toBeNull();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, 'diciembre');
+    expect(
+      within(archive).getByText(/Ningún conteo anterior coincide con «diciembre»/),
+    ).toBeTruthy();
+  });
+
+  it('says the working list is empty without hiding the archive', async () => {
+    listWith(SESSIONS.filter((session) => session.id !== 'viva'));
+    await screen.findByText('No hay conteos en curso');
+    expect(screen.getByRole('region', { name: 'Conteos anteriores' })).toBeTruthy();
+  });
+
+  it('offers no search over a single archived count', async () => {
+    listWith([SESSIONS[0], SESSIONS[1]]);
+    await screen.findByText(/corte 2025\/04\/30/);
+    // One archived row is found by looking at it; a search box over it would
+    // be furniture.
+    expect(screen.queryByLabelText('Buscar conteos anteriores')).toBeNull();
+  });
+});
+
 describe('the shared dispatch', () => {
   it('refuses to dispatch while nobody is on the roster, and says so', () => {
     localStorage.clear();

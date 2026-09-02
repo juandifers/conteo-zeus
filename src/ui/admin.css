@@ -638,6 +638,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The archive search, between «Conteos anteriores» and its rows. */
+.tinput--buscar {
+  margin: 4px 0 10px;
+}
+
 /* ---- the plan rail ----------------------------------------------------- */
 
 /*
