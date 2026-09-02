@@ -362,7 +362,19 @@ describe('the dispatch sheet', () => {
     // standing in its middle has to justify itself in paragraphs. Folded, it
     // appears attached to the act — and the QR sheet stays printable without
     // unfolding anything.
-    render(<Dispatched detail={dispatched} api={fakeApi()} onReload={() => {}} />);
+    const api = fakeApi({
+      get: vi.fn(async (path: string) =>
+        path.endsWith('/sync')
+          ? ({
+              session: { id: 'sesion-1', estado: 'abierto', assignmentsVersion: 1, readyToSeal: [] },
+              counters: [],
+              acciones: [],
+              sello: null,
+            } as never)
+          : ({} as never),
+      ),
+    });
+    render(<Dispatched detail={dispatched} api={api} onReload={() => {}} />);
     expect(screen.queryByText('Cambios durante el conteo')).toBeNull();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Cambios ⌄' }));
     expect(await screen.findByText('Cambios durante el conteo')).toBeTruthy();
