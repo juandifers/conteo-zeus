@@ -236,6 +236,14 @@ export function Cambios({
     );
 
   const ready = usuario.trim() !== '' && motivo.trim() !== '';
+  // Every action below is gated on the signature fields, which live in their
+  // own card above — a disabled button two panels away from the reason it is
+  // disabled reads as broken (reported 2026-09-02: «agregar y generar enlace
+  // is not responsive»). Same discipline as the Sellar button (§4.3): a gate
+  // says what opens it.
+  const firmaHint = ready ? null : (
+    <div className="hint">Desactivado hasta llenar «Quién decide» y «Motivo», arriba.</div>
+  );
   const overrides = new Map(
     (sync?.acciones ?? [])
       .filter((action) => action.kind === 'sellar_sin_registros')
@@ -306,6 +314,7 @@ export function Cambios({
             >
               Agregar y generar enlace
             </button>
+            {firmaHint}
           </div>
         </div>
       )}
@@ -427,6 +436,7 @@ export function Cambios({
           >
             {`Mover ${moves.length} artículos`}
           </button>
+          {firmaHint}
         </div>
       </div>
       )}
@@ -516,6 +526,7 @@ export function Cambios({
 
       <div className="panel">
         <div className="panel__title">Contadores</div>
+        {firmaHint && <div className="panel__body">{firmaHint}</div>}
         <ul className="rows">
           {detail.counters.map((counter) => {
             const row = sync?.counters.find((entry) => entry.id === counter.id);

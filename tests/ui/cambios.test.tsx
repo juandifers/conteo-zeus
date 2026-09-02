@@ -212,6 +212,24 @@ describe('sending the move', () => {
     ).toBe(true);
   });
 
+  it('says what opens a gated button, beside the button (the §4.3 discipline)', async () => {
+    // The signature fields live in their own card; a dead button two panels
+    // below them read as broken (reported: «agregar y generar enlace is not
+    // responsive»). The gate has to say what opens it, where the person is
+    // looking — and get out of the way once it is open.
+    const user = userEvent.setup();
+    render(<Cambios detail={detail()} api={fakeApi()} onReload={() => {}} />);
+    expect(
+      screen.getAllByText(/Desactivado hasta llenar «Quién decide» y «Motivo»/).length,
+    ).toBeGreaterThan(0);
+
+    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
+    await user.type(screen.getByLabelText('Motivo'), 'llegó refuerzo');
+    expect(
+      screen.queryByText(/Desactivado hasta llenar «Quién decide» y «Motivo»/),
+    ).toBeNull();
+  });
+
   it('turns a refusal back into the sentences it came from', async () => {
     const post = vi.fn(async () => {
       throw new ApiError(409, 'ese movimiento no se puede hacer', {
