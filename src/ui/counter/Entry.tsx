@@ -47,8 +47,7 @@ import { Registrado } from './Registrado';
 
 type Phase =
   | { name: 'typing' }
-  | { name: 'confirm'; qty: number }
-  /** The soft second ask. Only ever reached from `confirm` with an odd number. */
+  /** The soft second ask. Only ever reached by submitting an odd number. */
   | { name: 'unusual'; qty: number }
   /**
    * Somebody else already registered this article (P2.3.5 §6b).
@@ -102,6 +101,22 @@ export function Entry({
       if (key === ',') return current.includes(',') || current.includes('.') ? current : `${current || '0'},`;
       return current + key;
     });
+  }
+
+  /**
+   * The tap on «Registrar», the Enter key, and nothing in between.
+   *
+   * There used to be a confirmation step here — type 8, tap «Registrar 8»,
+   * tap «Sí, registrar 8» — and on a two-hundred-row afternoon the second tap
+   * was pure friction: the button already shows the quantity it will write,
+   * and a wrong entry is corrected by name in Mis registros, not prevented by
+   * asking everybody twice. The asks that remain are the ones about something
+   * *abnormal*: an unusual quantity, or somebody else's number already on the
+   * article.
+   */
+  function submit(qty: number): void {
+    if (unusualQty(qty)) setPhase({ name: 'unusual', qty });
+    else record(qty);
   }
 
   /**
@@ -166,7 +181,7 @@ export function Entry({
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return;
                 event.preventDefault();
-                if (typed !== null) setPhase({ name: 'confirm', qty: typed });
+                if (typed !== null) submit(typed);
               }}
             />
             {/*
@@ -230,31 +245,6 @@ export function Entry({
       </div>
 
       <div className="spacer" />
-
-      {phase.name === 'confirm' && (
-        <div className="confirm">
-          <div className="confirm__text">
-            <div className="confirm__qty num">{formatQty(phase.qty)}</div>
-            <div>{`${item.nombre} · ${item.unidad}`}</div>
-          </div>
-          <div className="actions__pair">
-            <button type="button" className="btn" onClick={() => setPhase({ name: 'typing' })}>
-              Volver
-            </button>
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() =>
-                unusualQty(phase.qty)
-                  ? setPhase({ name: 'unusual', qty: phase.qty })
-                  : record(phase.qty)
-              }
-            >
-              {`Sí, registrar ${formatQty(phase.qty)}`}
-            </button>
-          </div>
-        </div>
-      )}
 
       {phase.name === 'unusual' && (
         <div className="confirm">
@@ -321,7 +311,7 @@ export function Entry({
           type="button"
           className="btn btn--primary"
           disabled={typed === null}
-          onClick={() => typed !== null && setPhase({ name: 'confirm', qty: typed })}
+          onClick={() => typed !== null && submit(typed)}
         >
           Registrar{typed !== null ? ` ${formatQty(typed)}` : ''}
         </button>

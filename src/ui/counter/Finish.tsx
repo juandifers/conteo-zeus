@@ -31,7 +31,10 @@
  * 240» is not a debt this person owes: the list becomes «what nobody had
  * registered when this tablet last fetched, and you have not touched», the
  * screen says so, and finishing over it is the ordinary case rather than the
- * excused one.
+ * excused one. And because the sectioning happened physically in the bodega,
+ * the list itself stays behind a «Ver lista completa» button: what a counter
+ * reviews to terminar is their own work, and two hundred rows of other
+ * people's shelves would only bury it.
  *
  * There is deliberately **no «sin novedad»** here. The only resolutions are
  * counting it or declaring the location empty; waiving an uncounted row means
@@ -69,6 +72,8 @@ export function FinishPanel({
 }) {
   /** The gap row whose «está vacío» is waiting for its second tap. */
   const [emptying, setEmptying] = useState<number | null>(null);
+  /** Shared sessions only: whether the whole-catalogue gap list is open. */
+  const [listaCompleta, setListaCompleta] = useState(false);
   const { estado, serverEstado } = useSyncExternalStore(sync.subscribe, sync.getSnapshot);
 
   // The gap list is «my articles with nothing standing **from me**» (P2.3 §5a),
@@ -176,7 +181,30 @@ export function FinishPanel({
         </div>
       </div>
 
-      {progress.map((section) => (
+      {/*
+        In a shared session the gap list is the whole bodega, and the parts of
+        it this counter was responsible for were decided out on the floor where
+        the app cannot see them. So terminar shows their own work, and the
+        catalogue waits behind one tap for whoever actually wants to sweep it —
+        usually the last person standing.
+      */}
+      {catalogue.compartido && !listaCompleta ? (
+        <div className="panel">
+          <div className="panel__title">Lista completa</div>
+          <div className="panel__body">
+            <div className="hint">
+              Las zonas se repartieron en la bodega, no aquí: para terminar no te toca revisar
+              todo el catálogo. Si quieres ver qué no ha registrado nadie, abre la lista.
+            </div>
+          </div>
+          <div className="actions">
+            <button type="button" className="btn" onClick={() => setListaCompleta(true)}>
+              Ver lista completa
+            </button>
+          </div>
+        </div>
+      ) : (
+      progress.map((section) => (
         <div className="panel" key={section.id}>
           <div className="panel__title">
             {catalogue.compartido
@@ -277,7 +305,8 @@ export function FinishPanel({
             </ul>
           )}
         </div>
-      ))}
+      ))
+      )}
 
       <div className="actions">
         <button type="button" className="btn btn--primary" onClick={terminar}>

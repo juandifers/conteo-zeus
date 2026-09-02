@@ -165,7 +165,6 @@ async function registrar(page: Page, codigo: string, qty: string): Promise<void>
   await open(page, codigo)
   await page.getByLabel(/cantidad contada/).fill(qty)
   await page.getByRole('button', { name: `Registrar ${qty}`, exact: true }).click()
-  await page.getByRole('button', { name: `Sí, registrar ${qty}`, exact: true }).click()
 }
 
 test.describe('a whole shift with no signal', () => {

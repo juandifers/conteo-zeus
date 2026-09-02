@@ -80,6 +80,8 @@ async function openTablet(
     brokenDatabase?: boolean;
     /** Articles somebody else registered before this tablet fetched (P2.3.5 §6b). */
     yaRegistrados?: readonly number[];
+    /** A shared session (P2.6): the whole catalogue as one synthesized section. */
+    compartido?: boolean;
     /** An existing device, for the reload tests: same stores, fresh screen. */
     device?: ReturnType<typeof sharedDevice>;
   } = {},
@@ -127,8 +129,8 @@ async function registrar(user: ReturnType<typeof userEvent.setup>, query: string
   await user.type(screen.getByLabelText('buscar artículo'), query);
   await user.click(await screen.findByRole('button', { name: new RegExp(query, 'i') }));
   await user.type(screen.getByLabelText(/cantidad contada/), qty);
+  // One tap: «Registrar 4» is the write. There is no second «Sí, registrar».
   await user.click(screen.getByRole('button', { name: new RegExp(`^Registrar ${qty}$`) }));
-  await user.click(screen.getByRole('button', { name: new RegExp(`^Sí, registrar ${qty}$`) }));
 }
 
 describe('no running total is reachable in the counting path', () => {
@@ -160,11 +162,10 @@ describe('no running total is reachable in the counting path', () => {
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     surfaces.push(clockless());
 
-    /** The confirmation, with a quantity on it. */
+    /** The entry card, with a quantity typed and on the button. */
     await user.type(screen.getByLabelText(/cantidad contada/), '2');
-    await user.click(screen.getByRole('button', { name: /^Registrar 2$/ }));
     surfaces.push(clockless());
-    await user.click(screen.getByRole('button', { name: /^Sí, registrar 2$/ }));
+    await user.click(screen.getByRole('button', { name: /^Registrar 2$/ }));
 
     /** The toast, back on the search screen. */
     surfaces.push(clockless());
@@ -222,32 +223,34 @@ describe('no running total is reachable in the counting path', () => {
 });
 
 describe('the three verbs, and the one that was removed', () => {
-  it('registers a quantity behind a mandatory confirmation', async () => {
+  it('registers a quantity in one tap — the button carries the number it will write', async () => {
     const { user, chain } = await openTablet();
     await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
+
+    // Nothing typed, nothing to tap: the confirmation *is* reading the button.
+    expect((screen.getByRole('button', { name: 'Registrar' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     await user.type(screen.getByLabelText(/cantidad contada/), '8');
 
-    // The first tap is the confirmation, not the write.
+    // One tap. The second «Sí, registrar» that used to follow was pure
+    // friction on a two-hundred-row afternoon; a wrong entry is corrected by
+    // name in Mis registros, not prevented by asking everybody twice.
     await user.click(screen.getByRole('button', { name: /^Registrar 8$/ }));
-    expect(await chain.unsynced(sampleSession().id, 'counter-ana', 10)).toHaveLength(0);
-    expect(screen.getByText('PAN TAJADO · NATIPAN X 500 GRS')).toBeTruthy();
-
-    await user.click(screen.getByRole('button', { name: /^Sí, registrar 8$/ }));
     const held = await chain.unsynced(sampleSession().id, 'counter-ana', 10);
     expect(held.map((link) => link.event)).toMatchObject([
       { kind: 'add', qty: 8, idarticulo: ID.panTajado },
     ]);
   });
 
-  it('asks twice about a quantity with too many digits', async () => {
+  it('still asks about a quantity with too many digits', async () => {
     const { user, chain } = await openTablet();
     await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     await user.type(screen.getByLabelText(/cantidad contada/), '80000');
 
     await user.click(screen.getByRole('button', { name: /^Registrar 80.000$/ }));
-    await user.click(screen.getByRole('button', { name: /^Sí, registrar 80.000$/ }));
     expect(screen.getByText(/Es una cantidad poco común/)).toBeTruthy();
     expect(await chain.unsynced(sampleSession().id, 'counter-ana', 10)).toHaveLength(0);
 
@@ -409,10 +412,10 @@ describe('a counter who inherited somebody else’s shelves', () => {
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     await user.type(screen.getByLabelText(/cantidad contada/), '4');
     await user.click(screen.getByRole('button', { name: /^Registrar 4$/ }));
-    await user.click(screen.getByRole('button', { name: /^Sí, registrar 4$/ }));
 
-    // Not recorded yet: the mandatory confirm was answered and this is a second,
-    // differently-worded ask about a different thing.
+    // Not recorded yet: the one tap that would normally write runs into the
+    // one ask that survived the confirm's removal, because this one is about
+    // something abnormal — somebody else's number already on the article.
     expect(
       screen.getByText(/Otra persona ya registró este artículo. Tu cantidad se sumará a la suya./),
     ).toBeTruthy();
@@ -429,7 +432,6 @@ describe('a counter who inherited somebody else’s shelves', () => {
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     await user.type(screen.getByLabelText(/cantidad contada/), '4');
     await user.click(screen.getByRole('button', { name: /^Registrar 4$/ }));
-    await user.click(screen.getByRole('button', { name: /^Sí, registrar 4$/ }));
     await user.click(screen.getByRole('button', { name: /^Sí, sumar 4$/ }));
 
     // Back on the search screen, which is where the entry card leaves you and
@@ -487,7 +489,6 @@ describe('when the tablet stops saving', () => {
       await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
       await user.type(screen.getByLabelText(/cantidad contada/), '1');
       await user.click(screen.getByRole('button', { name: /^Registrar 1$/ }));
-      await user.click(screen.getByRole('button', { name: /^Sí, registrar 1$/ }));
     }
 
     expect(await screen.findByText(/No se está guardando nada/)).toBeTruthy();
@@ -545,5 +546,32 @@ describe('a reload mid-count', () => {
     const marks = await screen.findAllByLabelText('ya registraste algo aquí');
     expect(marks.length).toBeGreaterThan(0);
     for (const mark of marks) expect(mark.textContent).toBe('✓');
+  });
+});
+
+describe('terminar in a shared session (P2.6)', () => {
+  it('reviews the counter’s own work, and gates the catalogue behind one tap', async () => {
+    // The sectioning happened out on the floor, where the app cannot see it.
+    // What this counter owes at terminar is an account of *their* afternoon;
+    // the two hundred rows of everybody else's shelves are one tap away for
+    // whoever actually wants to sweep them.
+    const { user } = await openTablet({ compartido: true });
+    await registrar(user, 'TAJADO', '4');
+    await user.click(tab('Terminar'));
+
+    expect(screen.getByText('artículos registrados')).toBeTruthy();
+    expect(screen.queryByText(/Sin registrar por nadie ·/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^contar / })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Ver lista completa' }));
+    expect(screen.getByText(/Sin registrar por nadie · 4 de 5 artículos/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^contar / })).toHaveLength(4);
+  });
+
+  it('keeps the gap list on screen for a sectioned session — there it is a debt', async () => {
+    const { user } = await openTablet();
+    await user.click(tab('Terminar'));
+    expect(screen.queryByRole('button', { name: 'Ver lista completa' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /^contar / })).toHaveLength(5);
   });
 });

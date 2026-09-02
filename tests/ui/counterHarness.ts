@@ -8,7 +8,13 @@
  * hand-built fixture is a fixture that can quietly acquire a field the real
  * payload does not carry, which is the one thing the blindness tests are about.
  */
-import { counterItem, genesisHash, MemoryChain, type CounterPayload } from '../../src/domain';
+import {
+  counterItem,
+  genesisHash,
+  MemoryChain,
+  SECCION_COMPARTIDA,
+  type CounterPayload,
+} from '../../src/domain';
 import { catalogueOf, type CounterCatalogue } from '../../src/ui/counter/assignment';
 import { CountStore } from '../../src/ui/store';
 import { fakeIdentity, sampleSession, seededRepository, SESSION_ID, ID } from './harness';
@@ -28,11 +34,23 @@ export function samplePayload(
      * as saying: empty for every session in which nobody changed hands.
      */
     yaRegistrados?: readonly number[];
+    /**
+     * A shared session (P2.6): the same five articles, but served the way
+     * `GET /api/c/:token` serves a session with zero sections — one synthesized
+     * section, whose constant id is what the screens recognise.
+     */
+    compartido?: boolean;
   } = {},
 ): CounterPayload {
   const items = new Map(sampleSession().items.map((item) => [item.idarticulo, item]));
   const project = (ids: readonly number[]) =>
     ids.map((idarticulo) => counterItem(items.get(idarticulo)!));
+  const secciones = options.compartido
+    ? [{ ...SECCION_COMPARTIDA, items: project([...PROTEINAS, ...PANADERIA]) }]
+    : [
+        { id: 'sec-frio', nombre: 'Cuarto frío proteínas', items: project(PROTEINAS) },
+        { id: 'sec-pan', nombre: 'Panadería', items: project(PANADERIA) },
+      ];
   return {
     session: {
       id: SESSION_ID,
@@ -42,10 +60,7 @@ export function samplePayload(
       mostrarMarcaRegistrado: options.mostrarMarcaRegistrado ?? true,
     },
     counter: { id: COUNTER, nombre: 'Ana' },
-    secciones: [
-      { id: 'sec-frio', nombre: 'Cuarto frío proteínas', items: project(PROTEINAS) },
-      { id: 'sec-pan', nombre: 'Panadería', items: project(PANADERIA) },
-    ],
+    secciones,
     yaRegistrados: [...(options.yaRegistrados ?? [])],
   };
 }
