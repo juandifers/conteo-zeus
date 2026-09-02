@@ -69,6 +69,7 @@ export function Root({
         assignments={assignments}
         repo={repo}
         chain={chain}
+        updates={updates}
       />
     );
   }

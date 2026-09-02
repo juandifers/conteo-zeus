@@ -58,6 +58,10 @@ const COUNTING_SURFACES = [
   'ui/components/ResultRows.tsx',
   'ui/components/StateChip.tsx',
   'ui/components/Topbar.tsx',
+  // The update bar. It renders on the counter screen (a stale tablet was how
+  // the two-tap register outlived its removal by a week), so it is held to
+  // the same rule: nothing in it may reach for an ERP figure.
+  'ui/components/UpdateNotice.tsx',
 ];
 
 /** Ways an ERP figure reaches a screen. Property reads, and the two derivations. */
@@ -167,7 +171,17 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
     // (`useState<Live | null>`), not an element.
     const rendered = [...screen.matchAll(/(?:^|[^\w.])<([A-Z]\w+)\b/gm)].map((match) => match[1]);
     expect(new Set(rendered)).toEqual(
-      new Set(['Prepare', 'Counting', 'SyncBar', 'Entry', 'Search', 'MyEntries', 'Notes', 'FinishPanel']),
+      new Set([
+        'Prepare',
+        'Counting',
+        'SyncBar',
+        'Entry',
+        'Search',
+        'MyEntries',
+        'Notes',
+        'FinishPanel',
+        'UpdateNotice',
+      ]),
     );
   });
 

@@ -47,8 +47,10 @@ import type {
 import { registeredArticles } from '../../domain';
 import type { AssignmentStore } from '../../store';
 import type { Api } from '../api';
+import { UpdateNotice } from '../components/UpdateNotice';
 import { localOutbox } from '../outbox';
 import { CountStore } from '../store';
+import { noUpdates, type Updates } from '../updates';
 import { Entry } from './Entry';
 import { FinishPanel } from './Finish';
 import { MyEntries } from './MyEntries';
@@ -83,13 +85,16 @@ export function CounterScreen({
   assignments,
   repo,
   chain,
+  updates: injectedUpdates,
 }: {
   token: string;
   api: Api;
   assignments: AssignmentStore;
   repo: CountRepository & DeviceRepository;
   chain: CounterChainRepository;
+  updates?: Updates;
 }) {
+  const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
   const [payload, setPayload] = useState<CounterPayload | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -183,25 +188,19 @@ export function CounterScreen({
     );
   }, [live]);
 
-  if (failed) {
-    return (
-      <div className="screen">
-        <div className="empty" role="alert">
-          <div className="empty__title">No se pudo abrir el conteo en esta tableta</div>
-          <div className="empty__body">{failed}</div>
-        </div>
+  const body = failed ? (
+    <div className="screen">
+      <div className="empty" role="alert">
+        <div className="empty__title">No se pudo abrir el conteo en esta tableta</div>
+        <div className="empty__body">{failed}</div>
       </div>
-    );
-  }
-
-  // Until the assignment is on the device and the chain has a starting point,
-  // the preparation screen is the whole app — it is the one that can say «esta
-  // tableta todavía no está lista» and offer a retry.
-  if (!payload || !live) {
-    return <Prepare token={token} api={api} store={assignments} onReady={onReady} />;
-  }
-
-  return (
+    </div>
+  ) : !payload || !live ? (
+    // Until the assignment is on the device and the chain has a starting point,
+    // the preparation screen is the whole app — it is the one that can say «esta
+    // tableta todavía no está lista» and offer a retry.
+    <Prepare token={token} api={api} store={assignments} onReady={onReady} />
+  ) : (
     <Counting
       payload={payload}
       live={live}
@@ -209,6 +208,19 @@ export function CounterScreen({
       chain={chain}
       assignments={assignments}
     />
+  );
+
+  return (
+    <>
+      {body}
+      {/* The same quiet notice the other faces carry, and here it can only
+          appear where applying it is free: detecting a new version takes
+          network, so a tablet offline in the bodega never sees it, and a
+          tablet on office wifi at preparation is exactly the one that should.
+          Dismissible, one line, never a dialog — a counter mid-shift ignoring
+          it is a fine answer. */}
+      <UpdateNotice updates={updates} />
+    </>
   );
 }
 
