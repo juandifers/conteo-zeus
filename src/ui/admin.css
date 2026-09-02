@@ -20,6 +20,58 @@
 }
 
 /*
+ * The verdict block — brief §4.1. The largest thing on the monitoring screen,
+ * because «¿vamos bien?» is the question the admin opens this tab to answer
+ * and until now the answer was the third clause of a 13px meta line.
+ */
+.verdict {
+  padding: 20px 16px 16px;
+}
+
+.verdict__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.verdict__fraction {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.verdict__big {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.verdict__pct {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ink-quiet);
+}
+
+.verdict__bar {
+  height: 6px;
+  margin: 8px 0 6px;
+}
+
+.verdict__context {
+  font-size: 15px;
+  color: var(--ink-quiet);
+}
+
+/* The activity dot on a counter row: filled when the server heard from that
+   tablet in the last five minutes, hollow when not. */
+.livedot {
+  flex: 0 0 auto;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-quiet);
+}
+
+/*
  * A section header with its actions on the same line: the counters table above,
  * the rare acts (cambios, reprint) behind small controls beside the title
  * rather than as standing forms below it (brief §3.1).

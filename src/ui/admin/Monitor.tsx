@@ -21,44 +21,77 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ReactNode } from 'react';
+
 import {
+  exposureValue,
   ownSummary,
   registeredArticles,
   type AssignedSection,
   type CountEvent,
 } from '../../domain';
 import type { Api } from '../api';
-import { formatInstant, formatQty } from '../format';
+import { formatMoney, formatQty } from '../format';
 import { describeSeal } from './blockers';
 import { EventFeed } from './feed';
-import { elapsed, monitorTier, tierClass } from './tiers';
+import { monitorTier, tierClass } from './tiers';
 import type { SessionDetail, SyncSnapshot } from './types';
 
 /** How often the cheap poll runs. Injected so a test does not wait in real time. */
 const POLL_MS = 5_000;
 
-interface Live {
+export interface MonitorLive {
   sync: SyncSnapshot;
   events: CountEvent[];
   at: string;
+}
+
+/**
+ * The trailing window the pace line reads. A session average would keep
+ * promising the morning's rate all afternoon; twenty minutes is short enough
+ * to be about now and long enough that one cold room does not zero it.
+ */
+const PACE_WINDOW_MS = 20 * 60_000;
+
+/** Active dot: the server heard from this tablet within the last five minutes. */
+const ACTIVE_MS = 5 * 60_000;
+
+/** `hace 3 min`, `hace 2 h` — the monitor's clock words, always relative. */
+function since(at: string | null, now: string): string {
+  if (at === null) return 'sin sincronizar';
+  const minutes = Math.floor((Date.parse(now) - Date.parse(at)) / 60_000);
+  if (minutes < 1) return 'hace un momento';
+  if (minutes < 60) return `hace ${minutes} min`;
+  return `hace ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 export function Monitor({
   detail,
   api,
   pollMs = POLL_MS,
+  actions,
+  onLive,
 }: {
   detail: SessionDetail;
   api: Api;
   pollMs?: number;
+  /** Controls for the Contadores header — the folded «Cambios», the reprint. */
+  actions?: ReactNode;
+  /** The rail reads the same poll rather than running a second one (§3.2). */
+  onLive?: (live: MonitorLive) => void;
 }) {
   const feed = useRef<EventFeed>(new EventFeed());
   /** The last total this screen pulled events for. Movement is a change in it. */
   const seen = useRef<number>(-1);
-  const [live, setLive] = useState<Live | null>(null);
+  const [live, setLive] = useState<MonitorLive | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const sessionId = detail.session.id;
+
+  // Through a ref, so a parent handing an inline arrow does not recreate the
+  // poll — an effect keyed on a new function every render is a poll loop.
+  const liveRef = useRef(onLive);
+  liveRef.current = onLive;
 
   const poll = useCallback(async () => {
     const sync = await api.get<SyncSnapshot>(`/api/sessions/${sessionId}/sync`);
@@ -70,7 +103,9 @@ export function Monitor({
       await feed.current.pull(api, sessionId);
       seen.current = total;
     }
-    setLive({ sync, events: feed.current.events, at: new Date().toISOString() });
+    const fresh = { sync, events: feed.current.events, at: new Date().toISOString() };
+    setLive(fresh);
+    liveRef.current?.(fresh);
     setProblem(null);
   }, [api, sessionId]);
 
@@ -113,35 +148,61 @@ export function Monitor({
               .map((assignment) => ({ idarticulo: assignment.idarticulo })),
           }));
 
+  // §4.1: the verdict block is the largest thing on the page. One fraction,
+  // one bar, one context line — the standing answer to «¿vamos bien?». The
+  // fraction is the session's whichever way it was dispatched: in a shared
+  // session coverage belongs to everybody at once, and in a sectioned one the
+  // sum over the partition is the same number.
+  const registered = live ? registeredArticles(live.events) : new Set<number>();
+  const total = detail.items.length;
+  const sinContar = total - registered.size;
+  const sinVerificar = detail.items.reduce(
+    (sum, item) => (registered.has(item.idarticulo) ? sum : sum + exposureValue(item)),
+    0,
+  );
+  const pct = total === 0 ? 0 : Math.round((registered.size / total) * 100);
+  // Pace over a trailing window, never a projection: a projected finish that
+  // is wrong is worse than none, so the screen reports what actually happened
+  // in the last twenty minutes and lets the admin do the arithmetic they
+  // trust. Quiet when nothing moved — an idle «0 registros» line is noise.
+  const recientes = live
+    ? live.events.filter(
+        (event) =>
+          (event.kind === 'add' || event.kind === 'set') &&
+          Date.parse(live.at) - Date.parse(event.at) <= PACE_WINDOW_MS,
+      ).length
+    : 0;
+
   return (
-    <div className="panel" id="monitor">
-      <div className="panel__title">Seguimiento</div>
-      <div className="panel__body">
-        {problem && (
-          <div className="banner" role="alert">
-            {problem}
+    <div id="monitor">
+      {problem && (
+        <div className="banner" role="alert">
+          {problem}
+        </div>
+      )}
+
+      {live && (
+        <div className="verdict">
+          <div className="verdict__row">
+            <div className="verdict__fraction">
+              <span className="verdict__big num">{registered.size}</span>
+              {` de ${total} artículos`}
+            </div>
+            <div className="verdict__pct num">{`${pct} %`}</div>
           </div>
-        )}
-        {live && (
-          <div className="hint">
-            {(() => {
-              const abierto = elapsed(detail.session.dispatchedAt, live.at);
-              const registros = live.events.filter(
-                (event) => event.kind === 'add' || event.kind === 'set',
-              ).length;
-              // In a shared session coverage belongs to everybody at once, so
-              // it is said once, here, instead of pretended per person below.
-              const cobertura = compartido
-                ? ` · ${registeredArticles(live.events).size} de ${detail.items.length} artículos registrados entre todos`
-                : '';
-              return (
-                `${live.sync.counters.length} contadores · ${registros} registros` +
-                cobertura +
-                (abierto ? ` · abierta hace ${abierto}` : '')
-              );
-            })()}
+          <span className="progressbar verdict__bar">
+            <span className="progressbar__fill" style={{ width: `${pct}%` }} />
+          </span>
+          <div className="verdict__context">
+            {`${sinContar} sin contar · ${formatMoney(sinVerificar)} COP sin verificar` +
+              (recientes > 0 ? ` · ${recientes} registros en los últimos 20 min` : '')}
           </div>
-        )}
+        </div>
+      )}
+
+      <div className="sectionhead">
+        <div className="sectionhead__title">Contadores</div>
+        {actions && <div className="sectionhead__actions">{actions}</div>}
       </div>
 
       {live && (
@@ -153,6 +214,9 @@ export function Monitor({
               (sum, section) => sum + section.items.length,
               0,
             );
+            const activo =
+              counter.lastServerAt !== null &&
+              Date.parse(live.at) - Date.parse(counter.lastServerAt) <= ACTIVE_MS;
             // Counts of rows, from the module that answers progress questions
             // without handing back a quantity. The admin may see quantities —
             // §2.1 governs the tablet — but there is no reason to compute these
@@ -160,29 +224,32 @@ export function Monitor({
             const suyo = ownSummary(secciones, live.events, counter.id);
             return (
               <li className="row row--static" key={counter.id}>
+                <span
+                  className={activo ? 'livedot livedot--on' : 'livedot'}
+                  aria-label={activo ? 'activo en los últimos 5 minutos' : 'sin actividad reciente'}
+                >
+                  {activo ? '●' : '○'}
+                </span>
                 <div className="row__main">
                   <div className="row__nombre">{`${counter.nombre} · ${counter.estado}`}</div>
                   <div className="row__meta">
-                    {compartido
-                      ? `${suyo.registrados} artículos registrados · ${suyo.registros} registros · ` +
-                        `${suyo.ceros} en cero · ${suyo.notas} notas`
-                      : `${suyo.registrados} de ${asignados} artículos · faltan ${suyo.sinRegistrar} · ` +
-                        `${suyo.registros} registros · ${suyo.ceros} en cero · ${suyo.notas} notas`}
+                    {(compartido
+                      ? `${suyo.registrados} artículos registrados`
+                      : `${suyo.registrados} de ${asignados} artículos · faltan ${suyo.sinRegistrar}`) +
+                      ` · ${suyo.registros} registros · ${suyo.ceros} en cero · ${suyo.notas} notas` +
+                      ` · ${since(counter.lastServerAt, live.at)}`}
                   </div>
                   <div className="row__meta">
-                    {secciones.map((section) => section.nombre).join(' · ') || 'sin secciones'}
-                  </div>
-                  <div className="row__meta">
-                    {(counter.lastServerAt
-                      ? `último contacto ${formatInstant(counter.lastServerAt)}`
-                      : 'nunca sincronizó') +
-                      ` · ${counter.storedMaxSeq} en el servidor` +
+                    {`${counter.storedMaxSeq} en el servidor` +
                       (counter.deviceIds.length > 0
                         ? ` · ${counter.deviceIds.length} tabletas`
                         : '') +
                       (counter.clockSkewMs === null
                         ? ''
-                        : ` · reloj ${formatQty(Math.round(counter.clockSkewMs / 1000))} s`)}
+                        : ` · reloj ${formatQty(Math.round(counter.clockSkewMs / 1000))} s`) +
+                      (compartido
+                        ? ''
+                        : ` · ${secciones.map((section) => section.nombre).join(' · ')}`)}
                   </div>
                   {verdict.titulo !== '' && (
                     <div className={tierClass(verdict.tier)}>{verdict.titulo}</div>

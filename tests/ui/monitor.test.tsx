@@ -119,6 +119,24 @@ describe('the three states are visually separate (§1)', () => {
     expect(within(ana).getByText(/43 en el servidor · 1 tabletas/)).toBeTruthy();
   });
 
+  it('answers «¿vamos bien?» first, in the largest figures on the page (§4.1)', async () => {
+    const { api } = reviewApi({
+      counters: COUNTERS,
+      events: [addCount(1, 5, { counterId: 'ana', sessionId: SESSION_ID, seq: 1 })],
+    });
+    render(<Monitor detail={DETAIL} api={api} pollMs={1_000_000} />);
+    await screen.findByText(/Ana · contando/);
+
+    // One of three articles registered; the two untouched rows are worth
+    // 20×50 + 5×1000 = 6.000 COP, which is the number that decides whether
+    // anybody stays late — so it is on the context line, not behind a tab.
+    const verdict = document.querySelector('.verdict') as HTMLElement;
+    expect(within(verdict).getByText('1')).toBeTruthy();
+    expect(within(verdict).getByText(/de 3 artículos/)).toBeTruthy();
+    expect(within(verdict).getByText('33 %')).toBeTruthy();
+    expect(within(verdict).getByText(/2 sin contar · 6\.000 COP sin verificar/)).toBeTruthy();
+  });
+
   it('renders the seal blockers live, without navigating', async () => {
     const { api } = reviewApi({
       counters: COUNTERS,

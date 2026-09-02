@@ -132,28 +132,29 @@ export function Dispatched({
       {tab === 'seguimiento' && (
         <div className="desksplit">
           <div className="desksplit__main">
-            <Monitor detail={detail} api={api} />
-
-            <div className="sectionhead">
-              <div className="sectionhead__title">Contadores</div>
-              <div className="sectionhead__actions">
-                <button
-                  type="button"
-                  className="btn btn--small"
-                  aria-expanded={cambios}
-                  onClick={() => setCambios((open) => !open)}
-                >
-                  {cambios ? 'Cambios ▴' : 'Cambios ⌄'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--small"
-                  onClick={() => globalThis.print?.()}
-                >
-                  Imprimir hoja de reparto
-                </button>
-              </div>
-            </div>
+            <Monitor
+              detail={detail}
+              api={api}
+              actions={
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    aria-expanded={cambios}
+                    onClick={() => setCambios((open) => !open)}
+                  >
+                    {cambios ? 'Cambios ▴' : 'Cambios ⌄'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => globalThis.print?.()}
+                  >
+                    Imprimir hoja de reparto
+                  </button>
+                </>
+              }
+            />
 
             {/*
               Everything that can still change about who counts what (P2.3.5).
