@@ -12,7 +12,9 @@
  * corridor must still render from Dexie (DOMAIN.md §6.3), and an expiry gate
  * that needed the network to re-login would blank exactly the screen that
  * exists to work without one. The server is the judge of expiry; the screens
- * treat a stored login as «worth trying» and a 401 as the answer.
+ * treat a stored login as «worth trying» and a 401 as the answer — and
+ * `reauthOn401` (api.ts) is what hears that answer: it drops the stored login
+ * and re-renders, so the form comes back instead of a refusal with no door.
  *
  * A port with two implementations, like `Updates` beside it: `storageAuth()`
  * is the browser's, `openAuth()` is the always-authenticated null object the

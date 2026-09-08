@@ -46,7 +46,7 @@ import type {
 } from '../../domain';
 import { registeredArticles } from '../../domain';
 import type { AssignmentStore } from '../../store';
-import type { Api } from '../api';
+import { reauthOn401, type Api } from '../api';
 import { openAuth, type AuthGate } from '../auth';
 import { Login } from '../components/Login';
 import { UpdateNotice } from '../components/UpdateNotice';
@@ -86,6 +86,10 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'terminar', label: 'Terminar' },
 ];
 
+// One instance, at module scope: a default built per render would change the
+// wrapped api's identity every render, and the boot effect watches it.
+const OPEN_DOOR = openAuth();
+
 export function CounterScreen({
   token,
   api,
@@ -93,7 +97,7 @@ export function CounterScreen({
   repo,
   chain,
   updates: injectedUpdates,
-  auth = openAuth(),
+  auth = OPEN_DOOR,
 }: {
   token: string;
   api: Api;
@@ -106,14 +110,22 @@ export function CounterScreen({
    * `contador` user, on office wifi, alongside the assignment fetch; after
    * that `current()` answers from storage with no network, so a reopen in the
    * bodega never blocks on this. An expired login is still «worth trying» —
-   * the server answers 401 and the sync bar reports it — because an expiry
-   * gate that needed the network would blank the one screen built to work
-   * without one.
+   * because an expiry gate that needed the network would blank the one screen
+   * built to work without one. When the server does answer 401, `reauthOn401`
+   * drops the stored login and this screen folds back to the form; a 401
+   * takes signal, and where there is signal there is a way to log in again.
+   * Nothing in Dexie — events, outbox — is touched by that.
    */
   auth?: AuthGate;
 }) {
   const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
   const [, bump] = useState(0);
+  // Every request this tablet makes goes through this: a 401 drops the stored
+  // login and re-renders, which is what puts the login form back on screen.
+  const door = useMemo(
+    () => reauthOn401(api, auth, () => bump((n) => n + 1)),
+    [api, auth],
+  );
   const [payload, setPayload] = useState<CounterPayload | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -137,7 +149,7 @@ export function CounterScreen({
       try {
         const boot = await bootCounter({
           chain,
-          api,
+          api: door,
           token,
           sessionId: payload.session.id,
           counterId: payload.counter.id,
@@ -180,7 +192,7 @@ export function CounterScreen({
           chain,
           ...(boot.highWater === null ? {} : { highWater: boot.highWater }),
         });
-        const sync = new CounterSync(api, chain, {
+        const sync = new CounterSync(door, chain, {
           sessionId: payload.session.id,
           counterId: payload.counter.id,
           token,
@@ -200,7 +212,7 @@ export function CounterScreen({
     return () => {
       alive = false;
     };
-  }, [payload, api, chain, repo, token]);
+  }, [payload, door, chain, repo, token]);
 
   // Everything that means "there might be signal now": the `online` event, the
   // app coming back to the foreground, and a slow timer for the cases neither
@@ -216,7 +228,7 @@ export function CounterScreen({
   }, [live]);
 
   const body = !auth.current() ? (
-    <Login role="contador" api={api} gate={auth} onDone={() => bump((n) => n + 1)} />
+    <Login role="contador" api={door} gate={auth} onDone={() => bump((n) => n + 1)} />
   ) : failed ? (
     <div className="screen">
       <div className="empty" role="alert">
@@ -228,12 +240,12 @@ export function CounterScreen({
     // Until the assignment is on the device and the chain has a starting point,
     // the preparation screen is the whole app — it is the one that can say «esta
     // tableta todavía no está lista» and offer a retry.
-    <Prepare token={token} api={api} store={assignments} onReady={onReady} />
+    <Prepare token={token} api={door} store={assignments} onReady={onReady} />
   ) : (
     <Counting
       payload={payload}
       live={live}
-      api={api}
+      api={door}
       chain={chain}
       assignments={assignments}
     />

@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AdminApp } from '../../src/ui/admin/AdminApp';
-import type { Api } from '../../src/ui/api';
+import { ApiError, reauthOn401, type Api } from '../../src/ui/api';
 import { storageAuth, type AuthSession } from '../../src/ui/auth';
 
 afterEach(() => {
@@ -93,5 +93,61 @@ describe('the admin door', () => {
     render(<AdminApp api={api} hash="#/admin" navigate={() => {}} auth={storageAuth()} />);
     expect(screen.queryByLabelText('Contraseña')).toBeNull();
     expect(api.get).toHaveBeenCalledWith('/api/sessions');
+  });
+
+  it('drops a login the server refuses and shows the form again — the reported dead end', async () => {
+    // The stored login looks fine to the client (`current()` never judges
+    // expiry — offline tablets must render), but the server answers 401.
+    // Before `reauthOn401` this was a banner with no door: the token stayed
+    // in storage and every refresh replayed the same refusal.
+    storageAuth().save(SESSION);
+    const get = vi.fn(async () => {
+      throw new ApiError(401, 'la sesión caducó o no es válida; inicia sesión otra vez', null);
+    });
+    render(
+      <AdminApp api={fakeApi({ get })} hash="#/admin" navigate={() => {}} auth={storageAuth()} />,
+    );
+    expect(await screen.findByText(/Esta pantalla es del administrador/)).toBeTruthy();
+    expect(screen.getByLabelText('Contraseña')).toBeTruthy();
+    expect(storageAuth().current()).toBeNull();
+  });
+});
+
+describe('reauthOn401, the wrapper both faces route every request through', () => {
+  const expired = async () => {
+    throw new ApiError(401, 'la sesión caducó o no es válida; inicia sesión otra vez', null);
+  };
+
+  it('a 401 from a guarded route drops the login, tells the screen, and still rethrows', async () => {
+    storageAuth().save(SESSION);
+    const onExpired = vi.fn();
+    const door = reauthOn401(fakeApi({ get: vi.fn(expired) }), storageAuth(), onExpired);
+    await expect(door.get('/api/sessions')).rejects.toMatchObject({ status: 401 });
+    expect(onExpired).toHaveBeenCalledOnce();
+    expect(storageAuth().current()).toBeNull();
+  });
+
+  it('leaves the login alone for anything that is not a 401 — offline above all', async () => {
+    storageAuth().save(SESSION);
+    const onExpired = vi.fn();
+    const offline = async () => {
+      throw new ApiError(0, 'No hay conexión con el servidor (falló).', null);
+    };
+    const door = reauthOn401(fakeApi({ get: vi.fn(offline) }), storageAuth(), onExpired);
+    await expect(door.get('/api/sessions')).rejects.toMatchObject({ status: 0 });
+    expect(onExpired).not.toHaveBeenCalled();
+    expect(storageAuth().current()).toEqual(SESSION);
+  });
+
+  it('a 401 from /api/auth itself is a wrong password, not an expired session', async () => {
+    storageAuth().save(SESSION);
+    const onExpired = vi.fn();
+    const wrong = async () => {
+      throw new ApiError(401, 'usuario o contraseña incorrectos', null);
+    };
+    const door = reauthOn401(fakeApi({ post: vi.fn(wrong) }), storageAuth(), onExpired);
+    await expect(door.post('/api/auth', { usuario: 'admin', password: 'nope' })).rejects.toThrow();
+    expect(onExpired).not.toHaveBeenCalled();
+    expect(storageAuth().current()).toEqual(SESSION);
   });
 });

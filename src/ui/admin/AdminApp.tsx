@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { httpApi, type Api } from '../api';
+import { httpApi, reauthOn401, type Api } from '../api';
 import { openAuth, type AuthGate } from '../auth';
 import { Login } from '../components/Login';
 import { UpdateNotice } from '../components/UpdateNotice';
@@ -31,6 +31,10 @@ type Load<T> =
   | { phase: 'failed'; message: string }
   | { phase: 'ready'; value: T };
 
+// One instance, at module scope: a default built per render would change the
+// wrapped api's identity every render and re-run every effect that watches it.
+const OPEN_DOOR = openAuth();
+
 export function AdminApp({
   api = httpApi(),
   hash = globalThis.location?.hash ?? '#/admin',
@@ -38,7 +42,7 @@ export function AdminApp({
     if (globalThis.location) globalThis.location.hash = to;
   },
   updates: injectedUpdates,
-  auth = openAuth(),
+  auth = OPEN_DOOR,
 }: {
   api?: Api;
   /** Injected so a test does not have to drive `window.location`. */
@@ -49,18 +53,26 @@ export function AdminApp({
    * `Root` passes the browser's gate; the default is the always-authenticated
    * null object, so a test rendering a desk screen is not a test of the login
    * form. The real door is the server's — every route re-verifies — and this
-   * gate only decides which screen to draw first.
+   * gate decides which screen to draw: the form first, and the form *again*
+   * when any route answers 401, because an expired login the client kept
+   * («worth trying», see `auth.ts`) has just been judged.
    */
   auth?: AuthGate;
 }) {
   const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
   const [, bump] = useState(0);
+  // Every request the desk makes goes through this: a 401 drops the stored
+  // login and re-renders, which is what folds the whole desk back to the form.
+  const door = useMemo(
+    () => reauthOn401(api, auth, () => bump((n) => n + 1)),
+    [api, auth],
+  );
   const route = adminRoute(hash) ?? { name: 'list' as const };
   const session = auth.current();
   if (!session || session.role !== 'admin') {
     return (
       <>
-        <Login role="admin" api={api} gate={auth} onDone={() => bump((n) => n + 1)} />
+        <Login role="admin" api={door} gate={auth} onDone={() => bump((n) => n + 1)} />
         <UpdateNotice updates={updates} />
       </>
     );
@@ -68,9 +80,9 @@ export function AdminApp({
   return (
     <>
       {route.name === 'list' ? (
-        <SessionList api={api} navigate={navigate} />
+        <SessionList api={door} navigate={navigate} />
       ) : (
-        <SessionScreen api={api} id={route.id} navigate={navigate} />
+        <SessionScreen api={door} id={route.id} navigate={navigate} />
       )}
       {/* The same quiet foot-of-page notice the counting app carries. The desk
           is where a stale build costs the most — it is always online, and its

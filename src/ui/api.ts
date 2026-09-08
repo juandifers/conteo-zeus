@@ -12,7 +12,7 @@
  * once, on office wifi, before the tablet leaves (P2.1 §4c).
  */
 
-import { authHeader, storageAuth } from './auth';
+import { authHeader, storageAuth, type AuthGate } from './auth';
 
 /** A refusal from the server, with the structured half kept. */
 export class ApiError extends Error {
@@ -101,5 +101,35 @@ export function httpApi(
     post: (path, body) => request(fetcher, 'POST', path, body ?? {}, headers),
     patch: (path, body) => request(fetcher, 'PATCH', path, body, headers),
     del: (path) => request(fetcher, 'DELETE', path, undefined, headers),
+  };
+}
+
+/**
+ * The client's half of expiry: a 401 means the stored login is no longer
+ * worth trying, so drop it and tell the screen.
+ *
+ * `storageAuth().current()` returns an expired login on purpose — a tablet
+ * reopened offline must still render — so expiry is only ever *discovered*
+ * here, when a guarded route refuses. Without this the refusal is a banner
+ * with no door: the token stays in storage, a refresh replays the same 401,
+ * and the login form never comes back. `/api/auth` itself is exempt, because
+ * its 401 is a wrong password, not an expired session, and must not log out
+ * whoever is already in.
+ */
+export function reauthOn401(api: Api, gate: AuthGate, onExpired: () => void): Api {
+  function watched<T>(path: string, work: Promise<T>): Promise<T> {
+    return work.catch((cause: unknown) => {
+      if (path !== '/api/auth' && cause instanceof ApiError && cause.status === 401) {
+        gate.clear();
+        onExpired();
+      }
+      throw cause;
+    });
+  }
+  return {
+    get: (path) => watched(path, api.get(path)),
+    post: (path, body) => watched(path, api.post(path, body)),
+    patch: (path, body) => watched(path, api.patch(path, body)),
+    del: (path) => watched(path, api.del(path)),
   };
 }
