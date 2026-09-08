@@ -237,14 +237,15 @@ suite('POST /api/sessions', () => {
     expect((result.body as { error: string }).error).toMatch(/uncountedPolicy/);
   });
 
-  it('defaults to the verified triple and to showing the registrado mark', async () => {
+  it('defaults to the sanctioned triple and to showing the registrado mark', async () => {
     const { id } = (await upload(XLS)).body as { id: string };
     const shown = (await getSession(db, id)).body as {
       session: { parameters: unknown; mostrarMarcaRegistrado: boolean; parametrosVerificados: boolean };
     };
+    // `uncountedPolicy: 'zero'` since 0006 — an unreached row posts as a zero.
     expect(shown.session.parameters).toEqual({
       countTargetColumn: 'toma',
-      uncountedPolicy: 'existencia',
+      uncountedPolicy: 'zero',
       differenceColumn: 'computed',
     });
     expect(shown.session.parametrosVerificados).toBe(true);
@@ -330,8 +331,10 @@ suite('dispatch', () => {
     expect((result.body as { error: string }).error).toMatch(/dos secciones/);
   });
 
-  it('refuses a session on untested posting parameters', async () => {
-    await db.query("update sessions set uncounted_policy = 'zero' where id = $1", [sessionId]);
+  it('refuses a session on non-standard posting parameters', async () => {
+    // `'existencia'` was the rule before 0006; a session still carrying it must
+    // be an explicit act, not a leftover that quietly posts book figures.
+    await db.query("update sessions set uncounted_policy = 'existencia' where id = $1", [sessionId]);
     const result = await dispatchSession(db, sessionId, wholePlan(items));
     expect(result.status).toBe(409);
     expect(
@@ -514,7 +517,7 @@ suite('dispatch compartido (P2.6)', () => {
   });
 
   it('still gates on the file and the parameters — the session checks are not partition checks', async () => {
-    await db.query("update sessions set uncounted_policy = 'zero' where id = $1", [sessionId]);
+    await db.query("update sessions set uncounted_policy = 'existencia' where id = $1", [sessionId]);
     const result = await dispatchSession(db, sessionId, { counters: [{ nombre: 'Ana' }] });
     expect(result.status).toBe(409);
     expect(

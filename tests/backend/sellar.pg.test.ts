@@ -42,7 +42,7 @@ import { ingestZeusBytes, toWire, type SessionBundle } from '../../src/app';
 import { parseTxt, parseXls, reencode } from '../../src/zeus';
 import { fromBase64 } from '../../src/lib/base64';
 import { sha256Hex } from '../../src/lib/hash';
-import { readSample, SAMPLE_XLS } from '../helpers';
+import { loadVerificador, readSample, SAMPLE_XLS } from '../helpers';
 import { openTestDb, type TestDb } from './pgDb';
 
 const URL = process.env.DATABASE_URL;
@@ -319,8 +319,16 @@ suite('POST /api/sessions/:id/sellar', () => {
         )
       )[0];
 
+      // The head from `events`, not from `counters.head_hash`. Reading the
+      // column the handler read would make this assertion say only «the handler
+      // used the column», which is true of the wrong column too: `head_hash` is
+      // the head a `finish` *claimed*, one link before the finish itself, while
+      // `max(seq)` counts the finish. Pairing them hashes a length of three
+      // against the head of two.
       const counters = await db.query<{ id: string; head_hash: string; max: number }>(
-        `select c.id, c.head_hash,
+        `select c.id,
+                (select e.hash from events e where e.counter_id = c.id
+                  order by e.seq desc limit 1) as head_hash,
                 coalesce((select max(seq) from events e where e.counter_id = c.id), 0) as max
          from counters c where c.session_id = $1`,
         [fixture.sessionId],
@@ -494,7 +502,7 @@ suite('POST /api/sessions/:id/exportar', () => {
     expect([...fromBase64((first.body as { base64: string }).base64)]).toEqual([...stored]);
   });
 
-  it('writes `existencia` into `toma` for every row nobody reached — G2', async () => {
+  it('writes a zero into `toma` for every row nobody reached — G2', async () => {
     const fixture = await ready();
     await seal(fixture.sessionId);
     await exportSession(db, fixture.sessionId);
@@ -503,50 +511,48 @@ suite('POST /api/sessions/:id/exportar', () => {
     const source = parseTxt(TXT);
     expect(file.items.length).toBe(source.items.length);
 
-    // Counted: Ana's 7, Ana's explicit 0, Luis's 3. Everything else carries the
-    // book figure, which is the branch ZEUS_FORMAT.md §7 records as inferred
-    // rather than observed — the whole subject of this task's G2.
+    // Counted: Ana's 7, Ana's explicit 0, Luis's 3. Everything else is zeroed —
+    // under `'zero'` an unreached row posts as «counted and found empty», with
+    // the whole book quantity as its variance, and that is the policy decision
+    // this suite now holds.
     const counted = new Map([
       [fixture.suyosAna[0], 7],
       [fixture.suyosAna[1], 0],
       [fixture.suyosLuis[0], 3],
     ]);
     for (const [index, item] of file.items.entries()) {
-      const expected = counted.has(item.idarticulo)
-        ? counted.get(item.idarticulo)!
-        : source.items[index].existencia;
+      const expected = counted.get(item.idarticulo) ?? 0;
       expect({ id: item.idarticulo, toma: item.toma }).toEqual({
         id: source.items[index].idarticulo,
         toma: expected,
       });
+      if (!counted.has(item.idarticulo)) {
+        // The variance states the write-off's size. `-0` never appears: a row
+        // whose balance was already zero has nothing to write off.
+        const existencia = source.items[index].existencia;
+        expect(item.diferencia).toBe(existencia === 0 ? 0 : -existencia);
+      }
     }
   });
 
-  it('emits a zero only where a count was zero or the balance already was — G2', async () => {
-    // P2.0's property, re-run over a whole session rather than a fixture: a
-    // zero in the count column is a stock deletion (§7.4), so every one of them
-    // must trace to an explicit `add(0)` or to `existencia` already being zero.
+  it('leaves the book figure only where a count or a waiver stands — G2', async () => {
+    // P2.0's property, inverted with the policy: a zero in the count column is
+    // a stock deletion (§7.4), and under `'zero'` that is what every unreached
+    // row carries. What must trace to a person now is the opposite set — every
+    // row that *keeps* a non-zero figure must trace to a count somebody took.
     const fixture = await ready();
     await seal(fixture.sessionId);
     await exportSession(db, fixture.sessionId);
 
     const file = parseTxt((await loadExportBytes(db, fixture.sessionId))!);
-    const source = parseTxt(TXT);
-    const emptyBalance = new Set(
-      source.items.filter((item) => item.existencia === 0).map((item) => item.idarticulo),
-    );
-    const zeroed = file.items.filter((item) => item.toma === 0).map((item) => item.idarticulo);
-    const explicit = zeroed.filter((id) => !emptyBalance.has(id));
+    const kept = file.items.filter((item) => item.toma !== 0).map((item) => item.idarticulo);
 
-    // Set equality, not a subset: one extra id here is a row whose stock this
-    // file deletes and nobody asked it to.
-    expect(explicit).toEqual([fixture.suyosAna[1]]);
-    expect(new Set([...zeroed, ...emptyBalance])).toEqual(
-      new Set([...emptyBalance, fixture.suyosAna[1]]),
-    );
+    // Set equality, not a subset: one extra id here is a balance this file
+    // preserves and nobody vouched for.
+    expect(new Set(kept)).toEqual(new Set([fixture.suyosAna[0], fixture.suyosLuis[0]]));
   });
 
-  it('makes a waived row indistinguishable from an untouched one in the file', async () => {
+  it('keeps a waived row at the book figure while an untouched one is zeroed', async () => {
     const fixture = await ready();
     const waived = fixture.suyosAna[20];
     const untouched = fixture.suyosAna[21];
@@ -564,13 +570,14 @@ suite('POST /api/sessions/:id/exportar', () => {
     const source = parseTxt(TXT);
     const book = (id: number) => source.items.find((item) => item.idarticulo === id)!.existencia;
 
-    // Both carry the book figure and a zero variance. **The file cannot tell
-    // them apart**, and that is not a defect of this code: the format has no way
-    // to say «we did not look» (ZEUS_FORMAT.md §9).
+    // Under `'zero'` the file itself tells them apart: the waiver is what keeps
+    // a book figure standing, and the unreached row loses its balance. What the
+    // file still cannot say is *who* signed, or that anybody did — that stays
+    // the acta's job (ZEUS_FORMAT.md §9).
     expect(row(waived).toma).toBe(book(waived));
-    expect(row(untouched).toma).toBe(book(untouched));
     expect(row(waived).diferencia).toBe(0);
-    expect(row(untouched).diferencia).toBe(0);
+    expect(row(untouched).toma).toBe(0);
+    expect(row(untouched).diferencia).toBe(book(untouched) === 0 ? 0 : -book(untouched));
 
     // The bundle does tell them apart, which is the compensating control and the
     // reason the acta exists: one row carries a signature with a name and a
@@ -673,6 +680,40 @@ suite('GET /api/sessions/:id/bundle', () => {
     expect((again.body as { canonical: string }).canonical).toBe(canonical);
   });
 
+  it('verifies in `tools/verificador.html`, which is the whole point of it', async () => {
+    // The assertion the rest of this file cannot make. Every other check here
+    // recomputes with the same module the handler used, so all of them pass
+    // when the handler hashes over the wrong inputs — and one of them did: the
+    // seal took `counters.head_hash`, the head a `finish` declared, beside a
+    // `maxSeq` that counts the finish. The bundle restated the same pair, so it
+    // was self-consistent and unverifiable, and nothing in the suite noticed
+    // because the verifier's own fixture had no `finish` in it.
+    //
+    // This runs the file an auditor opens, over a bundle the real handlers
+    // produced from a real database, against the real exported bytes. It is the
+    // only test here that can tell the two heads apart.
+    const fixture = await ready();
+    await postAction(
+      db,
+      fixture.sessionId,
+      { kind: 'waiver', usuario: 'Marta', motivo: 'no alcanzó', idarticulo: [fixture.suyosAna[7]] },
+      { now: () => NOW, newId: ids('c') },
+    );
+    await seal(fixture.sessionId);
+    await exportSession(db, fixture.sessionId);
+
+    const bundle = JSON.parse(
+      ((await sessionBundle(db, fixture.sessionId)).body as { canonical: string }).canonical,
+    ) as unknown;
+    const txt = (await loadExportBytes(db, fixture.sessionId))!;
+
+    const checks = loadVerificador().verify(bundle, txt);
+    const failed = checks.filter((check) => !check.ok);
+    // The failures themselves, not a count: «one check did not pass» is not a
+    // thing anybody can act on at four in the afternoon.
+    expect(failed.map((check) => `${check.titulo} — ${check.where}`)).toEqual([]);
+  });
+
   it('reports the seal on /sync, with an empty late-arrival list', async () => {
     const fixture = await ready();
     await seal(fixture.sessionId);
@@ -686,13 +727,21 @@ suite('GET /api/sessions/:id/bundle', () => {
   });
 });
 
-/** The chain head the server holds for one counter. */
+/**
+ * The chain head the server holds for one counter: the hash at the highest
+ * `seq`.
+ *
+ * From `events`, not from `counters.head_hash` — that column is the *manifest's*
+ * head, the link before a `finish`, and after any counter has finished the two
+ * are different. Anything that means «where does this chain end» has to ask the
+ * chain.
+ */
 async function headOf(counterId: string): Promise<string | null> {
-  const rows = await db.query<{ head_hash: string | null }>(
-    'select head_hash from counters where id = $1',
+  const rows = await db.query<{ hash: string }>(
+    'select hash from events where counter_id = $1 order by seq desc limit 1',
     [counterId],
   );
-  return rows[0]?.head_hash ?? null;
+  return rows[0]?.hash ?? null;
 }
 
 /** How many rows each append-only table holds for this session. */

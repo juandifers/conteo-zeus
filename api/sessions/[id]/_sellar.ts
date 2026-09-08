@@ -194,10 +194,19 @@ export async function sealSession(
     counters: rows.map((row) => ({
       counterId: row.id,
       maxSeq: row.storedMaxSeq,
+      // `chainHead`, not `headHash`. The two differ by exactly the `finish`:
+      // `counters.head_hash` is the manifest's claim about the head at
+      // `finalSeq`, and `storedMaxSeq` counts the finish that follows it, so
+      // pairing them hashes a length of seven against the head of six. That is
+      // both an integrity hole — the finish's own `usuario`, `clientAt` and
+      // `deviceId` would sit outside the seal — and a hash no verifier can
+      // reproduce, because walking the chain from genesis lands on the last
+      // link and there is nowhere else honest to stop.
+      //
       // A counter who pushed nothing has a chain of length zero, and its head is
       // the genesis. Not the empty string: a hash input that says «no chain»
       // and one that says «a chain that starts here» must not collide.
-      headHash: row.headHash ?? genesisHash(id, row.id),
+      headHash: row.chainHead ?? genesisHash(id, row.id),
     })),
     actionHead: action ? action.hash : point.head,
     actionMaxSeq: point.expectedSeq + (action ? 1 : 0),

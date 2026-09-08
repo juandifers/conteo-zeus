@@ -14,6 +14,7 @@
  * surprise — it is the screen's own list, arrived at again on the other side of
  * the network.
  */
+import { requireRole } from '../../_auth.js';
 import {
   isVerifiedTriple,
   type PostingParameters,
@@ -259,6 +260,8 @@ export async function dispatchSession(
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   const id = param(req, 'id');
   if (!id) return send(res, fail(400, 'falta el id de la sesión'));
   if (req.method !== 'POST') return send(res, fail(405, 'POST'));

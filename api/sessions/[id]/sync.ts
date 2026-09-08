@@ -12,6 +12,7 @@
  * decide whether the count can be sealed. `tests/blindCount.test.ts` asserts the
  * counter's payload is unchanged by anything in this task.
  */
+import { requireRole } from '../../_auth.js';
 import {
   sealOverrides,
   sessionReadyToSeal,
@@ -166,6 +167,8 @@ export async function sessionSync(db: Db, id: string | null): Promise<ApiResult>
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   if (req.method !== undefined && req.method !== 'GET') return send(res, fail(405, 'GET'));
   try {
     return send(res, await sessionSync(dbFromEnv(), param(req, 'id')));

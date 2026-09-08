@@ -41,6 +41,14 @@ export interface VerifyWriteBackOptions {
   countTargetColumn?: 'toma' | 'conteo1';
   /** What the writer was told an uncounted row means. */
   uncountedPolicy?: 'existencia' | 'zero' | 'reject';
+  /**
+   * What the writer was told to put in `diferencia`. Only the `'zero'` policy
+   * needs it here: under `'existencia'` the difference is 0 either way, but a
+   * zeroed row's difference is `-existencia` under `'computed'` and 0 under the
+   * flat setting, and a check that skipped the column would let the writer
+   * declare a write-off without stating its size.
+   */
+  differenceColumn?: 'computed' | 'zero';
 }
 
 /**
@@ -251,11 +259,22 @@ export function verifyWriteBack(
             `salió en ${after.diferencia} y la política 'existencia' exige 0`,
         );
       }
-    } else if (after.toma !== 0) {
-      mismatches.push(
-        `fila ${row} (idarticulo ${before.idarticulo}): sin conteo, toma salió en ` +
-          `${after.toma} y la política 'zero' exige 0`,
-      );
+    } else {
+      if (after.toma !== 0) {
+        mismatches.push(
+          `fila ${row} (idarticulo ${before.idarticulo}): sin conteo, toma salió en ` +
+            `${after.toma} y la política 'zero' exige 0`,
+        );
+      }
+      const expectedDiff = (options.differenceColumn ?? 'computed') === 'computed'
+        ? -before.existencia
+        : 0;
+      if (after.diferencia !== expectedDiff) {
+        mismatches.push(
+          `fila ${row} (idarticulo ${before.idarticulo}): sin conteo, diferencia ` +
+            `salió en ${after.diferencia} y la política 'zero' exige ${expectedDiff}`,
+        );
+      }
     }
   }
 

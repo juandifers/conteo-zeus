@@ -257,6 +257,7 @@ export function writeAdjustment(
   verifyWriteBack(file, bytes, counts, {
     countTargetColumn: parameters.countTargetColumn,
     uncountedPolicy: parameters.uncountedPolicy,
+    differenceColumn: parameters.differenceColumn,
   });
 
   const resueltas = file.items.filter((item) => counts.has(item.idarticulo)).length;

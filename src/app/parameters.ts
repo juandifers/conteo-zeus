@@ -18,24 +18,30 @@ export interface PostingParameters {
 }
 
 /**
- * The triple in ZEUS_FORMAT.md §7.1 — the one combination a file has actually
- * been posted under and confirmed to move balances in Zeus.
+ * The one triple a session may be dispatched under.
  *
- * `uncountedPolicy: 'existencia'` rather than the library's `'reject'`: at the
- * session level this is what an *uncounted row means*, and the verified run
- * carried explicit no-change rows. `exportAdjustment` still fixes `'reject'`
- * for itself, because the only route to posting an incomplete count is a signed
- * waiver (DOMAIN.md §4) — the two are not in conflict, they answer different
- * questions.
+ * `countTargetColumn` and `differenceColumn` are ZEUS_FORMAT.md §7.1's — the
+ * combination a file has actually been posted under and confirmed to move
+ * balances in Zeus.
  *
- * The other values are implemented and untested against the ERP. That is why a
- * session on them is refused at dispatch rather than merely flagged: a session
- * created on untested parameters has to be an explicit act somebody performed,
- * not a default anybody drifts into.
+ * `uncountedPolicy: 'zero'` is a policy decision, not a §7.1 verification
+ * (2026-09: a row nobody counted must post as zero, not as the book figure).
+ * A blank row now *zeroes the balance* in Zeus, which is the sharper meaning:
+ * the file says what the count found, and the count found nothing there. What
+ * pays for it is the same machinery that paid for `'existencia'` — the acta
+ * names how many rows were written by policy rather than by a person, and a
+ * signed waiver is the one route to keeping a book figure nobody checked.
+ * `exportAdjustment` still fixes `'reject'` for itself; the two answer
+ * different questions.
+ *
+ * The other values are implemented but are not what the session flow expects.
+ * A session on them is refused at dispatch rather than merely flagged: a
+ * session on non-standard parameters has to be an explicit act somebody
+ * performed, not a default anybody drifts into.
  */
 export const VERIFIED_PARAMETERS: PostingParameters = {
   countTargetColumn: 'toma',
-  uncountedPolicy: 'existencia',
+  uncountedPolicy: 'zero',
   differenceColumn: 'computed',
 };
 

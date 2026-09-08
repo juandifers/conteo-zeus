@@ -1,14 +1,14 @@
 /**
- * A new version, waiting until somebody asks for it.
+ * A new version, waiting until somebody applies it.
  *
  * The service worker is registered with `registerType: 'prompt'`, so a new
  * build installs itself and then *stops*, holding at `waiting`. It takes over
- * only when this module tells it to. That is deliberate and it is the whole
- * design: the alternative — `autoUpdate` — reloads the page out from under
- * whoever is holding the tablet. Nothing in IndexedDB would be lost, but the
- * number half-typed into the keypad would be, and a tablet that restarts
- * itself mid-count is a tablet people stop trusting long before they can say
- * why.
+ * only when this module tells it to — the screen blocks (UpdateNotice.tsx)
+ * until somebody taps «Actualizar», and the reload happens at a moment a
+ * person chose. The alternative — `autoUpdate` — reloads the page out from
+ * under whoever is holding the tablet, with no sentence on screen saying why;
+ * a tablet that restarts itself unannounced is a tablet people stop trusting
+ * long before they can say why.
  *
  * `registerSW` is passed in rather than imported. It comes from a virtual
  * module that only exists inside a Vite build, so importing it here would put

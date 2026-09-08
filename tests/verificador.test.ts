@@ -19,7 +19,6 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -27,6 +26,7 @@ import {
   chainActionHash,
   chainHash,
   codigoSello,
+  eventFromRow,
   genesisHash,
   sessionHash,
   type CountEvent,
@@ -38,42 +38,16 @@ import {
   type SessionBundle,
 } from '../src/app';
 import { parseXls, reencode } from '../src/zeus';
-import { readSample, SAMPLE_XLS } from './helpers';
+import {
+  loadVerificador,
+  readSample,
+  SAMPLE_XLS,
+  type Check,
+  type Verificador,
+} from './helpers';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VERIFICADOR = join(HERE, '..', 'tools', 'verificador.html');
-
-interface Check {
-  ok: boolean;
-  titulo: string;
-  where: string;
-}
-
-interface Verificador {
-  verify(bundle: unknown, txtBytes: Uint8Array | null): Check[];
-  sha256Hex(bytes: Uint8Array): string;
-  codigoSello(sessionHash: string): string;
-}
-
-/**
- * Load the verifier's script out of the HTML and run it.
- *
- * The script, not a re-export: what is under test is the file somebody opens in
- * a browser in 2029, and a test that exercised anything else would be testing a
- * copy. `runInNewContext` gives it a global object with no `document`, which is
- * why the page-wiring half of the file is guarded on `getElementById`.
- */
-function loadVerificador(): Verificador {
-  const html = readFileSync(VERIFICADOR, 'utf8');
-  const match = /<script>([\s\S]*?)<\/script>/.exec(html);
-  if (!match) throw new Error('tools/verificador.html has no <script> block');
-  const sandbox: Record<string, unknown> = { TextEncoder, TextDecoder, console };
-  sandbox.globalThis = sandbox;
-  runInNewContext(match[1], sandbox, { filename: 'verificador.html' });
-  const api = sandbox.__verificador as Verificador | undefined;
-  if (!api) throw new Error('verificador.html did not expose __verificador');
-  return api;
-}
 
 // --- A sealed session, built with the real domain ---------------------------
 
@@ -122,6 +96,12 @@ function chainOf(
   const rows: WireEvent[] = [];
   for (const [index, spec] of specs.entries()) {
     const seq = index + 1;
+    // A `finish` is a manifest about the events *before* it, and `CountStore`
+    // builds it from its own running state: `finalSeq = seq - 1`, `headHash =`
+    // the head at that point. Same rule after a `reopen`, which is why this is
+    // an expression here and not a field on the spec.
+    const manifest =
+      spec.kind === 'finish' ? { finalSeq: seq - 1, headHash: prev } : null;
     const base = {
       id: eventId(),
       sessionId: SESSION,
@@ -138,6 +118,7 @@ function chainOf(
       idarticulo: spec.idarticulo ?? null,
       ...(spec.qty === undefined ? {} : { qty: spec.qty }),
       ...(spec.texto === undefined ? {} : { texto: spec.texto }),
+      ...(manifest ?? {}),
     } as CountEvent;
     const hash = chainHash(prev, event);
     rows.push({
@@ -151,8 +132,8 @@ function chainOf(
       retractsEventId: null,
       motivo: null,
       texto: spec.texto ?? null,
-      finalSeq: null,
-      headHash: null,
+      finalSeq: manifest ? manifest.finalSeq : null,
+      headHash: manifest ? manifest.headHash : null,
       usuario: base.usuario,
       zona,
       clientAt: base.at,
@@ -179,13 +160,26 @@ function sealedSession(): Sealed {
   const sourceHash = sourceHashOf(file);
   const ids = file.items.map((item) => item.idarticulo);
 
+  // Both counters **finish**, and Ana reopens and counts again — the shape of
+  // every real sealed session, and the shape this fixture used to lack. It is
+  // not decoration: `finish` is the one event that makes a counter's stored
+  // chain end one link past the head its own manifest declares, so a fixture
+  // without one cannot tell the two apart and lets a seal computed over the
+  // wrong of the two pass everything in this file.
   const ana = chainOf(ANA, 'ALMACEN', [
     { kind: 'add', idarticulo: ids[0], qty: 7 },
     { kind: 'add', idarticulo: ids[0], qty: 0.5 },
     { kind: 'add', idarticulo: ids[1], qty: 0 },
     { kind: 'note', idarticulo: ids[2], texto: 'hay una caja sin marcar' },
+    { kind: 'finish' },
+    { kind: 'reopen' },
+    { kind: 'add', idarticulo: ids[3], qty: 2 },
+    { kind: 'finish' },
   ]);
-  const luis = chainOf(LUIS, 'BAR', [{ kind: 'add', idarticulo: ids[200], qty: 3 }]);
+  const luis = chainOf(LUIS, 'BAR', [
+    { kind: 'add', idarticulo: ids[200], qty: 3 },
+    { kind: 'finish' },
+  ]);
   const eventos = [...ana, ...luis];
 
   // One waiver, on a row nobody counted. It projects to `unchanged`, which under
@@ -206,6 +200,9 @@ function sealedSession(): Sealed {
   const counted = new Map<number, number>([
     [ids[0], 7.5],
     [ids[1], 0],
+    // Counted after Ana reopened, which is the point of the reopen being here:
+    // a seal that stopped at the first `finish` would leave this row out.
+    [ids[3], 2],
     [ids[200], 3],
     // The waived row resolves to `unchanged`, which the export writes as the
     // book figure.
@@ -217,9 +214,25 @@ function sealedSession(): Sealed {
     differenceColumn: 'computed',
   });
 
+  /**
+   * The two heads a finished counter has, kept apart on purpose.
+   *
+   * `chainHead` is where the stored chain ends — the last `finish` — and it is
+   * what the seal hashes, paired with `maxSeq`. `manifest` is what that finish
+   * *claimed*: the head one link earlier, at `finalSeq`. The server keeps the
+   * second in `counters.head_hash` and the acta prints it; feeding it to
+   * `sessionHash` beside a length that counts the finish is the bug this
+   * fixture now has the shape to catch.
+   */
+  const headsOf = (rows: WireEvent[]) => ({
+    maxSeq: rows.length,
+    chainHead: rows[rows.length - 1].hash,
+    finalSeq: rows[rows.length - 1].finalSeq!,
+    manifest: rows[rows.length - 1].headHash!,
+  });
   const counters = [
-    { id: ANA, nombre: 'Ana', maxSeq: ana.length, headHash: ana[ana.length - 1].hash },
-    { id: LUIS, nombre: 'Luis', maxSeq: luis.length, headHash: luis[luis.length - 1].hash },
+    { id: ANA, nombre: 'Ana', ...headsOf(ana) },
+    { id: LUIS, nombre: 'Luis', ...headsOf(luis) },
   ];
 
   const bundle: SessionBundle = {
@@ -256,8 +269,9 @@ function sealedSession(): Sealed {
       id: counter.id,
       nombre: counter.nombre,
       estado: 'terminado_confirmado',
-      finalSeq: counter.maxSeq,
-      headHash: counter.headHash,
+      // The manifest, as the server stores it and the acta prints it.
+      finalSeq: counter.finalSeq,
+      headHash: counter.manifest,
       finishReason: null,
       fetchedAt: new Date(EPOCH).toISOString(),
       lastServerAt: new Date(EPOCH + 5000).toISOString(),
@@ -281,7 +295,7 @@ function sealedSession(): Sealed {
         counters: counters.map((counter) => ({
           counterId: counter.id,
           maxSeq: counter.maxSeq,
-          headHash: counter.headHash,
+          headHash: counter.chainHead,
         })),
         actionHead,
         actionMaxSeq: 1,
@@ -290,7 +304,7 @@ function sealedSession(): Sealed {
       contadores: counters.map((counter) => ({
         counterId: counter.id,
         maxSeq: counter.maxSeq,
-        headHash: counter.headHash,
+        headHash: counter.chainHead,
       })),
       actionHead,
       actionMaxSeq: 1,
@@ -351,10 +365,11 @@ describe('the round trip', () => {
   it('folds the same counts the file carries, waiver and all', () => {
     const checks = verificador.verify(copy(sealed.bundle), sealed.txt);
     const fold = checks.find((check) => check.titulo.startsWith('Plegado'))!;
-    // Three counted articles, one waived, and the sentence about what the other
-    // rows will claim — because a verifier that reported only hashes would let
-    // somebody believe the file says «we did not look».
-    expect(fold.titulo).toMatch(/3 filas contadas, 1 exoneradas/);
+    // Four counted articles — one of them recorded after Ana reopened — one
+    // waived, and the sentence about what the other rows will claim, because a
+    // verifier that reported only hashes would let somebody believe the file
+    // says «we did not look».
+    expect(fold.titulo).toMatch(/4 filas contadas, 1 exoneradas/);
     expect(fold.where).toMatch(/como si se hubieran contado y coincidido/);
   });
 
@@ -430,13 +445,41 @@ describe('every mutation class fails, and says where', () => {
 
   it('a tail cut off the end: caught by the length in the seal', () => {
     const bundle = copy(sealed.bundle);
+    // Ana's last event — her closing `finish` — disappears.
+    const last = Math.max(
+      ...bundle.eventos.filter((event) => event.counterId === ANA).map((event) => event.seq),
+    );
     bundle.eventos = bundle.eventos.filter(
-      (event) => !(event.counterId === ANA && event.seq === 4),
+      (event) => !(event.counterId === ANA && event.seq === last),
     );
     const broken = failures(verificador.verify(bundle, sealed.txt));
-    // No gap — the chain 1..3 is contiguous and every link verifies. What
-    // catches it is `maxSeq` being inside `sessionHash`.
+    // No gap — what is left is contiguous and every link verifies. What catches
+    // it is `maxSeq` being inside `sessionHash`.
     expect(broken.some((check) => check.titulo.includes('otra longitud'))).toBe(true);
+    expect(broken.some((check) => check.titulo.startsWith('sessionHash'))).toBe(true);
+  });
+
+  it('a rewritten `finish`, re-chained so the links still hold', () => {
+    // The mutation the seal used to survive. `counters.head_hash` is the head
+    // the finish *claimed* — the link before it — so a seal taken over that
+    // hash left the finish's own `usuario`, `clientAt` and `deviceId` outside
+    // the digest, and the whole chain could be re-linked around a rewritten one
+    // without moving `sessionHash`. It is not a hypothetical field: «who
+    // declared this counter done, and when» is on the acta.
+    const bundle = copy(sealed.bundle);
+    const rows = bundle.eventos.filter((event) => event.counterId === ANA);
+    const last = rows[rows.length - 1];
+    expect(last.kind).toBe('finish');
+    last.usuario = 'Otra persona';
+    // Re-chained, so nothing about the links themselves is wrong: this is the
+    // careful version of the tamper, not the clumsy one.
+    last.hash = chainHash(last.prevHash, eventFromRow(last));
+
+    const broken = failures(verificador.verify(bundle, sealed.txt));
+    expect(broken.map((check) => check.titulo)).not.toContain(
+      expect.stringContaining('no corresponde a su hash'),
+    );
+    expect(broken.some((check) => check.titulo.includes('cabeza recalculada'))).toBe(true);
     expect(broken.some((check) => check.titulo.startsWith('sessionHash'))).toBe(true);
   });
 

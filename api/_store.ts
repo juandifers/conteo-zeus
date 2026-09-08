@@ -751,7 +751,29 @@ export interface CounterSyncRow {
    * rather than one per counter.
    */
   storedCount: number;
+  /**
+   * The head this counter's `finish` **claimed**: the chain head at `finalSeq`,
+   * which is the link *before* the finish itself (P2.2 §2a).
+   *
+   * Read by `checkFinishManifest` and printed on the acta beside `finalSeq`,
+   * because those are the two halves of one claim. It is **not** the head of
+   * the stored chain — after a finish it is one link behind it, and after a
+   * `reopen` it is behind by however much came next. Anything hashing over
+   * "where this chain ends" wants `chainHead`.
+   */
   headHash: string | null;
+  /**
+   * Where the stored chain actually ends: the hash at `storedMaxSeq`, and
+   * `null` when this counter has pushed nothing.
+   *
+   * Beside `headHash` rather than instead of it because they answer different
+   * questions and the seal wants this one. `storedMaxSeq` counts the `finish`,
+   * so pairing that length with the manifest's head would hash over a chain of
+   * seven links and the head of six — a `finish` whose contents could then be
+   * rewritten without moving `session_hash`, and a seal that no independent
+   * verifier walking the chain from genesis can reproduce.
+   */
+  chainHead: string | null;
   finalSeq: number | null;
   finishReason: string | null;
   lastServerAt: string | null;
@@ -768,6 +790,8 @@ export async function loadCounterSync(db: Db, sessionId: string): Promise<Counte
             coalesce((select max(seq) from events e where e.counter_id = c.id), 0) as "storedMaxSeq",
             (select count(*)::int from events e where e.counter_id = c.id) as "storedCount",
             c.head_hash      as "headHash",
+            (select e.hash from events e where e.counter_id = c.id
+              order by e.seq desc limit 1) as "chainHead",
             c.final_seq      as "finalSeq",
             c.finish_reason  as "finishReason",
             ${utc('c.last_server_at')} as "lastServerAt",

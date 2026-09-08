@@ -89,6 +89,22 @@ interface Server {
 async function backend(page: Page): Promise<Server> {
   const server: Server = { events: [], offline: false }
 
+  // Already logged in as the shared `contador` user — see sync.spec.ts.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem(
+        'conteo.auth',
+        JSON.stringify({
+          token: 'v1.contador.9999999999.aa.bb',
+          role: 'contador',
+          expiresAt: '2286-11-20T17:46:39.000Z',
+        }),
+      )
+    } catch {
+      // Storage blocked: the login screen appears and the test fails loudly.
+    }
+  })
+
   await page.route('**/api/**', async (route: Route) => {
     if (server.offline) return route.abort('internetdisconnected')
     const url = new URL(route.request().url())

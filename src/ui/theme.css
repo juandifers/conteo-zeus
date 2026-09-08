@@ -787,36 +787,43 @@ select {
   gap: 12px;
 }
 
-/* ---- the update notice -------------------------------------------------
+/* ---- the update gate ---------------------------------------------------
  *
- * A strip at the foot of the shell, never a dialog and never over the keypad.
- * It is the last thing in `.app`, so it takes its own line at the bottom of
- * every screen and pushes nothing off. */
+ * A full-screen overlay, blocking on purpose: a build left running past a
+ * deploy is a client the server no longer expects, so «seguir sin
+ * actualizar» is not on offer. It stands between the person and the screen,
+ * not between the outbox and the server — sync keeps draining underneath. */
 
-.updatebar {
+.updategate {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--rule-strong);
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 55%);
+}
+
+.updategate__card {
+  max-width: 420px;
+  padding: 24px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
   background: var(--paper-sunken);
+  text-align: center;
+}
+
+.updategate__title {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.updategate__text {
+  margin: 0 0 16px;
   font-size: 16px;
-}
-
-.updatebar__text {
-  flex: 1;
   color: var(--ink-quiet);
-}
-
-.updatebar__close {
-  min-width: var(--tap);
-  min-height: var(--tap);
-  border: 0;
-  background: transparent;
-  font-size: 22px;
-  line-height: 1;
-  color: var(--ink-quiet);
-  cursor: pointer;
 }
 
 /* ---- motion: feedback only --------------------------------------------- */

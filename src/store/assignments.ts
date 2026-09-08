@@ -16,6 +16,13 @@ export interface AssignmentStore {
   load(token: string): Promise<CounterAssignmentRow | null>;
   /** Every link this device has prepared. The tablet may be shared. */
   list(): Promise<CounterAssignmentRow[]>;
+  /**
+   * Forget one link. Only for rows that are pure catalogue — re-fetchable by
+   * whoever opens the link again — never for one whose counter still has
+   * unsynced work on this device; `clearStaleAssignments` is the one caller
+   * and holds that rule.
+   */
+  remove(token: string): Promise<void>;
 }
 
 export class DexieAssignmentStore implements AssignmentStore {
@@ -43,5 +50,9 @@ export class DexieAssignmentStore implements AssignmentStore {
 
   async list(): Promise<CounterAssignmentRow[]> {
     return this.db.counterAssignments.toArray();
+  }
+
+  async remove(token: string): Promise<void> {
+    await this.db.counterAssignments.delete(token);
   }
 }

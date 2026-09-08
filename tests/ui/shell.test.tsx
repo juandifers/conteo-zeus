@@ -122,7 +122,7 @@ describe('a new version, waiting', () => {
     expect(updates.apply).toHaveBeenCalledTimes(1);
   });
 
-  it('can be dismissed, and stays dismissed for the rest of the shift', async () => {
+  it('cannot be dismissed: the only way forward is the update', async () => {
     const updates = fakeUpdates();
     render(
       <App
@@ -136,14 +136,12 @@ describe('a new version, waiting', () => {
     updates.announce();
     await screen.findByText('Hay una versión nueva');
 
-    await userEvent.setup().click(screen.getByRole('button', { name: 'descartar aviso' }));
-
-    expect(screen.queryByText('Hay una versión nueva')).toBeNull();
-    // Re-announcing does not bring it back: the worker fires `onNeedRefresh`
-    // more than once in some browsers, and a notice that reappears after being
-    // dismissed is a notice that gets tapped through without being read.
-    updates.announce();
-    expect(screen.queryByText('Hay una versión nueva')).toBeNull();
+    // A deprecated build kept in use looks exactly like the app working, so
+    // the gate offers no «descartar»: one action, and it blocks the shell
+    // underneath (`aria-modal`) until somebody takes it.
+    expect(screen.queryByRole('button', { name: 'descartar aviso' })).toBeNull();
+    const gate = screen.getByRole('alertdialog');
+    expect(gate.getAttribute('aria-modal')).toBe('true');
     expect(updates.apply).not.toHaveBeenCalled();
   });
 

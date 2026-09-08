@@ -33,11 +33,6 @@ const ROW_HEIGHT = 58;
 /** How many rows to draw above and below the window, so a fast scroll is not blank. */
 const OVERSCAN = 6;
 
-function directionClass(row: ReviewRow): string {
-  if (row.diferencia === null || row.diferencia === 0) return '';
-  return row.diferencia < 0 ? 'grid--short' : 'grid--over';
-}
-
 /** The word for what happened to a row. Never `faltante` for a variance. */
 function stateLabel(row: ReviewRow): string {
   switch (row.state) {
@@ -115,8 +110,28 @@ export function Aggregate({
               <td colSpan={5} style={{ height: before, padding: 0 }} />
             </tr>
           )}
-          {window.map((row) => (
-            <tr key={row.item.idarticulo} className={directionClass(row)}>
+          {window.map((row) => {
+            // What the file will write for a row nobody touched: a zero, and
+            // the whole book quantity as its variance (uncountedPolicy
+            // 'zero'). The review is the reveal, so the table states the
+            // consequence here rather than leaving a dash that reads as
+            // «nothing happens to this row». A waived row keeps its dashes:
+            // it writes the book figure, which is the column beside it.
+            const conteo =
+              row.conteo !== undefined ? row.conteo : row.state === 'untouched' ? 0 : undefined;
+            const diferencia =
+              row.diferencia ?? (row.state === 'untouched' ? -row.item.existencia : null);
+            return (
+            <tr
+              key={row.item.idarticulo}
+              className={
+                diferencia !== null && diferencia !== 0
+                  ? diferencia < 0
+                    ? 'grid--short'
+                    : 'grid--over'
+                  : ''
+              }
+            >
               <th scope="row" className="grid__name">
                 <span className="grid__nombre">
                   {onToggle && row.state !== 'counted' ? (
@@ -146,15 +161,14 @@ export function Aggregate({
                 ))}
               </th>
               <td className="grid__n num">{formatQty(row.item.existencia)}</td>
+              <td className="grid__n num">{conteo === undefined ? '—' : formatQty(conteo)}</td>
               <td className="grid__n num">
-                {row.conteo === undefined ? '—' : formatQty(row.conteo)}
-              </td>
-              <td className="grid__n num">
-                {row.diferencia === null ? '—' : formatSignedQty(row.diferencia)}
+                {diferencia === null ? '—' : formatSignedQty(diferencia)}
               </td>
               <td className="grid__n num grid__impacto">{formatMoney(row.exposicion)}</td>
             </tr>
-          ))}
+            );
+          })}
           {after > 0 && (
             <tr aria-hidden="true" className="grid__spacer">
               <td colSpan={5} style={{ height: after, padding: 0 }} />

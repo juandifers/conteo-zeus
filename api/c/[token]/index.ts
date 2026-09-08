@@ -23,6 +23,7 @@
  * counters have fetched precisely because a tablet that walks in unloaded is a
  * person who walks back out.
  */
+import { requireRole } from '../../_auth.js';
 import { pushEvents } from './_events.js';
 import { counterResume } from './_resume.js';
 import {
@@ -185,6 +186,8 @@ export async function counterFetch(
  * Nothing here decides anything.
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['contador']);
+  if (denied) return send(res, denied);
   const op = param(req, '_op');
   const token = param(req, 'token');
   const method = req.method ?? 'GET';

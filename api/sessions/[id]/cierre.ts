@@ -20,6 +20,7 @@
  * an endpoint — and they are what `tests/backend/sellar.pg.test.ts` calls. This
  * file chooses one of them and maps a method to a status code.
  */
+import { requireRole } from '../../_auth.js';
 import { dbFromEnv, NoDatabaseError } from '../../_db.js';
 import {
   fail,
@@ -34,6 +35,8 @@ import { downloadExport, exportSession } from './_exportar.js';
 import { sealSession } from './_sellar.js';
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   const op = param(req, '_op');
   const id = param(req, 'id');
   const method = req.method ?? 'GET';

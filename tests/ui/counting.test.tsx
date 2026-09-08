@@ -46,6 +46,9 @@ function heldAssignment(payload: CounterPayload): AssignmentStore {
     },
     load: async () => row,
     list: async () => (row ? [row] : []),
+    remove: async (token) => {
+      if (row?.token === token) row = null;
+    },
   };
 }
 

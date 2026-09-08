@@ -337,15 +337,17 @@ suite('the schema, against Postgres', () => {
     expect(rows[0].payload).toEqual({ nombre: 'Luis' });
   });
 
-  it('defaults a session to the verified triple', async () => {
+  it('defaults a session to the sanctioned triple', async () => {
     const { rows } = await client.query(
       `select count_target_column, uncounted_policy, difference_column
        from sessions where id = $1`,
       [SESSION],
     );
+    // `'zero'` since 0006: a row nobody counted posts as a zero, not as the
+    // book figure. The other two are still ZEUS_FORMAT.md §7.1's.
     expect(rows[0]).toEqual({
       count_target_column: 'toma',
-      uncounted_policy: 'existencia',
+      uncounted_policy: 'zero',
       difference_column: 'computed',
     });
   });

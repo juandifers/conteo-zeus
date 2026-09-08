@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -13,6 +14,45 @@ export const SAMPLE_XLS = join(here, '..', 'samples', 'COMESTIBLES ALMACEN.xls')
 
 export function readSample(path: string): Uint8Array {
   return new Uint8Array(readFileSync(path));
+}
+
+/** One line of the verifier's verdict: a claim, whether it held, and where. */
+export interface Check {
+  ok: boolean;
+  titulo: string;
+  where: string;
+}
+
+export interface Verificador {
+  verify(bundle: unknown, txtBytes: Uint8Array | null): Check[];
+  sha256Hex(bytes: Uint8Array): string;
+  codigoSello(sessionHash: string): string;
+}
+
+/**
+ * Load the verifier's script out of `tools/verificador.html` and run it.
+ *
+ * The script, not a re-export: what is under test is the file somebody opens in
+ * a browser in 2029, and a test that exercised anything else would be testing a
+ * copy. `runInNewContext` gives it a global object with no `document`, which is
+ * why the page-wiring half of the file is guarded on `getElementById`.
+ *
+ * Here rather than beside its own suite because two suites need it, and for the
+ * same reason: `tests/verificador.test.ts` holds the second implementation
+ * against the domain, and `tests/backend/sellar.pg.test.ts` holds it against a
+ * bundle the real handlers produced from a real database. Only the second one
+ * can tell you the seal was computed over the right inputs.
+ */
+export function loadVerificador(): Verificador {
+  const html = readFileSync(join(here, '..', 'tools', 'verificador.html'), 'utf8');
+  const match = /<script>([\s\S]*?)<\/script>/.exec(html);
+  if (!match) throw new Error('tools/verificador.html has no <script> block');
+  const sandbox: Record<string, unknown> = { TextEncoder, TextDecoder, console };
+  sandbox.globalThis = sandbox;
+  runInNewContext(match[1], sandbox, { filename: 'verificador.html' });
+  const api = sandbox.__verificador as Verificador | undefined;
+  if (!api) throw new Error('verificador.html did not expose __verificador');
+  return api;
 }
 
 /**

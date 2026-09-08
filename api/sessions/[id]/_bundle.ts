@@ -119,10 +119,15 @@ export async function sessionBundle(db: Db, id: string | null): Promise<ApiResul
       // chain from genesis and then checks its own heads against these, so a
       // disagreement is reported as «the recorded head for Luis is not the one
       // his events produce» instead of as an unexplained seal mismatch.
+      // `chainHead`, the same input `_sellar.ts` hashes over — the last link of
+      // the stored chain, not the head the `finish` manifest claimed one link
+      // earlier. `contadores[].headHash` above is still the manifest's claim,
+      // which is what the acta prints beside `finalSeq`; these two fields of the
+      // bundle say different things on purpose.
       contadores: counters.map((counter) => ({
         counterId: counter.id,
         maxSeq: counter.storedMaxSeq,
-        headHash: counter.headHash ?? genesisHash(id, counter.id),
+        headHash: counter.chainHead ?? genesisHash(id, counter.id),
       })),
       actionHead: last ? last.hash : actionGenesisHash(id),
       actionMaxSeq: last ? last.seq : 0,

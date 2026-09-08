@@ -3,9 +3,11 @@
  * incomplete count (DOMAIN.md §4).
  *
  * `uncountedPolicy: 'existencia'` would produce the same bytes with nobody's
- * name on them, which is why `exportAdjustment` does not expose it. Everything
- * on this panel exists to make the claim explicit before it is signed: what is
- * being waived, what it is worth, who is signing, and why.
+ * name on them, which is why `exportAdjustment` does not expose it. (The P2
+ * session default is `'zero'` — an unwaived, uncounted row posts as a zero —
+ * so a waiver is also the one route to keeping a book figure nobody checked.)
+ * Everything on this panel exists to make the claim explicit before it is
+ * signed: what is being waived, what it is worth, who is signing, and why.
  *
  * The `motivo` is required here and refused on the counter's waiver (§3). One
  * action covering two hundred rows is a much larger claim than one person

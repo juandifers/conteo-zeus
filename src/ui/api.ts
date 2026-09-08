@@ -12,6 +12,8 @@
  * once, on office wifi, before the tablet leaves (P2.1 §4c).
  */
 
+import { authHeader, storageAuth } from './auth';
+
 /** A refusal from the server, with the structured half kept. */
 export class ApiError extends Error {
   readonly status: number;
@@ -34,14 +36,17 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  headers: () => Record<string, string> = defaultHeaders,
 ): Promise<T> {
   let response: Response;
   try {
     response = await fetcher(path, {
       method,
-      ...(body === undefined
-        ? {}
-        : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      headers: {
+        ...headers(),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch (cause) {
     // The offline case, and the one worth naming: on a tablet this is somebody
@@ -78,11 +83,23 @@ export interface Api {
   del<T>(path: string): Promise<T>;
 }
 
-export function httpApi(fetcher: Fetcher = fetch.bind(globalThis)): Api {
+/**
+ * The login the device holds, on every request. Read at call time rather than
+ * once, so a login taken on one screen reaches the next request without any
+ * plumbing between them; the server re-verifies it every time regardless.
+ */
+function defaultHeaders(): Record<string, string> {
+  return authHeader(storageAuth());
+}
+
+export function httpApi(
+  fetcher: Fetcher = fetch.bind(globalThis),
+  headers?: () => Record<string, string>,
+): Api {
   return {
-    get: (path) => request(fetcher, 'GET', path),
-    post: (path, body) => request(fetcher, 'POST', path, body ?? {}),
-    patch: (path, body) => request(fetcher, 'PATCH', path, body),
-    del: (path) => request(fetcher, 'DELETE', path),
+    get: (path) => request(fetcher, 'GET', path, undefined, headers),
+    post: (path, body) => request(fetcher, 'POST', path, body ?? {}, headers),
+    patch: (path, body) => request(fetcher, 'PATCH', path, body, headers),
+    del: (path) => request(fetcher, 'DELETE', path, undefined, headers),
   };
 }

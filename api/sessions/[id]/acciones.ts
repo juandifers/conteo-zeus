@@ -30,6 +30,7 @@
  *     a session can move backwards from «everyone finished», and «todos
  *     terminaron» is not final until the seal.
  */
+import { requireRole } from '../../_auth.js';
 import {
   actionGenesisHash,
   annullable,
@@ -841,6 +842,8 @@ async function sealWithout(
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   const id = param(req, 'id');
   try {
     if (req.method === undefined || req.method === 'GET') {

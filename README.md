@@ -36,7 +36,10 @@ npm run dev
 ```
 
 The counting screens work with nothing else running. The admin screens need
-a database — see below.
+a database — see below — and a login: the desk signs in as `admin`, tablets
+share one `contador` user (`AUTH_SECRET`, `ADMIN_PASSWORD`, `COUNTER_PASSWORD`
+in `.env.local` locally, on the Vercel project in production; see
+`docs/BACKEND.md`).
 
 ## Backend
 

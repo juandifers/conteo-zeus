@@ -128,11 +128,15 @@ export function Acta({
           cantidad contada, <code>{parameters.uncountedPolicy}</code> para las filas sin
           contar, <code>{parameters.differenceColumn}</code> para la diferencia.{' '}
           {verificados ? (
-            <>Es la combinación verificada contra Zeus (ZEUS_FORMAT.md §7.1).</>
+            <>
+              Es la combinación estándar: columna y diferencia verificadas contra Zeus
+              (ZEUS_FORMAT.md §7.1), y las filas sin contar en cero por decisión del
+              departamento.
+            </>
           ) : (
             <strong>
-              No es la combinación verificada contra Zeus. Esta sesión se creó con
-              parámetros que nunca se han comprobado contra el ERP:{' '}
+              No es la combinación estándar. Esta sesión se creó con parámetros
+              distintos de los que rigen los conteos:{' '}
               {detail.session.parametrosSinVerificar.join(', ')}.
             </strong>
           )}
@@ -600,19 +604,21 @@ export function Acta({
 
         <h3>Lo que no acreditan</h3>
         <p>
-          Quién registró cada evento. Esta versión identifica a los contadores por nombre
-          y por enlace, sin autenticación: la cadena prueba que el registro no cambió, no
-          que lo hizo determinada persona.
+          Quién registró cada evento. La mesa exige el usuario administrador y las
+          tabletas un usuario general de conteo, pero los contadores individuales se
+          identifican por nombre y por enlace, no cada uno con su clave: la cadena
+          prueba que el registro no cambió, no que lo hizo determinada persona.
         </p>
 
         <h3>Filas no verificadas</h3>
         <p>
           El formato de Zeus exige todas las filas y no tiene forma de decir «no lo
-          miramos». Las{' '}
-          <strong>{formatQty(review.counts.untouched + review.counts.unchanged)}</strong>{' '}
-          filas no contadas se escriben con su cantidad de Zeus, es decir,{' '}
+          miramos». Las <strong>{formatQty(review.counts.untouched)}</strong> filas sin
+          contar se escriben <strong>en cero</strong>: el archivo borra su saldo en
+          libros. Las <strong>{formatQty(review.counts.unchanged)}</strong> filas
+          exoneradas se escriben con su cantidad de Zeus, es decir,{' '}
           <strong>como si se hubieran contado y coincidido</strong>. Esta acta es el único
-          documento que distingue esas filas de las contadas.
+          documento que distingue unas y otras de las contadas.
         </p>
 
         <h3>Modificaciones dentro de Zeus</h3>

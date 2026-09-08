@@ -724,11 +724,21 @@ function verify(bundle, txtBytes) {
     if (state === 'counted') contados++;
     else if (state === 'untouched') sinTocar++;
   }
+  // Qué van a decir las filas que nadie contó depende de la política de la
+  // sesión, y el veredicto tiene que decirlo con las palabras de esa política:
+  // bajo 'zero' una fila sin tocar es un saldo que se borra, no una que
+  // «coincidió».
+  const politica = bundle.sesion.parameters.uncountedPolicy;
+  const detalle = politica === 'zero'
+    ? 'de ' + bundle.catalogo.length + ' filas del catálogo. Las ' + sinTocar +
+      ' que nadie tocó se escriben en cero — el archivo borra su saldo — y las ' +
+      folded.exonerados + ' exoneradas se escriben con la cantidad de Zeus, ' +
+      'como si se hubieran contado y coincidido.'
+    : 'de ' + bundle.catalogo.length + ' filas del catálogo. Las ' +
+      (sinTocar + folded.exonerados) + ' no contadas se escriben con la cantidad de ' +
+      'Zeus, es decir, como si se hubieran contado y coincidido.';
   out.push(check(true, 'Plegado: ' + contados + ' filas contadas, ' + folded.exonerados +
-    ' exoneradas, ' + sinTocar + ' que nadie tocó',
-    'de ' + bundle.catalogo.length + ' filas del catálogo. Las ' +
-    (sinTocar + folded.exonerados) + ' no contadas se escriben con la cantidad de ' +
-    'Zeus, es decir, como si se hubieran contado y coincidido.'));
+    ' exoneradas, ' + sinTocar + ' que nadie tocó', detalle));
 
   if (txtBytes) verifyTxt(bundle, txtBytes, out);
 

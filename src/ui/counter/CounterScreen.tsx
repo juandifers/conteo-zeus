@@ -47,6 +47,8 @@ import type {
 import { registeredArticles } from '../../domain';
 import type { AssignmentStore } from '../../store';
 import type { Api } from '../api';
+import { openAuth, type AuthGate } from '../auth';
+import { Login } from '../components/Login';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { localOutbox } from '../outbox';
 import { CountStore } from '../store';
@@ -60,7 +62,12 @@ import { Search } from './Search';
 import { SyncBar } from './SyncBar';
 import { catalogueOf, type CounterCatalogue } from './assignment';
 import { bootCounter, type ChainStart } from './boot';
-import { drainOthers, otherOutboxes, type OtherOutbox } from './handover';
+import {
+  clearStaleAssignments,
+  drainOthers,
+  otherOutboxes,
+  type OtherOutbox,
+} from './handover';
 import { CounterSync } from './sync';
 
 interface Live {
@@ -86,6 +93,7 @@ export function CounterScreen({
   repo,
   chain,
   updates: injectedUpdates,
+  auth = openAuth(),
 }: {
   token: string;
   api: Api;
@@ -93,14 +101,33 @@ export function CounterScreen({
   repo: CountRepository & DeviceRepository;
   chain: CounterChainRepository;
   updates?: Updates;
+  /**
+   * `Root` passes the browser's gate. The tablet logs in once as the shared
+   * `contador` user, on office wifi, alongside the assignment fetch; after
+   * that `current()` answers from storage with no network, so a reopen in the
+   * bodega never blocks on this. An expired login is still «worth trying» —
+   * the server answers 401 and the sync bar reports it — because an expiry
+   * gate that needed the network would blank the one screen built to work
+   * without one.
+   */
+  auth?: AuthGate;
 }) {
   const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
+  const [, bump] = useState(0);
   const [payload, setPayload] = useState<CounterPayload | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   const onReady = useCallback((held: CounterPayload) => {
-    setPayload((current) => (current?.counter.id === held.counter.id ? current : held));
+    // Same counter in the same session: keep the object identity so the boot
+    // effect does not re-run on a refetch. Anything else — including the same
+    // counter id under a different session, which a re-dispatch cannot mint
+    // but a stale fixture can — replaces the payload outright.
+    setPayload((current) =>
+      current?.counter.id === held.counter.id && current.session.id === held.session.id
+        ? current
+        : held,
+    );
   }, []);
 
   useEffect(() => {
@@ -188,7 +215,9 @@ export function CounterScreen({
     );
   }, [live]);
 
-  const body = failed ? (
+  const body = !auth.current() ? (
+    <Login role="contador" api={api} gate={auth} onDone={() => bump((n) => n + 1)} />
+  ) : failed ? (
     <div className="screen">
       <div className="empty" role="alert">
         <div className="empty__title">No se pudo abrir el conteo en esta tableta</div>
@@ -213,12 +242,12 @@ export function CounterScreen({
   return (
     <>
       {body}
-      {/* The same quiet notice the other faces carry, and here it can only
+      {/* The same blocking gate the other faces carry, and here it can only
           appear where applying it is free: detecting a new version takes
           network, so a tablet offline in the bodega never sees it, and a
-          tablet on office wifi at preparation is exactly the one that should.
-          Dismissible, one line, never a dialog — a counter mid-shift ignoring
-          it is a fine answer. */}
+          tablet on office wifi at preparation is exactly the one that must
+          not walk out carrying a deprecated build. Sync keeps draining
+          underneath it, so the gate never strands an outbox. */}
       <UpdateNotice updates={updates} />
     </>
   );
@@ -272,10 +301,18 @@ function Counting({
         const found = await otherOutboxes(chain, assignments, counterId);
         if (!alive) return;
         setOtros(found);
-        if (found.length === 0) return;
-        await drainOthers(api, chain, found);
-        const after = await otherOutboxes(chain, assignments, counterId);
-        if (alive) setOtros(after);
+        if (found.length > 0) {
+          await drainOthers(api, chain, found);
+          const after = await otherOutboxes(chain, assignments, counterId);
+          if (alive) setOtros(after);
+        }
+        // Entering a session clears the previous ones — once, and only what
+        // is safe: links from other sessions whose queues just drained (or
+        // were never owed anything) are forgotten, so an old count stops
+        // surfacing on this tablet. Anything still owed stays until it lands.
+        await clearStaleAssignments(chain, assignments, payload.session.id).catch(() => {
+          // Cleanup, not correctness: the same sweep runs on the next wake.
+        });
       })();
     };
     wake();
@@ -288,7 +325,7 @@ function Counting({
       globalThis.removeEventListener('focus', wake);
       clearInterval(tick);
     };
-  }, [api, chain, assignments, counterId]);
+  }, [api, chain, assignments, counterId, payload.session.id]);
 
   const group = open ? catalogue.groups.get(open.codigo) ?? [open] : [];
 

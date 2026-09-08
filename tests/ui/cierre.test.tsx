@@ -267,6 +267,33 @@ describe('after the seal (§2, §4a, §5)', () => {
     );
   });
 
+  it('says the bundle cannot check a .txt that does not exist yet (§4.3)', async () => {
+    // Sealed, not yet generated: the bundle is downloadable and it verifies
+    // itself, but `fileHash` is null and it can say nothing about the file.
+    // Somebody who takes the bundle now and generates the .txt a minute later
+    // has two files off one screen and a verifier that refuses them — which is
+    // exactly what happened on 2026-09-03.
+    const { api } = sealed({
+      counters: COUNTERS,
+      events: EVENTS,
+      acciones: [...ACCIONES],
+      estado: 'sellado',
+      sello: selloFor({ exportedAt: null, fileHash: null }),
+    });
+    render(<Cierre detail={DETAIL} api={api} onReload={() => {}} now={() => NOW} />);
+    await screen.findByText(/Conteo sellado/);
+    expect(screen.getByText(/este paquete no va a poder comprobarlo/)).toBeTruthy();
+    expect(screen.getByText(/Genéralo primero y descarga el paquete después/)).toBeTruthy();
+  });
+
+  it('drops the ordering hint once the file exists', async () => {
+    const { api } = sealed();
+    render(<Cierre detail={DETAIL} api={api} onReload={() => {}} now={() => NOW} />);
+    await screen.findByText(/Conteo cerrado/);
+    // A gate that keeps talking after it has opened is noise.
+    expect(screen.queryByText(/este paquete no va a poder comprobarlo/)).toBeNull();
+  });
+
   it('does not blame the counter whose tablet turns up afterwards', async () => {
     const { api } = sealed();
     render(<Cierre detail={DETAIL} api={api} onReload={() => {}} now={() => NOW} />);
@@ -446,9 +473,9 @@ describe('el acta (§3)', () => {
     expect(value('Sin contar')).toBe('0');
   });
 
-  it('names the parameter triple, and says when it is the verified one', async () => {
+  it('names the parameter triple, and says when it is the standard one', async () => {
     const page = await acta();
-    expect(page.getByText(/Es la combinación verificada contra Zeus/)).toBeTruthy();
+    expect(page.getByText(/Es la combinación estándar/)).toBeTruthy();
   });
 
   it('says so loudly when the triple is not the verified one', async () => {
@@ -459,7 +486,7 @@ describe('el acta (§3)', () => {
         ...DETAIL.session,
         parameters: {
           countTargetColumn: 'conteo1',
-          uncountedPolicy: 'zero',
+          uncountedPolicy: 'existencia',
           differenceColumn: 'computed',
         },
         parametrosVerificados: false,
@@ -469,7 +496,7 @@ describe('el acta (§3)', () => {
     render(<Cierre detail={detail} api={api} onReload={() => {}} now={() => NOW} />);
     await screen.findByText('Acta de conteo físico');
     expect(
-      screen.getByText(/No es la combinación verificada contra Zeus/),
+      screen.getByText(/No es la combinación estándar/),
     ).toBeTruthy();
   });
 

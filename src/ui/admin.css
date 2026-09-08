@@ -223,7 +223,7 @@
   .panel,
   .actions,
   .chips,
-  .updatebar {
+  .updategate {
     display: none !important;
   }
 

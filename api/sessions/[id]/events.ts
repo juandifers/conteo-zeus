@@ -18,6 +18,7 @@
  * the client last saw and the query starts before it. A client that wants no
  * overlap has to ask for a cursor it never had.
  */
+import { requireRole } from '../../_auth.js';
 import { dbFromEnv, NoDatabaseError, type Db } from '../../_db.js';
 import {
   fail,
@@ -92,6 +93,8 @@ export async function sessionEvents(
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   if (req.method !== undefined && req.method !== 'GET') return send(res, fail(405, 'GET'));
   try {
     return send(

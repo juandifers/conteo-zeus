@@ -62,6 +62,9 @@ const COUNTING_SURFACES = [
   // the two-tap register outlived its removal by a week), so it is held to
   // the same rule: nothing in it may reach for an ERP figure.
   'ui/components/UpdateNotice.tsx',
+  // The shared-user login. Drawn on the counter path before anything else, so
+  // it is held to the same rule even though all it asks for is a password.
+  'ui/components/Login.tsx',
 ];
 
 /** Ways an ERP figure reaches a screen. Property reads, and the two derivations. */
@@ -181,6 +184,9 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
         'Notes',
         'FinishPanel',
         'UpdateNotice',
+        // The shared-user door. A password form, drawn before any assignment
+        // is on the device; it renders nothing about any article.
+        'Login',
       ]),
     );
   });

@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { httpApi, type Api } from '../api';
+import { openAuth, type AuthGate } from '../auth';
+import { Login } from '../components/Login';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { formatInstant } from '../format';
 import { noUpdates, type Updates } from '../updates';
@@ -36,15 +38,33 @@ export function AdminApp({
     if (globalThis.location) globalThis.location.hash = to;
   },
   updates: injectedUpdates,
+  auth = openAuth(),
 }: {
   api?: Api;
   /** Injected so a test does not have to drive `window.location`. */
   hash?: string;
   navigate?: (to: string) => void;
   updates?: Updates;
+  /**
+   * `Root` passes the browser's gate; the default is the always-authenticated
+   * null object, so a test rendering a desk screen is not a test of the login
+   * form. The real door is the server's — every route re-verifies — and this
+   * gate only decides which screen to draw first.
+   */
+  auth?: AuthGate;
 }) {
   const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
+  const [, bump] = useState(0);
   const route = adminRoute(hash) ?? { name: 'list' as const };
+  const session = auth.current();
+  if (!session || session.role !== 'admin') {
+    return (
+      <>
+        <Login role="admin" api={api} gate={auth} onDone={() => bump((n) => n + 1)} />
+        <UpdateNotice updates={updates} />
+      </>
+    );
+  }
   return (
     <>
       {route.name === 'list' ? (

@@ -524,7 +524,9 @@ export function Revision({
               <div>
                 <strong>
                   Esas filas se van a escribir en el archivo con la cantidad de
-                  Zeus, como si se hubieran contado y coincidido.
+                  Zeus, como si se hubieran contado y coincidido. Las filas sin
+                  contar que nadie exonere se escriben en cero: el archivo borra
+                  su saldo.
                 </strong>{' '}
                 El formato no tiene forma de decir «no fuimos». Por eso existe el
                 acta, y por eso «sin verificar» no va a bajar. Un conteo nunca se

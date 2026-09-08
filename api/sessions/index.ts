@@ -14,6 +14,7 @@
  * a file may be weeks old and sitting in a tablet nobody has reloaded, which is
  * why "the client already checked" is not an argument here.
  */
+import { requireRole } from '../_auth.js';
 import {
   catalogueDifferences,
   CatalogueError,
@@ -182,6 +183,8 @@ export async function listSessions(db: Db): Promise<ApiResult> {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   try {
     const db = dbFromEnv();
     if (req.method === 'POST') return send(res, await createSession(db, req.body));

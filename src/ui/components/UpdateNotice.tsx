@@ -1,54 +1,52 @@
 /**
- * "There is a new version" — and nothing happens until somebody says so.
+ * "There is a new version" — and the old one goes no further.
  *
- * Quiet on purpose. It sits at the foot of the shell, takes one line, and is
- * dismissible; it never covers the keypad, never steals focus, and never
- * appears as a dialog. The update is already downloaded and waiting by the
- * time this renders (see updates.ts), so the only cost of ignoring it is that
- * the tablet keeps running the build it started the shift on — which is very
- * often the right answer in the middle of a count.
+ * Blocking on purpose. The update is already downloaded and waiting by the
+ * time this renders (see updates.ts), and what a dismissible notice bought —
+ * finishing the shift on the build it started on — turned out to cost more:
+ * a stale build kept counting against a server that had moved, and the
+ * deprecated behaviour it carried looked exactly like the app working. So the
+ * gate covers the whole shell, offers one action, and cannot be waved away.
  *
- * Dismissal is per-tab and deliberately not remembered: the next launch is
- * exactly when applying an update is free, and that is when the notice should
- * come back.
+ * What it deliberately does not stop: sync. The overlay stands between the
+ * person and the screen, not between the outbox and the server, so a tablet
+ * full of unsynced counts drains underneath it — and nothing is lost by the
+ * reload, because every event lives in IndexedDB rather than in the page.
  */
 import { useEffect, useState } from 'react';
 import type { Updates } from '../updates';
 
 export function UpdateNotice({ updates }: { updates: Updates }) {
   const [waiting, setWaiting] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
   const [applying, setApplying] = useState(false);
 
   useEffect(() => updates.subscribe(setWaiting), [updates]);
 
-  if (!waiting || dismissed) return null;
+  if (!waiting) return null;
 
   return (
-    <div className="updatebar" role="status">
-      <span className="updatebar__text">Hay una versión nueva</span>
-      <button
-        type="button"
-        className="btn btn--small"
-        disabled={applying}
-        onClick={() => {
-          setApplying(true);
-          // The page reloads inside this promise, so there is no success path
-          // to handle. A rejection leaves the button spent and the notice up,
-          // which is the honest state: the new version did not take over.
-          void updates.apply().catch(() => setApplying(false));
-        }}
-      >
-        {applying ? 'Actualizando…' : 'Actualizar'}
-      </button>
-      <button
-        type="button"
-        className="updatebar__close"
-        aria-label="descartar aviso"
-        onClick={() => setDismissed(true)}
-      >
-        ×
-      </button>
+    <div className="updategate" role="alertdialog" aria-modal="true" aria-label="versión nueva">
+      <div className="updategate__card">
+        <p className="updategate__title">Hay una versión nueva</p>
+        <p className="updategate__text">
+          Esta versión ya no sirve para seguir. Actualiza para continuar; no se pierde nada de lo
+          registrado.
+        </p>
+        <button
+          type="button"
+          className="btn"
+          disabled={applying}
+          onClick={() => {
+            setApplying(true);
+            // The page reloads inside this promise, so there is no success path
+            // to handle. A rejection leaves the button spent and the gate up,
+            // which is the honest state: the new version did not take over.
+            void updates.apply().catch(() => setApplying(false));
+          }}
+        >
+          {applying ? 'Actualizando…' : 'Actualizar'}
+        </button>
+      </div>
     </div>
   );
 }

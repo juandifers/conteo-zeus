@@ -30,6 +30,7 @@ import { App } from './App';
 import { AdminApp } from './admin/AdminApp';
 import { adminRoute, tokenInHash } from './admin/links';
 import { httpApi, type Api } from './api';
+import { storageAuth } from './auth';
 import { CounterScreen } from './counter/CounterScreen';
 import type { Install } from './install';
 import type { Updates } from './updates';
@@ -58,18 +59,30 @@ export function Root({
     return () => globalThis.removeEventListener?.('hashchange', onChange);
   }, []);
 
-  if (adminRoute(hash)) return <AdminApp api={api} hash={hash} updates={updates} />;
+  // The browser's login gate, shared by the two networked faces. The local P1
+  // app below never gets one: it talks to no server, so there is no door.
+  const auth = storageAuth();
+
+  if (adminRoute(hash)) return <AdminApp api={api} hash={hash} updates={updates} auth={auth} />;
 
   const token = tokenInHash(hash);
   if (token) {
     return (
       <CounterScreen
+        // The token IS the screen's identity. Without it, opening a new
+        // counting link while the tab already sits on an old one re-renders
+        // the same component instance, whose `payload`/`live` state still
+        // belong to the previous session — the reported «it opened last
+        // month's count» — and the two sessions mix. A key change unmounts
+        // and remounts, so every link starts from its own Prepare.
+        key={token}
         token={token}
         api={api}
         assignments={assignments}
         repo={repo}
         chain={chain}
         updates={updates}
+        auth={auth}
       />
     );
   }

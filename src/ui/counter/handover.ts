@@ -91,6 +91,39 @@ export async function otherOutboxes(
  * still waiting, which is the wrong trade in every direction; what the person
  * needs is the count on the indicator, and it is still there next time.
  */
+/**
+ * Forget other sessions' links once nothing on them is still owed.
+ *
+ * A tablet keeps every link it ever prepared, and before this the residue of
+ * old counts mixed into the current one: last month's counter on today's sync
+ * bar, a stale catalogue one navigation away. Entering a counting session now
+ * clears the previous ones — but «no limpiar tableta» still governs what
+ * clearing may mean. A link is removed only when its counter has **nothing
+ * pending and nothing rejected** on this device, i.e. when the row is pure
+ * catalogue that anybody opening the link again can re-fetch. Events are never
+ * deleted here: they stay under `(sessionId, counterId)`, which nothing in
+ * this function touches.
+ */
+export async function clearStaleAssignments(
+  chain: CounterChainRepository,
+  assignments: AssignmentStore,
+  currentSessionId: string,
+): Promise<void> {
+  const links = await assignments.list();
+  const stale = links.filter((link) => link.sessionId !== currentSessionId);
+  if (stale.length === 0) return;
+
+  const pending = await chain.pendingOutboxes();
+  const owed = new Set(pending.map((queue) => `${queue.sessionId} ${queue.counterId}`));
+  for (const link of stale) {
+    if (owed.has(`${link.sessionId} ${link.counterId}`)) continue;
+    // Rejected rows (a seal that beat the drain) are kept for the counter's
+    // JSON export, and that flow needs the link's name beside them.
+    if ((await chain.rejected(link.sessionId, link.counterId)).length > 0) continue;
+    await assignments.remove(link.token);
+  }
+}
+
 export async function drainOthers(
   api: Api,
   chain: CounterChainRepository,

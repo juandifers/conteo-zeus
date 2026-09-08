@@ -10,6 +10,7 @@
  * `GET /api/c/:token` is the endpoint the rule applies to, and it is built from
  * an allowlist for exactly that reason.
  */
+import { requireRole } from '../../_auth.js';
 import {
   isVerifiedTriple,
   sourceHashOfBytes,
@@ -220,6 +221,8 @@ export async function deleteSession(db: Db, id: string): Promise<ApiResult> {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  const denied = requireRole(req, ['admin']);
+  if (denied) return send(res, denied);
   const id = param(req, 'id');
   if (!id) return send(res, fail(400, 'falta el id de la sesión'));
   try {

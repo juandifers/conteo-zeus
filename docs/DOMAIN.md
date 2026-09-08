@@ -422,10 +422,13 @@ merged them is that section's exact failure mode.
 ## 4. Attribution lives here, and only here
 
 A waived row exports as `toma = existencia`, which is byte-identical to what
-`uncountedPolicy: 'existencia'` emits. Nothing in the Zeus file distinguishes
-"Ana signed off at 14:32" from "nobody went and the policy filled it in":
-`Grupo1..5` must stay empty and `Observacion` is dropped in the `.txt`
-(`ZEUS_FORMAT.md` §2, §9).
+`uncountedPolicy: 'existencia'` emits — and, under a `'existencia'` session,
+nothing in the Zeus file distinguishes "Ana signed off at 14:32" from "nobody
+went and the policy filled it in": `Grupo1..5` must stay empty and
+`Observacion` is dropped in the `.txt` (`ZEUS_FORMAT.md` §2, §9). Under the
+standing `'zero'` policy the bytes do come apart — a waived row keeps the book
+figure while an unreached one is zeroed — but the file still cannot say *who*
+signed or *why*, so the paragraph below holds unchanged.
 
 Therefore:
 
@@ -1293,25 +1296,33 @@ stays `sellado`, so a failure costs a button press. It is the check that catches
 the P1 defect class — the sheared file that would have posted wrong balances to
 nearly every row — and there is no version of «export it anyway» that is correct.
 
-### The one place this task writes something false, deliberately
+### What an unreached row writes, and why it is stated here
 
-`writeAdjustment` uses the session's own `uncountedPolicy`, which in the verified
-triple is `'existencia'`. `exportAdjustment`, the P1 path, fixes `'reject'` and
-still does: there, the only route to posting an incomplete count was a signed
-`unchanged` event, so a row with no count was a bug.
+`writeAdjustment` uses the session's own `uncountedPolicy`, which in the
+sanctioned triple is `'zero'` (a 2026-09 policy decision; it was `'existencia'`
+before that). `exportAdjustment`, the P1 path, fixes `'reject'` and still does:
+there, the only route to posting an incomplete count was a signed `unchanged`
+event, so a row with no count was a bug.
 
 A sealed P2 session is a different situation. Zeus's format requires every row
 and has no way to say «we did not look» (ZEUS_FORMAT.md §9), so a bodega where
-1 800 rows were never reached still has to produce 1 800 lines, and those lines
-say the rows were counted and found to match. **That is a false statement about
-those rows and it is made on purpose.**
+1 800 rows were never reached still has to produce 1 800 lines. Under `'zero'`
+those lines say the rows were counted and found **empty**: `toma = 0`,
+`diferencia = -existencia`, and posting the file **zeroes their balances**
+(ZEUS_FORMAT.md §7.4). That is a claim nobody walked over to check, and it is
+made on purpose: the department's rule is that a count posts what the count
+found, and it found nothing on the rows nobody reached. The escape hatch is
+deliberate and signed — a waiver keeps the book figure, with a name and a
+motivo on the chain — so every row that *keeps* a balance nobody verified has
+somebody's signature behind it, and every row that loses one is the default
+anybody can see coming on the review screen.
 
 What makes it defensible is not the writer. It is that the acta's §8 says so in
 as many words, that `sinVerificar` never falls when rows are waived (§6.5), and
 that the bundle carries the events so anybody can see which lines came from a
-person and which from a policy. A file carrying the truth is not available; a
-file carrying the fiction **plus a document that names it** is, and that pairing
-is the whole design of this task.
+person and which from the policy. Under `'zero'` the file even distinguishes
+the two on its own: a waived row carries the book figure, an unreached one
+carries a zero — though only the acta says *why*.
 
 ### The acta, and why §8 is the section that matters
 
@@ -1377,10 +1388,11 @@ column is.
 
 **`writeAdjustment` — the P2.5 server path — is the same mapping with a different
 policy**, and the difference is deliberate rather than an oversight. It passes the
-session's own `uncountedPolicy`, which in the verified triple is `'existencia'`,
-because a sealed session has to emit every row of a catalogue most of which
-nobody reached. §6.6 says what that costs and what pays for it; the two functions
-answer different questions and neither is a refinement of the other.
+session's own `uncountedPolicy` — `'zero'` in the sanctioned triple — because a
+sealed session has to emit every row of a catalogue most of which nobody
+reached, and the standing rule is that an unreached row posts as a zero. §6.6
+says what that costs and what pays for it; the two functions answer different
+questions and neither is a refinement of the other.
 
 `UncountedItemsError` carries the full `idarticulos` array and `total`; only its
 *message* caps at 20. A capped payload would be unusable as data.

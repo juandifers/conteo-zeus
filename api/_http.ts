@@ -11,6 +11,8 @@ export interface ApiRequest {
   query?: Record<string, string | string[] | undefined>;
   /** Parsed JSON when the content type says so, and whatever arrived when it does not. */
   body?: unknown;
+  /** Lowercased by Node before any handler sees them. `_auth.ts` reads one. */
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 export interface ApiResponse {

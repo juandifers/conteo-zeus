@@ -8,8 +8,9 @@ divides the bodega between counters, and hands out one link per person.
 **P2.2** adds event ingestion and the counter state machine. **P2.3.5** adds the
 admin's own append-only chain and the one operation that changes who counts what
 after the tablets have gone out. **P2.5** adds the seal, the export and the audit
-bundle — the first task that writes something a person uploads. Still no
-authentication.
+bundle — the first task that writes something a person uploads. **P2.7** adds
+authentication: one `admin` user in front of every `/api/sessions*` route, and
+one shared `contador` user in front of `/api/c/*` — see *Two users* below.
 
 The **counting** screens remain entirely local. The one crossing point is
 `GET /api/c/:token`, which runs once, on office wifi, before a tablet leaves the
@@ -18,7 +19,9 @@ be resident before it gets there.
 
 ```
 api/
-  health.ts             GET   /api/health
+  health.ts             GET   /api/health              (open)
+  auth.ts               POST  /api/auth                a login; GET verifies a token
+  _auth.ts              the two users, the token arithmetic, requireRole
   sessions/index.ts     GET   /api/sessions            what exists
                         POST  /api/sessions            a file becomes a draft
   sessions/[id]/
@@ -274,7 +277,51 @@ copy of somebody's morning. `GET /api/c/:token` answers `409 COUNTER_RETIRED`
 with a sentence that does not blame the counter; `POST /api/c/:token/events` and
 `/resume` go on working, so a drain that starts at five o'clock still lands.
 
-Authentication is deferred, not dismissed.
+---
+
+## Two users (P2.7)
+
+Exactly the model the department runs on: one **`admin`** user for the desk,
+one shared **`contador`** user for every tablet. Individual counters go on
+being told apart by their links — the shared user is the outer door, the link
+is which room — so nothing above about tokens changes, and the acta's honesty
+about attribution ("the chain proves the record did not change, not that a
+particular person made it") stands.
+
+`api/_auth.ts` holds the whole mechanism; `api/auth.ts` is the endpoint. A
+login answers with a stateless bearer token — `v1.<role>.<exp>.<nonce>` plus an
+HMAC-SHA256 signature under `AUTH_SECRET` — because a serverless function has
+no session store to consult on a cold start. Every guarded handler runs
+`requireRole` as its **first** statement, before `param` and before the pool,
+so an unauthenticated request learns nothing, not even whether a session id
+exists:
+
+| Routes | Requires |
+|---|---|
+| `/api/sessions`, `/api/sessions/:id/**` | `admin` |
+| `/api/c/:token/**` | `contador` (or `admin`) |
+| `/api/health`, `/api/auth` | nothing |
+
+The two users are **deployment configuration, not rows**: `ADMIN_PASSWORD`,
+`COUNTER_PASSWORD` and `AUTH_SECRET` sit beside `DATABASE_URL` on the Vercel
+project. A users table whose only rows would be `admin` and `contador` is a
+migration and a screen for a thing that changes at deployment cadence. With any
+of the three unset the guard **fails closed** — every protected route answers
+503 naming the configuration — because an unset password must not mean «no
+door».
+
+TTLs: `admin` 12 hours, `contador` 30 days — long, deliberately, because a
+tablet drains late and a login that expired mid-shift would strand a queue
+behind a form. A token cannot be revoked before it expires (statelessness cuts
+both ways); rotating `AUTH_SECRET` revokes everything at once, and that is the
+documented response to a leaked device.
+
+The client keeps its login in `localStorage` (`src/ui/auth.ts`) and attaches it
+from the fetch wrapper (`src/ui/api.ts`). The login screens are a UI
+convenience in front of the real door; a tablet reopened offline renders from
+Dexie without consulting anybody, exactly as before, and finds out its login
+expired the way it finds out everything else — from the next push's 401,
+reported on the sync bar.
 
 ---
 
@@ -471,6 +518,9 @@ Set on the Vercel project (Settings → Environment Variables):
 | Variable | Where | Value |
 |---|---|---|
 | `DATABASE_URL` | Production, Preview | Neon **pooled** connection string (`…-pooler.…`), `?sslmode=require` |
+| `AUTH_SECRET` | Production, Preview | 32+ random bytes (e.g. `openssl rand -hex 32`). Signs every login token; rotating it logs everybody out at once |
+| `ADMIN_PASSWORD` | Production, Preview | the admin user's password |
+| `COUNTER_PASSWORD` | Production, Preview | the shared counter user's password — the one printed beside the tablets |
 
 `VERCEL_GIT_COMMIT_SHA` is provided by Vercel and appears in the health response
 as `buildSha`, so a stale deploy is nameable rather than merely suspected.
@@ -507,7 +557,7 @@ affected typing the URL into the address bar rather than `fetch`, but a health
 endpoint that answers `index.html` to the person checking whether the deploy is
 up is worse than one that is missing.
 
-### Nine functions, and why the routes do not match the files
+### Ten functions, and why the routes do not match the files
 
 A deployment on Vercel's Hobby plan may contain **twelve** serverless functions.
 P2.5 brought the count to thirteen, and from that commit every deployment
@@ -521,7 +571,8 @@ thing. `api/sessions/[id]/cierre.ts` answers `sellar`, `exportar` and `bundle` �
 one sequence over one row, where the ordering between them *is* the design.
 `api/c/[token]/index.ts` answers the token's own route plus `events` and
 `resume` — three answers about the same counter, in the same session, over the
-same chain. That leaves nine, and room.
+same chain. That left nine; P2.7's `api/auth.ts` makes ten, and the margin is
+two.
 
 The URLs did not change. `vercel.json` rewrites the five folded paths onto their
 host function with an `_op` query parameter, and rewrites are applied only after

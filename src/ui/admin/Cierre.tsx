@@ -307,8 +307,10 @@ export function Cierre({
                   <strong>
                     Sin verificar: {formatMoney(review.sinVerificar.exposicion)} COP.
                   </strong>{' '}
-                  Esas filas se van a escribir con la cantidad de Zeus, como si se
-                  hubieran contado y coincidido. Después del sello no se puede añadir
+                  Las filas exoneradas se van a escribir con la cantidad de Zeus, como
+                  si se hubieran contado y coincidido; las filas sin tocar se escriben
+                  en cero y el archivo borra su saldo en libros
+                  {` (${formatMoney(review.pendiente.valor)} COP)`}. Después del sello no se puede añadir
                   nada, ni desde una tableta ni desde aquí: ninguna tableta puede
                   volver a escribir y ninguna decisión se puede firmar después. El
                   archivo se genera <strong>después</strong> del sello, y por eso
@@ -439,8 +441,8 @@ export function Cierre({
               <div className="hint">
                 {`${formatQty(exported.filas)} filas escritas · ` +
                   `${formatQty(exported.contados)} contadas · ` +
-                  `${formatQty(exported.exonerados)} exoneradas · ` +
-                  `${formatQty(exported.sinTocar)} con la cantidad de Zeus.`}
+                  `${formatQty(exported.exonerados)} exoneradas con la cantidad de Zeus · ` +
+                  `${formatQty(exported.sinTocar)} sin tocar, en cero.`}
               </div>
             )}
 
@@ -501,6 +503,22 @@ export function Cierre({
             <button type="button" className="btn btn--small" disabled={busy} onClick={downloadBundle}>
               Descargar el paquete de auditoría
             </button>
+            {/*
+              §4.3 again: a button that hands back something quietly incomplete
+              has to say so where the person is clicking. A bundle taken before
+              «Generar» carries `fileHash: null` — it verifies its own chains and
+              its own seal perfectly well, and then cannot say a single thing
+              about the .txt, because at the moment it was built no .txt existed
+              to be hashed. Somebody who downloaded the two in the wrong order
+              gets «no coincide» from the verifier and no idea why (reported
+              2026-09-03: both files off the same screen, neither verifying).
+            */}
+            {!sello.fileHash && (
+              <div className="hint">
+                El archivo para Zeus todavía no está generado, así que este paquete no va a poder
+                comprobarlo. Genéralo primero y descarga el paquete después.
+              </div>
+            )}
             <button
               type="button"
               className="btn btn--small"

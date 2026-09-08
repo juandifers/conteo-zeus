@@ -73,10 +73,21 @@ export function Prepare({
     let live = true;
     store.load(token).then(
       (row) => {
-        if (live) setHeld(row ? { payload: row.payload, fetchedAt: row.fetchedAt } : null);
+        // Never over what the fetch already delivered: on fast wifi the fetch
+        // can land before this read resolves, and the older row would replace
+        // the newer payload — a stale assignment on a screen that just showed
+        // the fresh one.
+        if (live)
+          setHeld((current) =>
+            current !== undefined
+              ? current
+              : row
+                ? { payload: row.payload, fetchedAt: row.fetchedAt }
+                : null,
+          );
       },
       () => {
-        if (live) setHeld(null);
+        if (live) setHeld((current) => (current !== undefined ? current : null));
       },
     );
     return () => {

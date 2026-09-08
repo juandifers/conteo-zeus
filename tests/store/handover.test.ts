@@ -25,7 +25,7 @@ import {
   type CounterPayload,
 } from '../../src/domain';
 import { ConteoDb, DexieAssignmentStore, DexieCounterChain } from '../../src/store';
-import { drainOthers, otherOutboxes } from '../../src/ui/counter/handover';
+import { clearStaleAssignments, drainOthers, otherOutboxes } from '../../src/ui/counter/handover';
 import type { Api } from '../../src/ui/api';
 import { addCount, resetFactory } from '../domain/factory';
 
@@ -178,6 +178,37 @@ describe('one tablet, two counters', () => {
     // unsynced counts can go, so the port has no method that would let it.
     const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(chain));
     expect(methods.filter((name) => /clear|delete|drop|purge|wipe/i.test(name))).toEqual([]);
+  });
+
+  it('forgets another session’s link only once nothing on it is owed', async () => {
+    // Entering a new count clears the previous ones (the reported bug was old
+    // sessions mixing into the current link), but «no limpiar tableta» still
+    // holds: a link whose counter has unsynced rows stays until they land.
+    const OLD_SESSION = 'session-0';
+    const OLD_TOKEN = 'O'.repeat(22);
+    const OLD_COUNTER = 'counter-old';
+    const oldPayload = payloadFor(OLD_COUNTER, 'Marta');
+    oldPayload.session = { ...oldPayload.session, id: OLD_SESSION };
+    await assignments.save(OLD_TOKEN, oldPayload, '2026-07-01T08:00:00.000Z');
+
+    // Nothing pending under the old session: the link is pure catalogue and a
+    // sweep from today's session removes it. Today's links stay.
+    await clearStaleAssignments(chain, assignments, SESSION);
+    expect((await assignments.list()).map((link) => link.token).sort()).toEqual(
+      [LUIS_TOKEN, PEDRO_TOKEN].sort(),
+    );
+
+    // With a queue still owed under the old session, the link survives the
+    // sweep — it is what the background drain needs to find a token.
+    await assignments.save(OLD_TOKEN, oldPayload, '2026-07-01T08:00:00.000Z');
+    resetFactory();
+    const owed = chainEvents(
+      genesisHash(OLD_SESSION, OLD_COUNTER),
+      [addCount(1181, 2, { id: 'old-1', sessionId: OLD_SESSION, counterId: OLD_COUNTER, seq: 1 })],
+    );
+    for (const link of owed) await chain.appendChained(link);
+    await clearStaleAssignments(chain, assignments, SESSION);
+    expect((await assignments.list()).map((link) => link.token)).toContain(OLD_TOKEN);
   });
 
   it('is the same behaviour in memory, which is what keeps the port honest', async () => {
