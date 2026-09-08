@@ -49,7 +49,6 @@ import { actaLines, handoverRisk } from '../../domain';
 import type { Api } from '../api';
 import { ApiError } from '../api';
 import { formatInstant } from '../format';
-import { loadSupervisor, saveSupervisor } from '../identity';
 import { describeReassign, describeSeal } from './blockers';
 import { counterLink } from './links';
 import { counterWord, unos } from './vocabulario';
@@ -62,6 +61,14 @@ import type {
 } from './types';
 
 const NEW_COUNTER = '__nuevo__';
+
+/**
+ * The signature on every action from this sheet. The desk sits behind the
+ * admin login (P2.7) and these routes refuse anyone else, so «quién decide»
+ * is the account, not a typed name — the field that used to ask for one only
+ * made people retype what the door had already established.
+ */
+const USUARIO = 'admin';
 
 /** The poll, plus **when** it arrived — see `risky` below on why the clock is state. */
 interface Poll {
@@ -79,7 +86,6 @@ export function Cambios({
   onReload: () => void;
 }) {
   const [poll, setPoll] = useState<Poll | null>(null);
-  const [usuario, setUsuario] = useState(loadSupervisor);
   const [motivo, setMotivo] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -180,7 +186,7 @@ export function Cambios({
     void send(
       {
         kind: 'reasignar',
-        usuario,
+        usuario: USUARIO,
         motivo,
         version: detail.session.assignmentsVersion,
         moves,
@@ -189,7 +195,6 @@ export function Cambios({
           : {}),
       },
       (result) => {
-        saveSupervisor(usuario);
         setDone(result as ReassignResult);
         setChosen([]);
         setMotivo('');
@@ -199,9 +204,8 @@ export function Cambios({
 
   const agregar = () =>
     void send(
-      { kind: 'agregar_contador', usuario, motivo, nombre: nuevoNombre },
+      { kind: 'agregar_contador', usuario: USUARIO, motivo, nombre: nuevoNombre },
       (result) => {
-        saveSupervisor(usuario);
         const counter = result as { id: string; nombre: string; token: string };
         setDone({
           assignmentsVersion: detail.session.assignmentsVersion,
@@ -218,9 +222,8 @@ export function Cambios({
 
   const retirar = (counter: AdminCounter) =>
     void send(
-      { kind: 'retirar_contador', usuario, motivo, counterId: counter.id },
+      { kind: 'retirar_contador', usuario: USUARIO, motivo, counterId: counter.id },
       () => {
-        saveSupervisor(usuario);
         setMotivo('');
         setRetirando(null);
       },
@@ -228,21 +231,20 @@ export function Cambios({
 
   const sellarSin = (counter: AdminCounter) =>
     void send(
-      { kind: 'sellar_sin_registros', usuario, motivo, counterId: counter.id },
+      { kind: 'sellar_sin_registros', usuario: USUARIO, motivo, counterId: counter.id },
       () => {
-        saveSupervisor(usuario);
         setMotivo('');
       },
     );
 
-  const ready = usuario.trim() !== '' && motivo.trim() !== '';
-  // Every action below is gated on the signature fields, which live in their
-  // own card above — a disabled button two panels away from the reason it is
+  const ready = motivo.trim() !== '';
+  // Every action below is gated on the motivo field, which lives in its own
+  // card above — a disabled button two panels away from the reason it is
   // disabled reads as broken (reported 2026-09-02: «agregar y generar enlace
   // is not responsive»). Same discipline as the Sellar button (§4.3): a gate
   // says what opens it.
   const firmaHint = ready ? null : (
-    <div className="hint">Desactivado hasta llenar «Quién decide» y «Motivo», arriba.</div>
+    <div className="hint">Desactivado hasta llenar «Motivo», arriba.</div>
   );
   const overrides = new Map(
     (sync?.acciones ?? [])
@@ -259,18 +261,8 @@ export function Cambios({
         <div className="panel__title">Cambios durante el conteo</div>
         <div className="panel__body">
           <div className="hint">
-            Todo lo de aquí queda firmado con tu nombre y tu motivo, y sale en el acta.
+            Todo lo de aquí queda firmado por el administrador con tu motivo, y sale en el acta.
           </div>
-          <label className="field__label" htmlFor="cambios-usuario">
-            Quién decide
-          </label>
-          <input
-            id="cambios-usuario"
-            className="field"
-            value={usuario}
-            onChange={(event) => setUsuario(event.target.value)}
-            placeholder="tu nombre"
-          />
           <label className="field__label" htmlFor="cambios-motivo">
             Motivo
           </label>

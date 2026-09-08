@@ -180,7 +180,6 @@ describe('sending the move', () => {
     const user = userEvent.setup();
     render(<Cambios detail={detail()} api={fakeApi({ post })} onReload={() => {}} />);
 
-    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
     await user.type(screen.getByLabelText('Motivo'), 'Luis se fue enfermo');
     await planMove(user);
     await user.selectOptions(screen.getByLabelText('A'), ANA);
@@ -190,7 +189,9 @@ describe('sending the move', () => {
     const [path, body] = post.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe('/api/sessions/sesion-1/acciones');
     expect(body.kind).toBe('reasignar');
-    expect(body.usuario).toBe('Marta');
+    // «Quién decide» is the login, not a typed name: the desk sits behind the
+    // admin user (P2.7), so the action is signed by the account.
+    expect(body.usuario).toBe('admin');
     expect(body.motivo).toBe('Luis se fue enfermo');
     // §7: the version the plan was built against, so a concurrent change is a
     // 409 rather than a silent reversal.
@@ -202,7 +203,7 @@ describe('sending the move', () => {
     ]);
   });
 
-  it('will not send without a name and a reason on it', async () => {
+  it('will not send without a reason on it', async () => {
     const user = userEvent.setup();
     render(<Cambios detail={detail()} api={fakeApi()} onReload={() => {}} />);
     await planMove(user);
@@ -213,20 +214,19 @@ describe('sending the move', () => {
   });
 
   it('says what opens a gated button, beside the button (the §4.3 discipline)', async () => {
-    // The signature fields live in their own card; a dead button two panels
-    // below them read as broken (reported: «agregar y generar enlace is not
+    // The motivo field lives in its own card; a dead button two panels below
+    // it read as broken (reported: «agregar y generar enlace is not
     // responsive»). The gate has to say what opens it, where the person is
     // looking — and get out of the way once it is open.
     const user = userEvent.setup();
     render(<Cambios detail={detail()} api={fakeApi()} onReload={() => {}} />);
     expect(
-      screen.getAllByText(/Desactivado hasta llenar «Quién decide» y «Motivo»/).length,
+      screen.getAllByText(/Desactivado hasta llenar «Motivo»/).length,
     ).toBeGreaterThan(0);
 
-    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
     await user.type(screen.getByLabelText('Motivo'), 'llegó refuerzo');
     expect(
-      screen.queryByText(/Desactivado hasta llenar «Quién decide» y «Motivo»/),
+      screen.queryByText(/Desactivado hasta llenar «Motivo»/),
     ).toBeNull();
   });
 
@@ -238,7 +238,6 @@ describe('sending the move', () => {
     });
     const user = userEvent.setup();
     render(<Cambios detail={detail()} api={fakeApi({ post })} onReload={() => {}} />);
-    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
     await user.type(screen.getByLabelText('Motivo'), 'x');
     await planMove(user);
     await user.selectOptions(screen.getByLabelText('A'), ANA);
@@ -261,7 +260,6 @@ describe('sending the move', () => {
     }) as never);
     const user = userEvent.setup();
     render(<Cambios detail={detail()} api={fakeApi({ post })} onReload={() => {}} />);
-    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
     await user.type(screen.getByLabelText('Motivo'), 'vamos lentos');
     await planMove(user);
     await user.selectOptions(screen.getByLabelText('A'), '__nuevo__');
@@ -280,7 +278,6 @@ describe('retirement and the seal', () => {
     // keeps the coverage gate one rule rather than one with an exception.
     const user = userEvent.setup();
     render(<Cambios detail={detail()} api={fakeApi()} onReload={() => {}} />);
-    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
     await user.type(screen.getByLabelText('Motivo'), 'se fue enfermo');
     expect((screen.getByLabelText('retirar a Luis') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getAllByText(/Reasígnalos antes de retirarlo/).length).toBeGreaterThan(0);
@@ -306,7 +303,6 @@ describe('retirement and the seal', () => {
     });
     const user = userEvent.setup();
     render(<Cambios detail={withRetired} api={api} onReload={() => {}} />);
-    await user.type(screen.getByLabelText('Quién decide'), 'Marta');
     await user.type(screen.getByLabelText('Motivo'), 'la tableta no volvió');
 
     const button = await screen.findByLabelText('sellar sin los registros de Luis');
