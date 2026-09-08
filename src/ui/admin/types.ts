@@ -150,6 +150,12 @@ export interface Sello {
   /** The catalogue the counts were taken against. Inside `sessionHash`. */
   sourceHash: string;
   /**
+   * RFC 3161: a public TSA's signed claim that `sessionHash` existed at `at`.
+   * `token` is the DER response, base64 — the bytes of a `.tsr` file. Null
+   * while no TSA has answered; the Cierre screen offers the retry.
+   */
+  tsa: { at: string; url: string; token: string } | null;
+  /**
    * Events the server accepted after `sealedAt`.
    *
    * Always empty: the insert is guarded on the session still being open and

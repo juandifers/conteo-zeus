@@ -37,7 +37,8 @@ api/
                         POST  /api/sessions/:id/exportar  sellado -> cerrado; writes the .txt
                         GET   /api/sessions/:id/exportar  the stored bytes, base64
                         GET   /api/sessions/:id/bundle    sesion_<id>.json, canonical
-      _sellar.ts        sealSession
+                        POST  /api/sessions/:id/timestamp RFC 3161 retry for a missed TSA
+      _sellar.ts        sealSession, timestampSession
       _exportar.ts      exportSession, downloadExport
       _bundle.ts        sessionBundle
   c/[token]/
@@ -458,6 +459,24 @@ sealed session are the same file. **No counter token is in it**: a link is a
 bearer credential, and the acta names people while the chain identifies them by
 id.
 
+### The certified time (RFC 3161)
+
+`sessionHash` proves the sealed set is internally consistent; it says nothing
+about *when* it existed. At seal time the server sends the hash — the 32 bytes,
+no count data — to a public Timestamp Authority (`api/_tsa.ts`), which signs
+`hash + hora` with its own key. The DER response is stored verbatim
+(`sessions.tsa_token`) and downloads from the Cierre screen as
+`sello_<id>.tsr`; an auditor verifies it against the TSA's certificates with
+`openssl ts -verify -digest <sessionHash> -in sello_<id>.tsr`, no part of this
+application involved — which is the point: this server cannot manufacture the
+claim.
+
+Best-effort by contract: a TSA outage never blocks a seal.
+`POST /api/sessions/:id/timestamp` retries later — valid at any time, because
+the token binds only `session_hash`, which is immutable once written. The token
+is **not** in the bundle: bundle v1's bytes are frozen for sealed sessions, and
+a `.tsr` is the standard detached form the tooling already reads.
+
 ---
 
 ## Migrations
@@ -521,6 +540,7 @@ Set on the Vercel project (Settings → Environment Variables):
 | `AUTH_SECRET` | Production, Preview | 32+ random bytes (e.g. `openssl rand -hex 32`). Signs every login token; rotating it logs everybody out at once |
 | `ADMIN_PASSWORD` | Production, Preview | the admin user's password |
 | `COUNTER_PASSWORD` | Production, Preview | the shared counter user's password — the one printed beside the tablets |
+| `TSA_URL` | optional | RFC 3161 timestamp authority for the seal. Absent = DigiCert's public TSA; `off` = no timestamps (air-gapped deploys) |
 
 `VERCEL_GIT_COMMIT_SHA` is provided by Vercel and appears in the health response
 as `buildSha`, so a stale deploy is nameable rather than merely suspected.
@@ -574,7 +594,7 @@ one sequence over one row, where the ordering between them *is* the design.
 same chain. That left nine; P2.7's `api/auth.ts` makes ten, and the margin is
 two.
 
-The URLs did not change. `vercel.json` rewrites the five folded paths onto their
+The URLs did not change. `vercel.json` rewrites the six folded paths onto their
 host function with an `_op` query parameter, and rewrites are applied only after
 the filesystem is checked — so they fire precisely because the files they name
 no longer exist. No client knows any of this happened.

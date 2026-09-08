@@ -44,6 +44,10 @@ export interface SessionRow {
   /** Null until the export; set with `estado = 'cerrado'` and `export_bytes`. */
   exportedAt: string | null;
   fileHash: string | null;
+  /** RFC 3161 (0007). Null until a TSA answers; best-effort at seal, retryable after. */
+  tsaToken: string | null;
+  tsaAt: string | null;
+  tsaUrl: string | null;
 }
 
 /**
@@ -82,7 +86,10 @@ const SESSION_COLUMNS = `
   ${utc('sealed_at')}     as "sealedAt",
   session_hash            as "sessionHash",
   ${utc('exported_at')}   as "exportedAt",
-  file_hash               as "fileHash"
+  file_hash               as "fileHash",
+  tsa_token               as "tsaToken",
+  ${utc('tsa_at')}        as "tsaAt",
+  tsa_url                 as "tsaUrl"
 `;
 
 export async function listSessionRows(db: Db): Promise<SessionRow[]> {
@@ -1404,6 +1411,27 @@ export function sealStatements(sessionId: string, writes: SealWrites): Statement
   });
 
   return statements;
+}
+
+/**
+ * The TSA's answer, recorded once. Guarded on the seal existing — a token
+ * over no hash attests to nothing — and on the slot being empty, so a retry
+ * racing the seal's own best-effort request cannot overwrite an earlier
+ * token with a later one.
+ */
+export async function storeTimestamp(
+  db: Db,
+  sessionId: string,
+  stamp: { token: string; at: string; url: string },
+): Promise<boolean> {
+  const rows = await db.query<{ id: string }>(
+    `update sessions
+        set tsa_token = $2, tsa_at = $3::timestamptz, tsa_url = $4
+      where id = $1 and session_hash is not null and tsa_token is null
+      returning id`,
+    [sessionId, stamp.token, stamp.at, stamp.url],
+  );
+  return rows.length > 0;
 }
 
 export interface ExportWrites {

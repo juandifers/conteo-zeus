@@ -83,6 +83,12 @@ export interface SyncView {
     fileHash: string | null;
     sourceHash: string;
     /**
+     * RFC 3161: a public TSA's signed claim that `sessionHash` existed at
+     * `at`. The token is the DER response, base64 — what a `.tsr` file holds
+     * and what `openssl ts -verify` reads. Null while no TSA has answered.
+     */
+    tsa: { at: string; url: string; token: string } | null;
+    /**
      * Events the server accepted after `sealedAt`. Always empty — see
      * `loadEventsAfter`, and see why it is read anyway.
      */
@@ -141,6 +147,10 @@ export async function sessionSync(db: Db, id: string | null): Promise<ApiResult>
           exportedAt: session.exportedAt,
           fileHash: session.fileHash,
           sourceHash: session.sourceHash,
+          tsa:
+            session.tsaToken !== null && session.tsaAt !== null && session.tsaUrl !== null
+              ? { at: session.tsaAt, url: session.tsaUrl, token: session.tsaToken }
+              : null,
           tardios: (await loadEventsAfter(db, id)).map((row) => ({
             id: row.id,
             counterId: row.counterId,

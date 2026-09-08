@@ -555,8 +555,26 @@ export function Acta({
                 <code className="acta__hash">{sello.sourceHash}</code>
               </td>
             </tr>
+            {sello.tsa && (
+              <tr>
+                <th scope="row">hora certificada</th>
+                <td>
+                  <code className="acta__hash">{`${sello.tsa.at} · ${sello.tsa.url}`}</code>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
+        {sello.tsa && (
+          <p className="acta__note">
+            La hora está certificada por una autoridad de sello de tiempo externa
+            (RFC&nbsp;3161): su firma sobre <code>sessionHash</code> viaja en{' '}
+            <code>sello_{detail.session.id}.tsr</code> y se comprueba contra los
+            certificados de la autoridad con{' '}
+            <code>openssl ts -verify -digest &lt;sessionHash&gt; -in sello_….tsr</code> — esta
+            aplicación no puede fabricarla, y en eso consiste su valor.
+          </p>
+        )}
         <h3>Cabezas de cadena</h3>
         <table className="acta__grid">
           <thead>

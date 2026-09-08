@@ -25,6 +25,10 @@
       "destination": "/api/sessions/:id/cierre?_op=bundle"
     },
     {
+      "source": "/api/sessions/:id/timestamp",
+      "destination": "/api/sessions/:id/cierre?_op=timestamp"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

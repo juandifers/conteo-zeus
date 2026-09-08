@@ -22,7 +22,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createSession } from '../../api/sessions/index';
 import { dispatchSession } from '../../api/sessions/[id]/dispatch';
 import { postAction } from '../../api/sessions/[id]/acciones';
-import { sealSession } from '../../api/sessions/[id]/_sellar';
+import { sealSession, timestampSession } from '../../api/sessions/[id]/_sellar';
 import { downloadExport, exportSession } from '../../api/sessions/[id]/_exportar';
 import { sessionBundle } from '../../api/sessions/[id]/_bundle';
 import { sessionSync } from '../../api/sessions/[id]/sync';
@@ -364,6 +364,95 @@ suite('POST /api/sessions/:id/sellar', () => {
       const again = await seal(fixture.sessionId);
       expect(again.status).toBe(409);
       expect(detail(again)!.code).toBe('NOT_SEALABLE');
+    });
+  });
+
+  describe('the RFC 3161 timestamp on the seal', () => {
+    const STAMP = { token: 'dG9rZW4=', at: '2026-09-08T15:04:05Z', url: 'https://tsa.example' };
+    const tsaRow = async (sessionId: string) =>
+      (
+        await db.query<{ tsa_token: string | null; tsa_url: string | null }>(
+          'select tsa_token, tsa_url from sessions where id = $1',
+          [sessionId],
+        )
+      )[0];
+
+    it('stamps the hash when a TSA answers, and says so in the response', async () => {
+      const fixture = await ready();
+      const result = await sealSession(db, fixture.sessionId, {}, {
+        now: () => NOW,
+        newId: ids('b'),
+        timestamp: async () => STAMP,
+      });
+      expect(result.status).toBe(200);
+      expect((result.body as { selloDeTiempo: unknown }).selloDeTiempo).toEqual({
+        at: STAMP.at,
+        url: STAMP.url,
+      });
+      expect(await tsaRow(fixture.sessionId)).toEqual({
+        tsa_token: STAMP.token,
+        tsa_url: STAMP.url,
+      });
+    });
+
+    it('a TSA outage costs the timestamp, never the seal', async () => {
+      const fixture = await ready();
+      const result = await sealSession(db, fixture.sessionId, {}, {
+        now: () => NOW,
+        newId: ids('b'),
+        timestamp: async () => {
+          throw new Error('la TSA respondió 500');
+        },
+      });
+      expect(result.status).toBe(200);
+      expect((result.body as { selloDeTiempo: unknown }).selloDeTiempo).toBeNull();
+      expect(await estadoOf(fixture.sessionId)).toBe('sellado');
+      expect((await tsaRow(fixture.sessionId)).tsa_token).toBeNull();
+    });
+
+    it('the retry fills the gap later, once, and answers from the row after that', async () => {
+      const fixture = await ready();
+      // Not sealed yet is the one thing the retry refuses: no hash, nothing to stamp.
+      expect(
+        (await timestampSession(db, fixture.sessionId, { timestamp: async () => STAMP })).status,
+      ).toBe(409);
+
+      // Sealed while the TSA was down.
+      expect((await seal(fixture.sessionId)).status).toBe(200);
+
+      const filled = await timestampSession(db, fixture.sessionId, { timestamp: async () => STAMP });
+      expect(filled.status).toBe(200);
+      expect((await tsaRow(fixture.sessionId)).tsa_token).toBe(STAMP.token);
+
+      // Idempotent: the second call never reaches for a TSA.
+      let asked = 0;
+      const again = await timestampSession(db, fixture.sessionId, {
+        timestamp: async () => {
+          asked++;
+          return { ...STAMP, token: 'b3Rybw==' };
+        },
+      });
+      expect(again.status).toBe(200);
+      expect(asked).toBe(0);
+      expect((await tsaRow(fixture.sessionId)).tsa_token).toBe(STAMP.token);
+
+      // And the sync payload now carries it for the screen and the acta.
+      const sync = await sessionSync(db, fixture.sessionId);
+      const sello = (sync.body as { sello: { tsa: { url: string; token: string } } }).sello;
+      expect(sello.tsa.url).toBe(STAMP.url);
+      expect(sello.tsa.token).toBe(STAMP.token);
+    });
+
+    it('answers 502 when the TSA fails the retry too, and the seal stands', async () => {
+      const fixture = await ready();
+      expect((await seal(fixture.sessionId)).status).toBe(200);
+      const result = await timestampSession(db, fixture.sessionId, {
+        timestamp: async () => {
+          throw new Error('sin respuesta');
+        },
+      });
+      expect(result.status).toBe(502);
+      expect(await estadoOf(fixture.sessionId)).toBe('sellado');
     });
   });
 

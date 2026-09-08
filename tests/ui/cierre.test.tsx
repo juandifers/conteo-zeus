@@ -132,6 +132,48 @@ function sealed(over: Parameters<typeof reviewApi>[0] = { counters: COUNTERS, ev
   });
 }
 
+describe('the certified time (RFC 3161)', () => {
+  it('is one line on the receipt, and the .tsr downloads beside the bundle', async () => {
+    const { api } = sealed({
+      counters: COUNTERS,
+      events: EVENTS,
+      acciones: [...ACCIONES],
+      estado: 'cerrado',
+      sello: selloFor({
+        exportedAt: '2026-08-25T17:30:00.000Z',
+        fileHash: 'f'.repeat(64),
+        tsa: { at: '2026-08-25T17:05:00.000Z', url: 'https://tsa.example', token: 'dG9rZW4=' },
+      }),
+    });
+    const download = catcher();
+    render(
+      <Cierre detail={DETAIL} api={api} onReload={() => {}} download={download} now={() => NOW} />,
+    );
+    // On the receipt line and again in the acta's annex — and nowhere a paragraph.
+    expect((await screen.findAllByText(/hora certificada/)).length).toBeGreaterThanOrEqual(2);
+
+    // No retry offered — there is nothing to retry.
+    expect(screen.queryByRole('button', { name: 'Certificar la hora del sello' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar sello de tiempo (.tsr)' }));
+    expect(download.saved.map((file) => file.filename)).toEqual([`sello_${SESSION_ID}.tsr`]);
+    // The token verbatim: what `openssl ts -verify` reads.
+    expect([...download.saved[0].bytes]).toEqual([...new TextEncoder().encode('token')]);
+  });
+
+  it('offers the retry when no TSA answered, and posts it', async () => {
+    const { api, posted } = sealed();
+    render(<Cierre detail={DETAIL} api={api} onReload={() => {}} now={() => NOW} />);
+    await screen.findAllByText(/Código de verificación/);
+
+    expect(screen.queryByText(/hora certificada .* tsa/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Certificar la hora del sello' }));
+    await waitFor(() =>
+      expect(posted.some((call) => call.path.endsWith('/timestamp'))).toBe(true),
+    );
+  });
+});
+
 describe('the ordering is the design (§1)', () => {
   it('offers the seal on an open session and no way to generate a file', async () => {
     const { api } = reviewApi({ counters: COUNTERS, events: EVENTS, acciones: [...ACCIONES] });

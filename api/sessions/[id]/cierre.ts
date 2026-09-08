@@ -30,9 +30,10 @@ import {
   type ApiRequest,
   type ApiResponse,
 } from '../../_http.js';
+import { timestamperFromEnv } from '../../_tsa.js';
 import { sessionBundle } from './_bundle.js';
 import { downloadExport, exportSession } from './_exportar.js';
-import { sealSession } from './_sellar.js';
+import { sealSession, timestampSession } from './_sellar.js';
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   const denied = requireRole(req, ['admin']);
@@ -45,7 +46,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
     if (op === 'sellar') {
       if (method !== 'POST') return send(res, fail(405, 'POST'));
-      return send(res, await sealSession(db, id, req.body));
+      return send(res, await sealSession(db, id, req.body, { timestamp: timestamperFromEnv(process.env) }));
+    }
+
+    if (op === 'timestamp') {
+      // The retry for a seal the TSA missed (see `timestampSession`). A fourth
+      // `_op` rather than a fourth function: it is part of the same close.
+      if (method !== 'POST') return send(res, fail(405, 'POST'));
+      return send(res, await timestampSession(db, id, { timestamp: timestamperFromEnv(process.env) }));
     }
 
     if (op === 'exportar') {

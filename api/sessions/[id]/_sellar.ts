@@ -47,7 +47,14 @@ import {
 } from '../../../src/domain/index.js';
 import type { Db } from '../../_db.js';
 import { fail, ok, type ApiResult } from '../../_http.js';
-import { loadCounterSync, loadSessionActions, loadSessionRow, sealStatements } from '../../_store.js';
+import {
+  loadCounterSync,
+  loadSessionActions,
+  loadSessionRow,
+  sealStatements,
+  storeTimestamp,
+} from '../../_store.js';
+import type { TsaStamp } from '../../_tsa.js';
 import { chainPoint, link, planSealWithout, rowToRecord } from './acciones.js';
 
 /** Sessions that may still be sealed. The two states that are not yet frozen. */
@@ -68,6 +75,12 @@ export interface SealBody {
 export interface SealOptions {
   now?: () => string;
   newId?: () => string;
+  /**
+   * RFC 3161, injected (P2.7): `timestamperFromEnv` in the handler, nothing in
+   * the pg tests. Best-effort by contract — the token binds only `sessionHash`,
+   * which is immutable once written, so a TSA outage costs a retry, not a seal.
+   */
+  timestamp?: (hashHex: string) => Promise<TsaStamp>;
 }
 
 function malformed(body: unknown): string | null {
@@ -237,12 +250,66 @@ export async function sealSession(
     );
   }
 
+  // The seal is committed; from here the hash is a fact a third party can
+  // stamp. A failure below is «sin sello de tiempo todavía», never «no seal»
+  // — the Cierre screen offers the retry.
+  let selloDeTiempo: { at: string; url: string } | null = null;
+  if (options.timestamp) {
+    try {
+      const stamp = await options.timestamp(hash);
+      await storeTimestamp(db, id, stamp);
+      selloDeTiempo = { at: stamp.at, url: stamp.url };
+    } catch {
+      // The TSA being down is its problem; the count is sealed regardless.
+    }
+  }
+
   return ok({
     estado: 'sellado',
     sealedAt: (sealed[0] as { sealedAt: string }).sealedAt,
     sessionHash: hash,
     sourceHash: session.sourceHash,
     contadores: rows.length,
+    selloDeTiempo,
     ...(override ? { sinRegistros: override } : {}),
   });
+}
+
+/**
+ * `POST /api/sessions/:id/timestamp` — the retry for a seal the TSA missed.
+ *
+ * Any time after the seal is a valid time to ask: the token covers only
+ * `sessionHash`, which cannot change, so a late stamp is a weaker claim
+ * («existía el martes» instead of «el lunes»), never a wrong one. Idempotent
+ * by the guard in `storeTimestamp`: the first token to land is the one the
+ * acta keeps.
+ */
+export async function timestampSession(
+  db: Db,
+  id: string | null,
+  options: SealOptions = {},
+): Promise<ApiResult> {
+  if (!id) return fail(400, 'falta el id de la sesión');
+  const session = await loadSessionRow(db, id);
+  if (!session) return fail(404, 'no existe esa sesión');
+  if (session.sessionHash === null) {
+    return fail(409, 'esta sesión no está sellada: no hay hash que sellar en el tiempo');
+  }
+  if (session.tsaToken !== null) {
+    return ok({ selloDeTiempo: { at: session.tsaAt, url: session.tsaUrl } });
+  }
+  if (!options.timestamp) {
+    return fail(503, 'el sello de tiempo está desactivado en este despliegue (TSA_URL=off)');
+  }
+  try {
+    const stamp = await options.timestamp(session.sessionHash);
+    await storeTimestamp(db, id, stamp);
+    return ok({ selloDeTiempo: { at: stamp.at, url: stamp.url } });
+  } catch (cause) {
+    return fail(
+      502,
+      'la autoridad de sello de tiempo no respondió; el conteo sigue sellado y se puede volver a intentar',
+      { detalle: cause instanceof Error ? cause.message : String(cause) },
+    );
+  }
 }

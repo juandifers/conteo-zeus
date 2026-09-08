@@ -167,6 +167,18 @@ export function Cierre({
       download.save(file.filename, fromBase64(file.base64));
     });
 
+  // The TSA's answer travels with the count like the bundle does: a `.tsr` is
+  // what `openssl ts -verify` reads, and the auditor's copy should not depend
+  // on this application still existing.
+  const downloadTsr = (token: string) =>
+    download.save(`sello_${sessionId}.tsr`, fromBase64(token));
+
+  const solicitarTsa = () =>
+    run(async () => {
+      await api.post(`/api/sessions/${sessionId}/timestamp`);
+      await load();
+    });
+
   const downloadBundle = () =>
     run(async () => {
       const file = await api.get<BundleFile>(`/api/sessions/${sessionId}/bundle`);
@@ -402,7 +414,8 @@ export function Cierre({
                   ? '1 contador'
                   : `${sync.counters.length} contadores`) +
                 (review.exoneradas > 0 ? ` · ${formatQty(review.exoneradas)} exoneradas` : '') +
-                (sello.exportedAt ? ` · archivo generado ${formatInstant(sello.exportedAt)}` : '')}
+                (sello.exportedAt ? ` · archivo generado ${formatInstant(sello.exportedAt)}` : '') +
+                (sello.tsa ? ` · hora certificada ${formatInstant(sello.tsa.at)}` : '')}
             </div>
 
             <details className="sello">
@@ -431,6 +444,16 @@ export function Cierre({
                     <th scope="row">sourceHash</th>
                     <td>
                       <code className="acta__hash">{sello.sourceHash}</code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">hora certificada</th>
+                    <td>
+                      {sello.tsa ? (
+                        <code className="acta__hash">{`${sello.tsa.at} · ${sello.tsa.url}`}</code>
+                      ) : (
+                        'sin certificar todavía'
+                      )}
                     </td>
                   </tr>
                 </tbody>
@@ -527,6 +550,28 @@ export function Cierre({
             >
               Descargar el verificador
             </button>
+            {/* §4.4 again: one small button either way, never a paragraph. A
+                missing stamp is a retry, not an alarm — the seal stands on its
+                own and a token taken later still binds the same hash. */}
+            {sello.tsa ? (
+              <button
+                type="button"
+                className="btn btn--small"
+                disabled={busy}
+                onClick={() => downloadTsr(sello.tsa!.token)}
+              >
+                Descargar sello de tiempo (.tsr)
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--small"
+                disabled={busy}
+                onClick={solicitarTsa}
+              >
+                Certificar la hora del sello
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--small"

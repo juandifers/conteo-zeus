@@ -182,6 +182,7 @@ export function selloFor(over: Partial<Sello> = {}): Sello {
     exportedAt: null,
     fileHash: null,
     sourceHash: 'a'.repeat(64),
+    tsa: null,
     tardios: [],
     ...over,
   };

@@ -130,6 +130,7 @@ describe('the function budget', () => {
       '/api/sessions/:id/sellar',
       '/api/sessions/:id/exportar',
       '/api/sessions/:id/bundle',
+      '/api/sessions/:id/timestamp',
     ]);
     for (const rule of folded) {
       // Every destination has to be a function that exists, and carry the `_op`
