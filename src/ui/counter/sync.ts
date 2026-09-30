@@ -168,6 +168,8 @@ export class CounterSync {
   private timer: unknown = null;
   /** One drain at a time. A second trigger while one is running is a no-op. */
   private running: Promise<void> | null = null;
+  /** The last `expectedFrom` a SEQUENCE_GAP resent from. Cleared by any ack. */
+  private lastGapFrom: number | null = null;
 
   constructor(api: Api, chain: CounterChainRepository, options: CounterSyncOptions) {
     this.api = api;
@@ -264,6 +266,7 @@ export class CounterSync {
 
         // The only place anything leaves the outbox, and only ever on an ack
         // that names how far the server got.
+        this.lastGapFrom = null;
         await this.chain.markSynced(this.sessionId, this.counterId, ack.acceptedThrough);
         await this.refresh();
         this.emit({
@@ -306,6 +309,20 @@ export class CounterSync {
         // routinely: the server is behind where this device thinks it is, so
         // this device resends from where the server actually is.
         const from = typeof detail.expectedFrom === 'number' ? detail.expectedFrom : 1;
+        if (from === this.lastGapFrom) {
+          // …unless resending changed nothing: the device does not hold `from`
+          // at all. Retrying at once is then a loop of hundreds of requests a
+          // second against the API, and the banner blames the signal. Back off
+          // and say what is actually missing.
+          const attempts = this.snapshot.attempts + 1;
+          this.emit({
+            attempts,
+            problem: `a esta tableta le falta el registro ${from} de tu conteo; avisa a sistemas`,
+          });
+          this.armRetry(attempts);
+          return 'backoff';
+        }
+        this.lastGapFrom = from;
         await this.chain.resetFrom(this.sessionId, this.counterId, from);
         await this.refresh();
         this.emit({ problem: null });

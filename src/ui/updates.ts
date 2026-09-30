@@ -53,7 +53,23 @@ export function noUpdates(): Updates {
 /** How often an open, visible, online tab asks whether a new build exists. */
 export const RECHECK_MS = 10 * 60_000;
 
-export function serviceWorkerUpdates(register: RegisterSW): Updates {
+/** What `apply` needs from the page, injectable so a test can watch it. */
+export interface ReloadHooks {
+  reload?: () => void;
+  onControllerChange?: (fn: () => void) => void;
+  schedule?: (fn: () => void, ms: number) => unknown;
+}
+
+/** How long `apply` waits for the new worker to take over before reloading anyway. */
+export const APPLY_FALLBACK_MS = 4_000;
+
+export function serviceWorkerUpdates(register: RegisterSW, hooks: ReloadHooks = {}): Updates {
+  const reload = hooks.reload ?? (() => globalThis.location?.reload());
+  const onControllerChange =
+    hooks.onControllerChange ??
+    ((fn: () => void) =>
+      globalThis.navigator?.serviceWorker?.addEventListener('controllerchange', fn, { once: true }));
+  const schedule = hooks.schedule ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   let waiting = false;
   const listeners = new Set<(waiting: boolean) => void>();
 
@@ -107,6 +123,22 @@ export function serviceWorkerUpdates(register: RegisterSW): Updates {
         listeners.delete(listener);
       };
     },
-    apply: () => updateSW(true),
+    /**
+     * Hand over and reload — and make sure the reload happens.
+     *
+     * `updateSW(true)` reloads only when workbox-window judged the page an
+     * *update*, which it decides once, at registration, from whether a
+     * controller existed then. The tab that installed the very first worker
+     * had none, so on that tab the new worker activated and nothing reloaded:
+     * «Actualizando…» for ever, behind a gate that blocks counting — on the
+     * tablet that was prepared on office wifi and never closed, which is every
+     * tablet on a deploy day. So the page reloads itself when the new worker
+     * takes control, and after a few seconds regardless.
+     */
+    apply: async () => {
+      onControllerChange(() => reload());
+      await updateSW(true);
+      schedule(() => reload(), APPLY_FALLBACK_MS);
+    },
   };
 }

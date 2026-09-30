@@ -56,6 +56,7 @@ import type { CountStore } from '../store';
 import type { CounterCatalogue } from './assignment';
 import type { CounterSync } from './sync';
 import { tapGuard, useTapGuard } from './tapGuard';
+import type { StorageReport } from '../storage';
 
 export function FinishPanel({
   store,
@@ -63,9 +64,16 @@ export function FinishPanel({
   catalogue,
   events,
   onCount,
+  storage = null,
 }: {
   store: CountStore;
   sync: CounterSync;
+  /**
+   * Whether the browser promised to keep this tablet's data. Shown here, on
+   * the tab a supervisor opens for the pre-flight check, rather than as a
+   * banner a counter sees all afternoon and learns to ignore.
+   */
+  storage?: StorageReport | null;
   catalogue: CounterCatalogue;
   events: readonly CountEvent[];
   /** Jump to the entry screen for one gap row. */
@@ -181,6 +189,15 @@ export function FinishPanel({
               <span className="num">{summary.notas}</span>
             </li>
           </ul>
+          {storage && (
+            <div className="hint">
+              {storage.persistence === 'granted'
+                ? 'Almacenamiento de la tableta: protegido.'
+                : 'Almacenamiento de la tableta: sin garantía. Si le falta espacio, el ' +
+                  'navegador puede borrar lo que no se haya subido: acércate a la señal ' +
+                  'seguido e instala la aplicación en esta tableta.'}
+            </div>
+          )}
         </div>
       </div>
 

@@ -24,6 +24,7 @@ import {
   resolve,
   resolveAll,
   undoLast,
+  validateEvent,
   type ChainedEvent,
   type CountEvent,
   type CountEventDraft,
@@ -685,7 +686,12 @@ export class CountStore {
       zona,
       at: this.stamp(),
       deviceId: this.deviceId,
-      seq: this.seq++,
+      // Read, not consumed: `this.seq` advances only once the event below has
+      // been built *and validated*. Consuming it first meant any throw on the
+      // way — a note with a pasted tab, an item event with no idarticulo —
+      // left a number nobody wrote, and in P2 mode a hole in the chain that
+      // the server answers with SEQUENCE_GAP for ever.
+      seq: this.seq,
     };
     // The item-scoped kinds narrow `idarticulo` back to a number. Checked
     // rather than asserted: this method is now the write path for the
@@ -753,6 +759,12 @@ export class CountStore {
     // avoid. The hash is a pure function of the event, so nothing about it is a
     // guess; what the durable write decides is whether the row survives, and a
     // write that fails halts the store.
+    // The same check the repository runs at append, run here, synchronously,
+    // while refusing still costs nothing: the caller gets the error (the Notas
+    // screen shows it) and neither `seq` nor the head has moved.
+    validateEvent(event);
+    this.seq++;
+
     let link: ChainedEvent | null = null;
     if (this.counterId !== undefined) {
       const prevHash = this.head;
@@ -878,7 +890,7 @@ export class CountStore {
         this.emit({
           pending: Math.max(0, this.snapshot.pending - 1),
           failures: [...this.snapshot.failures, { events, message, links }],
-          halted: this.snapshot.halted ?? this.haltFor(held, message),
+          halted: this.snapshot.halted ?? this.haltFor(held, message, links !== null),
         });
       },
     );
@@ -893,7 +905,22 @@ export class CountStore {
    * survives a reload, so it takes a run of failures to conclude the database
    * is gone rather than busy.
    */
-  private haltFor(held: boolean, message: string): Halt | null {
+  private haltFor(held: boolean, message: string, chained = false): Halt | null {
+    // A chained write that failed is a hole the next tap would build on: the
+    // next event's `prevHash` is this one's hash, so it lands on disk as
+    // `seq` 1, 3, 4… and the server refuses everything from 2 on, for good.
+    // There is no «busy, try later» here — one failure stops new entries
+    // until «Reintentar guardado» lands the missing one, in order.
+    if (chained) {
+      return {
+        title: 'No se está guardando nada',
+        detail:
+          `La tableta no pudo guardar un registro («${message}»). Para no dejar un ` +
+          'hueco en tu conteo no acepta más registros hasta que el guardado funcione. ' +
+          'Toca «Reintentar guardado»; si vuelve a fallar, avisa a sistemas y no ' +
+          'cierres la aplicación.',
+      };
+    }
     if (!held) {
       return {
         title: 'Este conteo no se guardó en ninguna parte',

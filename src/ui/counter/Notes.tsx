@@ -42,7 +42,11 @@ export function Notes({
   const notes = ownNotes(events, store.counterId);
 
   function guardar(): void {
-    const trimmed = texto.trim();
+    // A tab or a carriage return pasted from another app is not something a
+    // person meant; it is refused by the chain's own check (which stays the
+    // rule), so it is turned into a space before it gets there. A line break
+    // is allowed and kept.
+    const trimmed = texto.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ').trim();
     if (trimmed.length === 0) return;
     try {
       // Control characters are refused at append (P2.0 §3b), not here: the

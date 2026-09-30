@@ -52,6 +52,7 @@ import { Login } from '../components/Login';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { localOutbox } from '../outbox';
 import { CountStore } from '../store';
+import { requestPersistence, type StorageReport } from '../storage';
 import { noUpdates, type Updates } from '../updates';
 import { Entry } from './Entry';
 import { FinishPanel } from './Finish';
@@ -62,6 +63,7 @@ import { Search } from './Search';
 import { SyncBar } from './SyncBar';
 import { catalogueOf, type CounterCatalogue } from './assignment';
 import { bootCounter, type ChainStart } from './boot';
+import { useCounterLock, type LockManagerLike } from './counterLock';
 import {
   clearStaleAssignments,
   drainOthers,
@@ -98,6 +100,8 @@ export function CounterScreen({
   chain,
   updates: injectedUpdates,
   auth = OPEN_DOOR,
+  locks,
+  persistence = requestPersistence,
 }: {
   token: string;
   api: Api;
@@ -117,6 +121,10 @@ export function CounterScreen({
    * Nothing in Dexie — events, outbox — is touched by that.
    */
   auth?: AuthGate;
+  /** `navigator.locks` unless a test passes its own (see counterLock.ts). */
+  locks?: LockManagerLike;
+  /** Asks the browser to keep this origin's data; injectable for tests. */
+  persistence?: () => Promise<StorageReport>;
 }) {
   const updates = useMemo(() => injectedUpdates ?? noUpdates(), [injectedUpdates]);
   const [, bump] = useState(0);
@@ -129,6 +137,22 @@ export function CounterScreen({
   const [payload, setPayload] = useState<CounterPayload | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [lockAttempt, setLockAttempt] = useState(0);
+  const lock = useCounterLock(payload?.counter.id ?? null, lockAttempt, locks);
+  // Ask the browser to keep this origin's database. Chrome answers from its
+  // own heuristics — an installed app is granted, a plain tab often is not —
+  // and until now the counting page never asked at all, so an eviction under
+  // storage pressure took unsynced counts with nothing on screen saying so.
+  const [storage, setStorage] = useState<StorageReport | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void persistence().then((report) => {
+      if (alive) setStorage(report);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [persistence]);
 
   const onReady = useCallback((held: CounterPayload) => {
     // Same counter in the same session: keep the object identity so the boot
@@ -144,6 +168,8 @@ export function CounterScreen({
 
   useEffect(() => {
     if (!payload) return;
+    // Not before this screen is the only one writing this counter's chain.
+    if (lock !== 'held' && lock !== 'unsupported') return;
     let alive = true;
     void (async () => {
       try {
@@ -212,7 +238,24 @@ export function CounterScreen({
     return () => {
       alive = false;
     };
-  }, [payload, door, chain, repo, token]);
+  }, [payload, door, chain, repo, token, lock]);
+
+  // Every entry, once it is on disk: recount the outbox, and push if the
+  // browser does not know it is offline. Without this the sync bar went on
+  // saying «Todo lo que llevas está subido» for up to thirty seconds after a
+  // tap — the one sentence that tells somebody it is safe to walk away.
+  useEffect(() => {
+    if (!live) return;
+    let seen = live.store.getSnapshot().events.length;
+    return live.store.subscribe(() => {
+      const snapshot = live.store.getSnapshot();
+      if (snapshot.pending !== 0 || snapshot.events.length === seen) return;
+      seen = snapshot.events.length;
+      void live.sync.refresh().then(() => {
+        if (globalThis.navigator?.onLine !== false) void live.sync.drain();
+      });
+    });
+  }, [live]);
 
   // Everything that means "there might be signal now": the `online` event, the
   // app coming back to the foreground, and a slow timer for the cases neither
@@ -236,6 +279,26 @@ export function CounterScreen({
         <div className="empty__body">{failed}</div>
       </div>
     </div>
+  ) : lock === 'busy' ? (
+    <div className="screen">
+      <div className="empty" role="alert">
+        <div className="empty__title">Este conteo ya está abierto en esta tableta</div>
+        <div className="empty__body">
+          Está abierto en otra pestaña o en la aplicación instalada. Sigue contando allí: si
+          cuentas en las dos a la vez, una de ellas pierde registros. Si ya la cerraste, toca
+          «Reintentar».
+        </div>
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setLockAttempt((n) => n + 1)}
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    </div>
   ) : !payload || !live ? (
     // Until the assignment is on the device and the chain has a starting point,
     // the preparation screen is the whole app — it is the one that can say «esta
@@ -245,6 +308,7 @@ export function CounterScreen({
     <Counting
       payload={payload}
       live={live}
+      storage={storage}
       api={door}
       chain={chain}
       assignments={assignments}
@@ -268,12 +332,14 @@ export function CounterScreen({
 function Counting({
   payload,
   live,
+  storage,
   api,
   chain,
   assignments,
 }: {
   payload: CounterPayload;
   live: Live;
+  storage: StorageReport | null;
   api: Api;
   chain: CounterChainRepository;
   assignments: AssignmentStore;
@@ -448,6 +514,7 @@ function Counting({
             <FinishPanel
               store={store}
               sync={sync}
+              storage={storage}
               catalogue={catalogue}
               events={snapshot.events}
               onCount={(idarticulo) => {

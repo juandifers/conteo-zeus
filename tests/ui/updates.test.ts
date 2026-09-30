@@ -78,6 +78,45 @@ describe('a waiting service worker', () => {
     expect(sw.reload).toHaveBeenCalledWith(true);
   });
 
+  it('reloads when the new worker takes control, even where the library would not', async () => {
+    // The tab that installed the first worker: workbox-window decided at
+    // registration that this page is not an «update», so `updateSW(true)`
+    // activates the new worker and never reloads. The page has to.
+    const sw = fakeRegister();
+    const reload = vi.fn();
+    let takeOver: (() => void) | null = null;
+    const updates = serviceWorkerUpdates(sw.register, {
+      reload,
+      onControllerChange: (fn) => {
+        takeOver = fn;
+      },
+      schedule: () => 0,
+    });
+    sw.needRefresh();
+
+    await updates.apply();
+    expect(reload).not.toHaveBeenCalled();
+    takeOver!();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads after a few seconds even if nothing ever takes control', async () => {
+    const sw = fakeRegister();
+    const reload = vi.fn();
+    const later: { fn: () => void; ms: number }[] = [];
+    const updates = serviceWorkerUpdates(sw.register, {
+      reload,
+      onControllerChange: () => {},
+      schedule: (fn, ms) => later.push({ fn, ms }),
+    });
+    sw.needRefresh();
+
+    await updates.apply();
+    expect(later.map((entry) => entry.ms)).toEqual([4_000]);
+    later[0].fn();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   it('stops telling a subscriber that has unsubscribed', () => {
     const sw = fakeRegister();
     const updates = serviceWorkerUpdates(sw.register);

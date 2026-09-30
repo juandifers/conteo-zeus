@@ -384,6 +384,33 @@ describe('the three failure modes', () => {
     expect(sync.getSnapshot().pendientes).toBe(0);
   });
 
+  it('backs off, rather than looping, when the device does not hold what the server asks for', async () => {
+    // A hole on the device: seq 1 is on the server, seq 2 never reached this
+    // tablet's disk, 3–5 did. The server asks for 2 every time, resending from
+    // 2 sends 3 again, and the old drain answered «retry now» for ever —
+    // hundreds of requests a second, with the banner blaming the signal.
+    const store = new MemoryChain();
+    const links = chain(5);
+    for (const link of links) if (link.event.seq !== 2) await store.appendChained(link);
+    await store.markSynced(SESSION, COUNTER, 1);
+    const { api, sent } = scriptedApi(
+      () => new ApiError(409, 'faltan eventos', { code: 'SEQUENCE_GAP', expectedFrom: 2 }),
+    );
+    const timers = fakeTimers();
+    const sync = open(api, store, timers);
+
+    await sync.drain();
+
+    expect(sent.length).toBeLessThanOrEqual(2);
+    expect(sync.getSnapshot().problem).toMatch(/le falta el registro 2/);
+    expect(sync.getSnapshot().attempts).toBe(1);
+    // …and it keeps trying on the backoff, not in a loop.
+    await timers.run();
+    await sync.drain();
+    expect(sent.length).toBeLessThanOrEqual(4);
+    expect(sync.getSnapshot().stopped).toBeNull();
+  });
+
   it('stops on a fork, keeps the outbox, and says what happened', async () => {
     const store = await seeded(3);
     const { api, sent } = scriptedApi(

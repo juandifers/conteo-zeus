@@ -510,18 +510,19 @@ describe('when the tablet stops saving', () => {
   it('takes the tabs away rather than greying them out', async () => {
     // Accumulating a whole cava behind a warning is worse than stopping, and a
     // disabled screen still reads as «keep going, it will come back».
+    //
+    // On a counter's tablet one failed write is already enough: every event is
+    // chained onto the one before it, so a tap after a failed write builds on
+    // an event that is not on disk — `seq` 1, 3, 4… — and the server refuses
+    // everything from the hole on, for good. It stops at the first.
     const { user } = await openTablet({ brokenDatabase: true });
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
-      await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
-      await user.type(screen.getByLabelText(/cantidad contada/), '1');
-      await user.click(screen.getByRole('button', { name: /^Registrar 1 / }));
-      // The second attempt is on an article this counter already registered.
-      const sumar = screen.queryByRole('button', { name: 'Sí, sumar 1' });
-      if (sumar) await user.click(sumar);
-    }
+    await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
+    await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
+    await user.type(screen.getByLabelText(/cantidad contada/), '1');
+    await user.click(screen.getByRole('button', { name: /^Registrar 1 / }));
 
     expect(await screen.findByText(/No se está guardando nada/)).toBeTruthy();
+    expect(screen.getByText(/para no dejar un hueco/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Mis registros' })).toBeNull();
     expect(screen.queryByLabelText('buscar artículo')).toBeNull();
     expect(screen.getByRole('button', { name: /Reintentar guardado/ })).toBeTruthy();
