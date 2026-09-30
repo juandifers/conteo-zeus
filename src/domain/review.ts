@@ -494,7 +494,13 @@ export function reviewSession(input: ReviewInput): Review {
     const conteo = summaryRow.state === 'counted' ? summaryRow.qty : undefined;
     if (conteo !== undefined && item.existencia > 0 && item.costo > 0) {
       const ratio = conteo / item.existencia;
-      if (ratio > MAGNITUDE || (conteo > 0 && ratio < 1 / MAGNITUDE)) {
+      // Inclusive, and with a hair of tolerance: exactly ten times is the
+      // canonical slip — «80» typed for «8» — and a strict `>` let precisely
+      // that one through. The epsilon only absorbs binary division (0.8 / 8).
+      if (
+        ratio >= MAGNITUDE * (1 - 1e-9) ||
+        (conteo > 0 && ratio <= (1 / MAGNITUDE) * (1 + 1e-9))
+      ) {
         flags.push({ kind: 'outlier', motivo: 'magnitud', ratio });
       }
       const caja = caseFlag(conteo, item.existencia);

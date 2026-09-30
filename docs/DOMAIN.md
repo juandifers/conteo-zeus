@@ -805,13 +805,41 @@ Everything renders from Dexie. Nothing on any tab waits on a request to draw,
 because there is no signal in the bodega and a screen that needs the network is
 a screen that is blank for four hours.
 
-**Confirm is mandatory**, and it is the only fat-finger defence on the device —
-the outlier checks need book values and belong to the admin. A quantity with
-five or more digits before the separator, or more than three after it, gets a
-second, differently-worded ask: cheap, needs to know nothing about the article,
-and catches a good part of the 80-for-8 class. The unit beside the pad is
-`presentacion` **verbatim** (P2.1): `UNIDAD DE 450 A 550 GRAMOS` is unhelpful
-and true, and a parsed-and-guessed unit beside a keypad is a wrong number.
+**One tap registers; the button is the confirmation.** The mandatory second
+«Sí, registrar» was removed (0e32341): on a two-hundred-row afternoon it was
+friction, and the button already reads «Registrar 8 KILO» — the number *and*
+the unit, because the button is what gets read before the tap and a count into
+the wrong presentation is two wrong balances no review flag can see. The unit
+is `presentacion` **verbatim** (P2.1): `UNIDAD DE 450 A 550 GRAMOS` is unhelpful
+and true, and a parsed-and-guessed unit beside a keypad is a wrong number. The
+outlier checks need book values and belong to the admin.
+
+What remains on the device is a question for each *abnormal* write, and every
+road to a write passes the same ones — the keypad, «Está vacío», the gap list
+and «Corregir» alike:
+
+| Ask | When |
+|---|---|
+| «¿Confirmas que este lugar está vacío?» | any zero, typed or tapped — a zero is a stock deletion (§7.4) |
+| «Es una cantidad poco común» | five or more whole digits — a good part of the 80-for-8 class |
+| «Otra persona ya registró este artículo» | an inherited article (§6.4) |
+| «Ya registraste este artículo… se suma» | a second non-zero entry on your *own* article |
+
+The last one exists because the additive model (§3.1) is right and a
+paper-trained worker does not expect it: on a second visit they write the
+*total* again, and 30 then «81, to fix it» is 111 — indistinguishable downstream
+from two shelves. The sentence carries no number, and reveals nothing Mis
+registros does not already list.
+
+**A question's «Sí» ignores taps for 400 ms after it appears**, and the keypad
+for 300 ms after the card opens (`src/ui/counter/tapGuard.ts`). Every question
+opens where the button that raised it was, so the second tap of a double tap —
+gloves, a bounce — answered it unread.
+
+The keypad accepts at most three decimals and nine whole digits: three because
+that is what every screen prints, so the button cannot say «2» while the write
+is 2,0004; nine because past it `String(qty)` turns exponential and the Zeus
+writer throws — after the seal, leaving a count that can never produce its file.
 
 **Correction is a separate tab, reached deliberately**, and the separation is
 the design: blindness protects the act of counting, not the act of reviewing

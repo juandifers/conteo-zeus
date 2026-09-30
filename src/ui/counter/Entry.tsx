@@ -44,6 +44,7 @@ import type { CounterItem } from '../../domain';
 import { formatQty, parseQty, unusualQty } from '../format';
 import type { CountStore } from '../store';
 import { Registrado } from './Registrado';
+import { tapGuard, useTapGuard } from './tapGuard';
 
 type Phase =
   | { name: 'typing' }
@@ -58,6 +59,21 @@ type Phase =
    * sentence says.
    */
   | { name: 'otro'; qty: number }
+  /**
+   * This counter already registered this article, and is about to add to it.
+   *
+   * Two entries on one article are two locations and the count is their sum —
+   * that is the model, and it is right. But a worker trained on paper writes
+   * the *total*, and on a second visit re-enters it: 30, then 81 «to fix it»,
+   * is 111, and nothing downstream can tell that from two shelves. So the
+   * additivity is said out loud here as well, exactly as it is for somebody
+   * else's article. It reveals nothing new — Mis registros already lists this
+   * counter's own entries by name — and it carries no number.
+   *
+   * A zero skips it: the zero question already says «cero no borra lo
+   * anterior», and one question per tap is the budget.
+   */
+  | { name: 'propio'; qty: number }
   | { name: 'zero' };
 
 const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0', '⌫'] as const;
@@ -91,15 +107,30 @@ export function Entry({
   // number is on screen under the new article's name.
   const [draft, setDraft] = useState('');
   const [phase, setPhase] = useState<Phase>({ name: 'typing' });
+  // Armed at mount: the second tap of a double tap on a search result must not
+  // land on a key. Re-armed by every question: the second tap of a double tap
+  // on «Registrar» must not land on «Sí». See `tapGuard.ts`.
+  const opening = useTapGuard();
+  const question = useTapGuard();
 
   const typed = parseQty(draft);
 
+  /** Every question goes through here, so none of them can skip the guard. */
+  function ask(next: Exclude<Phase, { name: 'typing' }>): void {
+    question.arm();
+    setPhase(next);
+  }
+
   function press(key: (typeof KEYS)[number]): void {
+    if (!opening.ready(tapGuard.openMs)) return;
     setPhase({ name: 'typing' });
     setDraft((current) => {
       if (key === '⌫') return current.slice(0, -1);
       if (key === ',') return current.includes(',') || current.includes('.') ? current : `${current || '0'},`;
-      return current + key;
+      // A key that would make the number unreadable is refused, not accepted
+      // into a field whose button then goes grey with no reason given.
+      const next = current + key;
+      return parseQty(next) !== null || parseQty(current) === null ? next : current;
     });
   }
 
@@ -115,7 +146,11 @@ export function Entry({
    * article.
    */
   function submit(qty: number): void {
-    if (unusualQty(qty)) setPhase({ name: 'unusual', qty });
+    // A zero from the keypad is the same stock deletion as «Está vacío», and
+    // takes the same question. Without this, «0» + «Registrar 0» wrote a zero
+    // one deliberate tap cheaper than the action designed to cost one more.
+    if (qty === 0) ask({ name: 'zero' });
+    else if (unusualQty(qty)) ask({ name: 'unusual', qty });
     else record(qty);
   }
 
@@ -127,8 +162,16 @@ export function Entry({
    * quietly skip it.
    */
   function record(qty: number): void {
-    if (heredados.has(item.idarticulo)) setPhase({ name: 'otro', qty });
+    if (heredados.has(item.idarticulo)) ask({ name: 'otro', qty });
+    else if (qty !== 0 && registrados.has(item.idarticulo)) ask({ name: 'propio', qty });
     else write(qty);
+  }
+
+  /** «Sí» on a question: only once the question has been on screen long enough to read. */
+  function confirmed(then: () => void): () => void {
+    return () => {
+      if (question.ready(tapGuard.confirmMs)) then();
+    };
   }
 
   function write(qty: number): void {
@@ -231,7 +274,9 @@ export function Entry({
                 type="button"
                 key={row.idarticulo}
                 className={`presrow ${row.idarticulo === item.idarticulo ? 'presrow--active' : ''}`}
-                onClick={() => onActive(row)}
+                onClick={() => {
+                  if (opening.ready(tapGuard.openMs)) onActive(row);
+                }}
               >
                 <span className="presrow__name">
                   {mixedNames && <strong>{row.nombre} · </strong>}
@@ -260,7 +305,11 @@ export function Entry({
             <button type="button" className="btn" onClick={() => setPhase({ name: 'typing' })}>
               Volver a escribir
             </button>
-            <button type="button" className="btn btn--primary" onClick={() => record(phase.qty)}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={confirmed(() => record(phase.qty))}
+            >
               Sí, es correcta
             </button>
           </div>
@@ -283,7 +332,31 @@ export function Entry({
             <button
               type="button"
               className="btn btn--primary"
-              onClick={() => write(phase.qty)}
+              onClick={confirmed(() => write(phase.qty))}
+            >
+              {`Sí, sumar ${formatQty(phase.qty)}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase.name === 'propio' && (
+        <div className="confirm">
+          <div className="confirm__text">
+            Ya registraste este artículo. Esta cantidad se suma a lo que registraste antes.
+            <div className="hint">
+              Si estás contando otro lugar, está bien: la suma es el conteo. Si te equivocaste
+              antes, no registres el total otra vez: corrígelo en Mis registros.
+            </div>
+          </div>
+          <div className="actions__pair">
+            <button type="button" className="btn" onClick={() => setPhase({ name: 'typing' })}>
+              Volver
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={confirmed(() => write(phase.qty))}
             >
               {`Sí, sumar ${formatQty(phase.qty)}`}
             </button>
@@ -304,7 +377,11 @@ export function Entry({
             <button type="button" className="btn" onClick={() => setPhase({ name: 'typing' })}>
               Volver
             </button>
-            <button type="button" className="btn btn--primary" onClick={() => record(0)}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={confirmed(() => record(0))}
+            >
               Sí, está vacío
             </button>
           </div>
@@ -318,7 +395,13 @@ export function Entry({
           disabled={typed === null}
           onClick={() => typed !== null && submit(typed)}
         >
-          Registrar{typed !== null ? ` ${formatQty(typed)}` : ''}
+          {/*
+            The unit is on the button, not only beside the field: the button is
+            what gets read before the tap, and on a code with several
+            presentations «30» into KILO instead of PORCION is two wrong
+            balances that no review flag can see.
+          */}
+          Registrar{typed !== null ? ` ${formatQty(typed)} ${item.unidad}` : ''}
         </button>
         {/*
           A distinct action, not a `0` typed into the pad. A zero is a stock
@@ -326,7 +409,7 @@ export function Entry({
           number does — and «está vacío» is a different sentence from «cero»,
           which is the sentence somebody actually means.
         */}
-        <button type="button" className="btn" onClick={() => setPhase({ name: 'zero' })}>
+        <button type="button" className="btn" onClick={() => ask({ name: 'zero' })}>
           Está vacío (registrar cero)
         </button>
       </div>

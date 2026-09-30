@@ -16,7 +16,7 @@
  */
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type ChainedEvent } from '../../src/domain';
 import { ApiError, type Api } from '../../src/ui/api';
@@ -25,6 +25,13 @@ import { SyncBar } from '../../src/ui/counter/SyncBar';
 import { CounterSync } from '../../src/ui/counter/sync';
 import { COUNTER, PANADERIA, PROTEINAS, counterStore, sampleCatalogue } from './counterHarness';
 import { SESSION_ID, ID } from './harness';
+import { tapGuard } from '../../src/ui/counter/tapGuard';
+
+// Faster than any person; the guard itself is tested in entryGuards.test.tsx.
+beforeEach(() => {
+  tapGuard.confirmMs = 0;
+  tapGuard.openMs = 0;
+});
 
 afterEach(cleanup);
 

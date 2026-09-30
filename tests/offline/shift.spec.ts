@@ -177,10 +177,26 @@ async function open(page: Page, codigo: string): Promise<void> {
   await expect(page.getByLabel(/cantidad contada/)).toBeVisible()
 }
 
+/**
+ * A question's «Sí» ignores taps for a moment after it appears, so that the
+ * second tap of a double tap cannot answer it (src/ui/counter/tapGuard.ts).
+ * A person reads the question first; so does this suite.
+ */
+const READ_MS = 450
+
 async function registrar(page: Page, codigo: string, qty: string): Promise<void> {
   await open(page, codigo)
   await page.getByLabel(/cantidad contada/).fill(qty)
-  await page.getByRole('button', { name: `Registrar ${qty}`, exact: true }).click()
+  // The button carries the unit as well as the number.
+  await page.getByRole('button', { name: new RegExp(`^Registrar ${qty} `) }).click()
+  // A second entry on one's own article says it will add, once.
+  const sumar = page.getByRole('button', { name: `Sí, sumar ${qty}`, exact: true })
+  await expect(page.getByLabel('buscar artículo').or(sumar)).toBeVisible()
+  if (await sumar.isVisible()) {
+    await page.waitForTimeout(READ_MS)
+    await sumar.click()
+    await expect(page.getByLabel('buscar artículo')).toBeVisible()
+  }
 }
 
 test.describe('a whole shift with no signal', () => {
@@ -215,6 +231,7 @@ test.describe('a whole shift with no signal', () => {
     for (const codigo of ['0112007', '0112008', '0112009']) {
       await open(page, codigo)
       await page.getByRole('button', { name: /Está vacío/ }).click()
+      await page.waitForTimeout(READ_MS)
       await page.getByRole('button', { name: 'Sí, está vacío' }).click()
     }
 

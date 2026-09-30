@@ -57,9 +57,22 @@ export function parseQty(text: string): number | null {
   if (!/^\d*[.,]?\d*$/.test(trimmed)) return null;
   const normalised = trimmed.replace(',', '.');
   if (normalised === '.' || normalised === '') return null;
+  const [whole, decimals = ''] = normalised.split('.');
+  // At most three decimals and nine whole digits. Three because that is what
+  // every screen prints (`formatQty`), so the button can never say «Registrar
+  // 2» while the write is 2,0004 — and a gram of a kilo is three. Nine because
+  // beyond it `String(qty)` turns exponential: «0,0000001» and a 22-digit slip
+  // were accepted, sealed, and then made the Zeus writer throw at export,
+  // leaving a sealed count that can never produce its file.
+  if (decimals.length > MAX_DECIMALS) return null;
+  if (whole.replace(/^0+/, '').length > MAX_WHOLE_DIGITS) return null;
   const value = Number(normalised);
   return Number.isFinite(value) ? value : null;
 }
+
+/** See `parseQty`. Exported for the keypad, which refuses the key rather than the number. */
+export const MAX_DECIMALS = 3;
+export const MAX_WHOLE_DIGITS = 9;
 
 /**
  * A quantity worth asking about twice (P2.3 §2).

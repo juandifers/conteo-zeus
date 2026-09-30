@@ -17,15 +17,23 @@
  */
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { MemoryChain, MemoryRepository, type CounterPayload } from '../../src/domain';
 import type { AssignmentStore } from '../../src/store';
 import type { CounterAssignmentRow } from '../../src/store/db';
 import type { Api } from '../../src/ui/api';
 import { CounterScreen } from '../../src/ui/counter/CounterScreen';
+import { tapGuard } from '../../src/ui/counter/tapGuard';
 import { COUNTER, samplePayload } from './counterHarness';
 import { ID, SESSION_ID, sampleSession } from './harness';
+
+// These suites click faster than any person can. The double-tap guard is what
+// `tests/ui/entryGuards.test.tsx` is about; here it would only get in the way.
+beforeEach(() => {
+  tapGuard.confirmMs = 0;
+  tapGuard.openMs = 0;
+});
 
 afterEach(cleanup);
 
@@ -133,7 +141,11 @@ async function registrar(user: ReturnType<typeof userEvent.setup>, query: string
   await user.click(await screen.findByRole('button', { name: new RegExp(query, 'i') }));
   await user.type(screen.getByLabelText(/cantidad contada/), qty);
   // One tap: «Registrar 4» is the write. There is no second «Sí, registrar».
-  await user.click(screen.getByRole('button', { name: new RegExp(`^Registrar ${qty}$`) }));
+  await user.click(screen.getByRole('button', { name: new RegExp(`^Registrar ${qty} `) }));
+  // …unless this counter already registered the article: then the additivity
+  // is said out loud once (the paper-trained re-entry of a total).
+  const sumar = screen.queryByRole('button', { name: `Sí, sumar ${qty}` });
+  if (sumar) await user.click(sumar);
 }
 
 describe('no running total is reachable in the counting path', () => {
@@ -168,7 +180,7 @@ describe('no running total is reachable in the counting path', () => {
     /** The entry card, with a quantity typed and on the button. */
     await user.type(screen.getByLabelText(/cantidad contada/), '2');
     surfaces.push(clockless());
-    await user.click(screen.getByRole('button', { name: /^Registrar 2$/ }));
+    await user.click(screen.getByRole('button', { name: /^Registrar 2 / }));
 
     /** The toast, back on the search screen. */
     surfaces.push(clockless());
@@ -252,7 +264,7 @@ describe('the three verbs, and the one that was removed', () => {
     // One tap. The second «Sí, registrar» that used to follow was pure
     // friction on a two-hundred-row afternoon; a wrong entry is corrected by
     // name in Mis registros, not prevented by asking everybody twice.
-    await user.click(screen.getByRole('button', { name: /^Registrar 8$/ }));
+    await user.click(screen.getByRole('button', { name: /^Registrar 8 / }));
     const held = await chain.unsynced(sampleSession().id, 'counter-ana', 10);
     expect(held.map((link) => link.event)).toMatchObject([
       { kind: 'add', qty: 8, idarticulo: ID.panTajado },
@@ -265,7 +277,7 @@ describe('the three verbs, and the one that was removed', () => {
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     await user.type(screen.getByLabelText(/cantidad contada/), '80000');
 
-    await user.click(screen.getByRole('button', { name: /^Registrar 80.000$/ }));
+    await user.click(screen.getByRole('button', { name: /^Registrar 80.000 / }));
     expect(screen.getByText(/Es una cantidad poco común/)).toBeTruthy();
     expect(await chain.unsynced(sampleSession().id, 'counter-ana', 10)).toHaveLength(0);
 
@@ -426,7 +438,7 @@ describe('a counter who inherited somebody else’s shelves', () => {
     await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     await user.type(screen.getByLabelText(/cantidad contada/), '4');
-    await user.click(screen.getByRole('button', { name: /^Registrar 4$/ }));
+    await user.click(screen.getByRole('button', { name: /^Registrar 4 / }));
 
     // Not recorded yet: the one tap that would normally write runs into the
     // one ask that survived the confirm's removal, because this one is about
@@ -446,7 +458,7 @@ describe('a counter who inherited somebody else’s shelves', () => {
     await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
     await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
     await user.type(screen.getByLabelText(/cantidad contada/), '4');
-    await user.click(screen.getByRole('button', { name: /^Registrar 4$/ }));
+    await user.click(screen.getByRole('button', { name: /^Registrar 4 / }));
     await user.click(screen.getByRole('button', { name: /^Sí, sumar 4$/ }));
 
     // Back on the search screen, which is where the entry card leaves you and
@@ -503,7 +515,10 @@ describe('when the tablet stops saving', () => {
       await user.type(screen.getByLabelText('buscar artículo'), 'TAJADO');
       await user.click(await screen.findByRole('button', { name: /TAJADO/i }));
       await user.type(screen.getByLabelText(/cantidad contada/), '1');
-      await user.click(screen.getByRole('button', { name: /^Registrar 1$/ }));
+      await user.click(screen.getByRole('button', { name: /^Registrar 1 / }));
+      // The second attempt is on an article this counter already registered.
+      const sumar = screen.queryByRole('button', { name: 'Sí, sumar 1' });
+      if (sumar) await user.click(sumar);
     }
 
     expect(await screen.findByText(/No se está guardando nada/)).toBeTruthy();

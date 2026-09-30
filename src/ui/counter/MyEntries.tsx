@@ -25,9 +25,10 @@
 import { useState } from 'react';
 
 import { ownLog, type CountEvent, type OwnEntry } from '../../domain';
-import { formatInstant, formatQty, parseQty } from '../format';
+import { formatInstant, formatQty, parseQty, unusualQty } from '../format';
 import type { CountStore } from '../store';
 import type { CounterCatalogue } from './assignment';
+import { tapGuard, useTapGuard } from './tapGuard';
 
 export function MyEntries({
   store,
@@ -41,6 +42,13 @@ export function MyEntries({
   /** The row being edited, if any. One at a time: this is a phone-sized screen. */
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  /**
+   * A correction to zero or to an unusual quantity asks once more, exactly as
+   * the entry card does. «Corregir» used to be the one road to a write with no
+   * question on it: 8 → 81 000, or 8 → 0 (a stock deletion), went straight in.
+   */
+  const [checking, setChecking] = useState<number | null>(null);
+  const question = useTapGuard();
 
   const entries = ownLog(events, store.counterId).slice().reverse();
 
@@ -58,11 +66,18 @@ export function MyEntries({
   function corregir(entry: OwnEntry): void {
     const qty = parseQty(draft);
     if (qty === null) return;
+    if ((qty === 0 || unusualQty(qty)) && checking !== qty) {
+      question.arm();
+      setChecking(qty);
+      return;
+    }
+    if (checking === qty && !question.ready(tapGuard.confirmMs)) return;
     // Both halves in one transaction (§3). A withdrawal that landed without its
     // replacement is a count somebody deleted.
     store.correct(entry.event.idarticulo as number, entry.event.id, qty);
     setEditing(null);
     setDraft('');
+    setChecking(null);
   }
 
   return (
@@ -99,6 +114,7 @@ export function MyEntries({
                   onClick={() => {
                     setEditing(open ? null : entry.event.id);
                     setDraft('');
+                    setChecking(null);
                   }}
                 >
                   Corregir
@@ -117,12 +133,29 @@ export function MyEntries({
                     autoFocus
                     aria-label={`nueva cantidad para ${item?.nombre ?? entry.event.idarticulo}`}
                     value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
+                    onChange={(event) => {
+                      setDraft(event.target.value);
+                      setChecking(null);
+                    }}
                   />
                   <span className="readout__unit">{item?.unidad ?? ''}</span>
                 </div>
+                {checking !== null && (
+                  <div className="confirm__text">
+                    {checking === 0
+                      ? '¿Confirmas que este lugar está vacío? Cero significa que aquí no hay nada.'
+                      : `Es una cantidad poco común: ${formatQty(checking)} ${item?.unidad ?? ''}. ¿La escribiste bien?`}
+                  </div>
+                )}
                 <div className="actions__pair">
-                  <button type="button" className="btn" onClick={() => setEditing(null)}>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      setEditing(null);
+                      setChecking(null);
+                    }}
+                  >
                     Volver
                   </button>
                   <button
@@ -131,7 +164,9 @@ export function MyEntries({
                     disabled={parseQty(draft) === null}
                     onClick={() => corregir(entry)}
                   >
-                    Guardar corrección
+                    {checking !== null
+                      ? `Sí, guardar ${formatQty(checking)}`
+                      : 'Guardar corrección'}
                   </button>
                 </div>
               </div>

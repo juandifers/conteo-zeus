@@ -55,6 +55,7 @@ import { ownSummary, sectionProgress, type CountEvent } from '../../domain';
 import type { CountStore } from '../store';
 import type { CounterCatalogue } from './assignment';
 import type { CounterSync } from './sync';
+import { tapGuard, useTapGuard } from './tapGuard';
 
 export function FinishPanel({
   store,
@@ -72,6 +73,8 @@ export function FinishPanel({
 }) {
   /** The gap row whose «está vacío» is waiting for its second tap. */
   const [emptying, setEmptying] = useState<number | null>(null);
+  // «Sí, está vacío» opens under the row's own «Está vacío»; see tapGuard.ts.
+  const question = useTapGuard();
   /** Shared sessions only: whether the whole-catalogue gap list is open. */
   const [listaCompleta, setListaCompleta] = useState(false);
   const { estado, serverEstado } = useSyncExternalStore(sync.subscribe, sync.getSnapshot);
@@ -268,7 +271,10 @@ export function FinishPanel({
                         type="button"
                         className="btn btn--small"
                         aria-label={`marcar ${item?.nombre ?? idarticulo} como vacío`}
-                        onClick={() => setEmptying(idarticulo)}
+                        onClick={() => {
+                          question.arm();
+                          setEmptying(idarticulo);
+                        }}
                       >
                         Está vacío
                       </button>
@@ -290,6 +296,7 @@ export function FinishPanel({
                             type="button"
                             className="btn btn--primary"
                             onClick={() => {
+                              if (!question.ready(tapGuard.confirmMs)) return;
                               store.addCount(idarticulo, 0);
                               setEmptying(null);
                             }}

@@ -414,6 +414,23 @@ describe('outliers show the arithmetic and change nothing (§3e)', () => {
     });
   });
 
+  it('names exactly ten times, which is the «80» typed for «8»', () => {
+    // The boundary is the whole point: one extra zero is ×10 exactly, and a
+    // strict comparison let precisely the canonical slip through.
+    const high = review([addCount(1, 100, { counterId: 'ana' })]);
+    expect(high.rows.find((row) => row.item.idarticulo === 1)!.flags).toContainEqual({
+      kind: 'outlier',
+      motivo: 'magnitud',
+      ratio: 10,
+    });
+    const low = review([addCount(2, 2, { counterId: 'ana' })]);
+    expect(low.rows.find((row) => row.item.idarticulo === 2)!.flags).toContainEqual({
+      kind: 'outlier',
+      motivo: 'magnitud',
+      ratio: 0.1,
+    });
+  });
+
   it('names the case-versus-unit error, which is the classic one', () => {
     // Item 2 is booked at 20 and somebody counted 240: twelve to a case.
     const result = review([addCount(2, 240, { counterId: 'ana' })]);
