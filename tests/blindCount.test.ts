@@ -52,6 +52,11 @@ const COUNTING_SURFACES = [
   'ui/counter/Registrado.tsx',
   'ui/counter/assignment.ts',
   'ui/counter/handover.ts',
+  // Pre-pilot additions: the double-tap guard, the one-writer lock and the
+  // outside-Chrome banner all run on the counting path.
+  'ui/counter/tapGuard.ts',
+  'ui/counter/counterLock.ts',
+  'ui/counter/browser.ts',
   'ui/screens/CountScreen.tsx',
   'ui/screens/FaltantesScreen.tsx',
   'ui/components/EntryCard.tsx',

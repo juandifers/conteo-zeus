@@ -78,3 +78,22 @@ describe('a refused event', () => {
     expect(store.getSnapshot().halted).toBeNull();
   });
 });
+
+describe('a correction whose replacement cannot be built', () => {
+  it('leaves the chain exactly where it was (found by review)', async () => {
+    const { store, chain } = await counterStore();
+    const [first] = [store.addCount(ID.panTajado, 5)];
+    await store.settled();
+
+    // The withdrawal builds fine; the replacement is refused. Before, the
+    // withdrawal had already taken seq 2 and moved the head, nothing was
+    // written, and the next entry landed at seq 3 over a hole.
+    expect(() => store.correct(ID.panTajado, first.id, Number.NaN)).toThrow();
+    store.addCount(ID.panTajado, 7);
+    await store.settled();
+
+    expect(await onDisk(chain)).toEqual([1, 2]);
+    const links = await chain.unsynced(SESSION_ID, COUNTER, 100);
+    expect(links[1].prevHash).toBe(links[0].hash);
+  });
+});

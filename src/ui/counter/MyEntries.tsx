@@ -22,7 +22,7 @@
  * to restore it to — undo already withdraws a named event, and under several
  * counters «descartar este artículo» means «descartar lo de todos».
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { ownLog, type CountEvent, type OwnEntry } from '../../domain';
 import { formatInstant, formatQty, parseQty, unusualQty } from '../format';
@@ -49,6 +49,15 @@ export function MyEntries({
    */
   const [checking, setChecking] = useState<number | null>(null);
   const question = useTapGuard();
+  // The list moves under the finger when an entry is added or withdrawn: a
+  // correction pushes every row down one, and the second tap of a double tap
+  // lands on the «Deshacer» of the row below — a withdrawal nobody chose, which
+  // under 'zero' posts that article as empty if it was its only entry.
+  const shifted = useTapGuard();
+  const arm = shifted.arm;
+  useEffect(() => {
+    arm();
+  }, [events.length, arm]);
 
   const entries = ownLog(events, store.counterId).slice().reverse();
 
@@ -104,7 +113,10 @@ export function MyEntries({
                 <button
                   type="button"
                   className="btn btn--small"
-                  onClick={() => store.withdraw(entry.event.idarticulo as number, entry.event.id)}
+                  onClick={() => {
+                    if (!shifted.ready(tapGuard.confirmMs)) return;
+                    store.withdraw(entry.event.idarticulo as number, entry.event.id);
+                  }}
                 >
                   Deshacer
                 </button>

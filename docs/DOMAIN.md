@@ -834,7 +834,11 @@ registros does not already list.
 **A question's «Sí» ignores taps for 400 ms after it appears**, and the keypad
 for 300 ms after the card opens (`src/ui/counter/tapGuard.ts`). Every question
 opens where the button that raised it was, so the second tap of a double tap —
-gloves, a bounce — answered it unread.
+gloves, a bounce — answered it unread. «Deshacer» asks nothing — it is the
+correction, and a question on it would be friction on the path people should
+take — but it ignores taps for 400 ms after Mis registros changes, because a
+correction shifts every row down one and the tail of a double tap would land on
+the next row's «Deshacer».
 
 The keypad accepts at most three decimals and nine whole digits: three because
 that is what every screen prints, so the button cannot say «2» while the write

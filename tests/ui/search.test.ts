@@ -144,5 +144,21 @@ describe('what people say, not what the catalogue says (pre-pilot pass)', () => 
   it('changes nothing for a word that already matched as typed', () => {
     // HUEVOS is a real name: the plural query must still find it first.
     expect(find('huevos')[0]).toMatch(/^HUEVOS/);
+    // Found by review: tried row by row, the singular reshuffled queries that
+    // already matched, and Enter opened another article. Only a query that
+    // finds nothing as typed is retried.
+    const plain = buildIndex(sampleSession().items);
+    for (const query of ['cerezas', 'sobres', 'rojos', 'grandes', 'dulces']) {
+      const asTyped = searchItems(plain, query);
+      if (asTyped.length === 0) continue;
+      expect(asTyped.every((hit) => normalise(hit.item.nombre + ' ' + hit.item.presentacion).includes(normalise(query))), query).toBe(true);
+    }
+  });
+
+  it('reads -s before -es, so a plural does not reach a different word', () => {
+    // LECHES is LECHE; stripping -es first gave LECH, which is LECHUGA too.
+    const found = find('leches');
+    expect(found[0]).toMatch(/^LECHE/);
+    expect(found.some((nombre) => /LECHUGA/.test(nombre))).toBe(false);
   });
 });

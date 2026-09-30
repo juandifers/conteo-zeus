@@ -266,6 +266,7 @@ describe('what the button says is what gets written', () => {
     expect(parseQty('2,0005')).toBeNull();
     expect(parseQty('1234567890')).toBeNull();
     expect(parseQty('2,125')).toBe(2.125);
+    expect(parseQty('2,5000')).toBe(2.5); // trailing zeros are not precision
     expect(parseQty('123456789')).toBe(123456789);
 
     const { user } = await openTablet();
@@ -275,5 +276,34 @@ describe('what the button says is what gets written', () => {
       await user.click(screen.getByRole('button', { name: key }));
     }
     expect((screen.getByLabelText(/cantidad contada/) as HTMLInputElement).value).toBe('2,125');
+  });
+});
+
+describe('«Deshacer» when the list has just moved (found by review)', () => {
+  it('ignores the tap that lands in the instant after the rows shift', async () => {
+    const { user, written } = await openTablet();
+    await openCard(user, 'TAJADO');
+    await user.type(screen.getByLabelText(/cantidad contada/), '8');
+    await user.click(screen.getByRole('button', { name: /^Registrar 8 / }));
+    await user.click(screen.getByRole('button', { name: 'Mis registros' }));
+
+    // The list just gained a row: a tap now is the tail of a double tap.
+    await user.click(screen.getByRole('button', { name: 'Deshacer' }));
+    expect(await written()).toHaveLength(1);
+
+    read();
+    await user.click(screen.getByRole('button', { name: 'Deshacer' }));
+    expect(await written()).toMatchObject([{ kind: 'add', qty: 8 }, { kind: 'retract' }]);
+  });
+});
+
+describe('the sync bar after an entry, with no signal (found by review)', () => {
+  it('counts the entry as waiting once it is on disk, not on the next tick', async () => {
+    const { user } = await openTablet();
+    expect(await screen.findByText(/Todo lo que llevas está subido/)).toBeTruthy();
+    await openCard(user, 'TAJADO');
+    await user.type(screen.getByLabelText(/cantidad contada/), '8');
+    await user.click(screen.getByRole('button', { name: /^Registrar 8 / }));
+    expect(await screen.findByText(/1 registro sin subir/)).toBeTruthy();
   });
 });

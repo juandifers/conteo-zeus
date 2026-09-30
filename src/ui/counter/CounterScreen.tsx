@@ -245,13 +245,18 @@ export function CounterScreen({
   // browser does not know it is offline. Without this the sync bar went on
   // saying «Todo lo que llevas está subido» for up to thirty seconds after a
   // tap — the one sentence that tells somebody it is safe to walk away.
+  //
+  // Keyed on the write *landing* — `pending` going back to zero — and not on
+  // the entry appearing: the store shows an entry before IndexedDB has it, and
+  // a recount taken then reads the outbox one short.
   useEffect(() => {
     if (!live) return;
-    let seen = live.store.getSnapshot().events.length;
+    let pending = live.store.getSnapshot().pending;
     return live.store.subscribe(() => {
-      const snapshot = live.store.getSnapshot();
-      if (snapshot.pending !== 0 || snapshot.events.length === seen) return;
-      seen = snapshot.events.length;
+      const now = live.store.getSnapshot().pending;
+      const landed = pending > 0 && now === 0;
+      pending = now;
+      if (!landed) return;
       void live.sync.refresh().then(() => {
         if (globalThis.navigator?.onLine !== false) void live.sync.drain();
       });

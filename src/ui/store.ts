@@ -527,10 +527,22 @@ export class CountStore {
   correct(idarticulo: number, eventId: string, qty: number): CountEvent[] {
     this.requireCounter('corregir');
     this.requireOwnStanding(idarticulo, eventId);
-    const built = [
-      this.build(idarticulo, { kind: 'retract', retractsEventId: eventId }),
-      this.build(idarticulo, { kind: 'add', qty }),
-    ];
+    // Two builds, one position: if the replacement cannot be built, the
+    // withdrawal already took a `seq` and moved the head, and committing
+    // nothing would leave exactly the hole `build` refuses to leave alone.
+    const position = { seq: this.seq, head: this.head, highWater: this.highWater };
+    let built;
+    try {
+      built = [
+        this.build(idarticulo, { kind: 'retract', retractsEventId: eventId }),
+        this.build(idarticulo, { kind: 'add', qty }),
+      ];
+    } catch (cause) {
+      this.seq = position.seq;
+      this.head = position.head;
+      this.highWater = position.highWater;
+      throw cause;
+    }
     this.commit(built);
     return built.map(({ event }) => event);
   }
@@ -917,8 +929,9 @@ export class CountStore {
         detail:
           `La tableta no pudo guardar un registro («${message}»). Para no dejar un ` +
           'hueco en tu conteo no acepta más registros hasta que el guardado funcione. ' +
-          'Toca «Reintentar guardado»; si vuelve a fallar, avisa a sistemas y no ' +
-          'cierres la aplicación.',
+          'Toca «Reintentar guardado». Si vuelve a fallar, recarga la aplicación: lo ' +
+          'que ya estaba guardado sigue ahí, y solo el último registro hay que volver ' +
+          'a hacerlo. Avisa a sistemas.',
       };
     }
     if (!held) {

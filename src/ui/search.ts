@@ -141,7 +141,7 @@ interface Scored<T extends Searchable> extends SearchHit<T> {
 }
 
 /**
- * The singulars a Spanish plural may stand for, most specific first.
+ * The singulars a Spanish plural may stand for, most likely first.
  *
  * People say what they see — «tomates», «limones», «quesos» — and the catalogue
  * names one of it: `TOMATE CHONTO`, `LIMON TAHITI`, `QUESO COSTEÑO`. Every one
@@ -149,25 +149,21 @@ interface Scored<T extends Searchable> extends SearchHit<T> {
  * article you cannot find is a note — so the article stayed uncounted and,
  * under `uncountedPolicy: 'zero'`, went to Zeus as empty.
  *
- * Tried only when the token as typed matches nothing in the row, so nothing
- * that matched before ranks differently now. The length floors keep «gas» or
- * «res» from collapsing into two letters that match half the bodega.
+ * «-s» before «-es»: LECHES is LECHE (not LECH, which is LECHUGA too), and
+ * LIMONES falls through LIMONE to LIMON. The length floors keep «gas» or «res»
+ * from collapsing into two letters that match half the bodega.
  */
 function singulars(token: string): string[] {
   const out: string[] = [];
-  if (token.length >= 5 && token.endsWith('ES')) out.push(token.slice(0, -2));
   if (token.length >= 4 && token.endsWith('S')) out.push(token.slice(0, -1));
+  if (token.length >= 5 && token.endsWith('ES')) out.push(token.slice(0, -2));
   return out;
 }
 
 function score<T extends Searchable>(entry: IndexedItem<T>, tokens: string[]): Scored<T> | null {
   const matches: TokenMatch[] = [];
   for (const token of tokens) {
-    let match = bestMatch(entry.blob, token);
-    for (const singular of match ? [] : singulars(token)) {
-      match = bestMatch(entry.blob, singular);
-      if (match) break;
-    }
+    const match = bestMatch(entry.blob, token);
     if (!match) return null;
     matches.push(match);
   }
@@ -190,10 +186,29 @@ export function searchItems<T extends Searchable>(
   const tokens = tokenize(query);
   if (tokens.length === 0) return [];
 
-  const scored: Scored<T>[] = [];
+  let scored: Scored<T>[] = [];
   for (const entry of index) {
     const hit = score(entry, tokens);
     if (hit) scored.push(hit);
+  }
+  // Singulars only when the query as typed finds nothing at all. Tried row by
+  // row they changed what Enter opened for queries that already matched —
+  // «cerezas» went from CEREZAS to CEREZA ALFA — and a search people learn the
+  // shape of must not move under them.
+  //
+  // One reading for the whole query, the first that finds anything: «leches»
+  // read as LECHE finds the milk and stops there, instead of each row falling
+  // through to LECH on its own and pulling in LECHUGA.
+  for (let reading = 0; scored.length === 0 && reading < 2; reading++) {
+    const alternative = tokens.map((token) => {
+      const options = singulars(token);
+      return options[reading] ?? options[0] ?? token;
+    });
+    if (alternative.every((token, i) => token === tokens[i])) continue;
+    for (const entry of index) {
+      const hit = score(entry, alternative);
+      if (hit) scored.push(hit);
+    }
   }
 
   scored.sort(

@@ -64,7 +64,7 @@ export function parseQty(text: string): number | null {
   // beyond it `String(qty)` turns exponential: «0,0000001» and a 22-digit slip
   // were accepted, sealed, and then made the Zeus writer throw at export,
   // leaving a sealed count that can never produce its file.
-  if (decimals.length > MAX_DECIMALS) return null;
+  if (decimals.replace(/0+$/, '').length > MAX_DECIMALS) return null;
   if (whole.replace(/^0+/, '').length > MAX_WHOLE_DIGITS) return null;
   const value = Number(normalised);
   return Number.isFinite(value) ? value : null;

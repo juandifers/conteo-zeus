@@ -246,6 +246,8 @@ test.describe('a whole shift with no signal', () => {
 
     // A correction, from the screen where correction lives.
     await tab(page, 'Mis registros').click()
+    // The list ignores taps for a moment after it appears or shifts.
+    await page.waitForTimeout(READ_MS)
     await page.getByRole('button', { name: 'Deshacer' }).first().click()
     await expect(page.locator('.row--withdrawn').first()).toBeVisible()
 

@@ -551,13 +551,20 @@ suite('POST /api/c/:token/events', () => {
     expect(row[0].device_ids_seen).toEqual(['tablet-a', 'tablet-b']);
   });
 
+  /** A session's creation instant, plus `minutes`, as the stamp a device would write. */
+  async function afterCreation(sessionId: string, minutes: number): Promise<string> {
+    const row = await db.query<{ created_at: Date }>('select created_at from sessions where id = $1', [
+      sessionId,
+    ]);
+    return new Date(row[0].created_at.getTime() + minutes * 60_000).toISOString();
+  }
+
   it('records the largest skew ever seen, and never corrects a timestamp', async () => {
     const { sessionId, ana } = await dispatched();
-    const serverAt = '2026-08-31T14:00:00.000Z';
+    const serverAt = await afterCreation(sessionId, 60);
     // Nine minutes fast.
-    const fast = counts(sessionId, ana.id, 1, 1181, {
-      at: () => '2026-08-31T14:09:00.000Z',
-    });
+    const fastAt = await afterCreation(sessionId, 69);
+    const fast = counts(sessionId, ana.id, 1, 1181, { at: () => fastAt });
     await pushEvents(db, ana.token, { events: fast }, { now: () => serverAt });
     // Then correct.
     const ok = chainFor(
@@ -580,7 +587,7 @@ suite('POST /api/c/:token/events', () => {
       'select client_at from events where counter_id = $1 order by seq',
       [ana.id],
     );
-    expect(stamps[0].client_at).toBe('2026-08-31T14:09:00.000Z');
+    expect(stamps[0].client_at).toBe(fastAt);
   });
 
   it('accepts a tablet whose clock reset to a factory date, and says so without overflowing', async () => {
@@ -589,7 +596,7 @@ suite('POST /api/c/:token/events', () => {
     // this push used to die with `integer out of range` — a 500 the device
     // retries for ever, with the wrong stamps already inside the hashes.
     const { sessionId, ana } = await dispatched();
-    const serverAt = '2026-09-30T15:00:00.000Z';
+    const serverAt = await afterCreation(sessionId, 60);
     const stale = counts(sessionId, ana.id, 2, 1181, { at: () => '2015-01-01T00:00:00.000Z' });
     const result = await pushEvents(
       db,
@@ -606,12 +613,35 @@ suite('POST /api/c/:token/events', () => {
     expect(row[0].clock_skew_ms).toBe(-2_147_483_647);
   });
 
-  it('does not report an offline morning as a slow clock', async () => {
-    // Recorded at 08:00, delivered at 17:00 by a build that sends no
-    // `deviceNow`. Nine hours behind is the bodega, not the clock.
+  it('still reports 2015 stamps when the clock corrected itself before the push', async () => {
+    // Android fixes the time on reaching wifi, which is exactly when the push
+    // happens: `deviceNow` is right, and the morning is stamped 2015. The acta
+    // must not print that clock as fine.
     const { sessionId, ana } = await dispatched();
-    const morning = counts(sessionId, ana.id, 3, 1181, { at: () => '2026-09-30T13:00:00.000Z' });
-    await pushEvents(db, ana.token, { events: morning }, { now: () => '2026-09-30T22:00:00.000Z' });
+    const serverAt = await afterCreation(sessionId, 600);
+    const stale = counts(sessionId, ana.id, 2, 1181, { at: () => '2015-01-01T00:00:00.000Z' });
+    await pushEvents(db, ana.token, { events: stale, deviceNow: serverAt }, { now: () => serverAt });
+
+    const row = await db.query<{ clock_skew_ms: number }>(
+      'select clock_skew_ms from counters where id = $1',
+      [ana.id],
+    );
+    expect(row[0].clock_skew_ms).toBe(-2_147_483_647);
+  });
+
+  it('does not report an offline morning as a slow clock', async () => {
+    // Recorded in the morning, delivered nine hours later by a build that
+    // sends no `deviceNow`. Nine hours behind is the bodega, not the clock.
+    const { sessionId, ana } = await dispatched();
+    const at = await afterCreation(sessionId, 10);
+    const late = await afterCreation(sessionId, 10 + 9 * 60);
+    const morning = chainFor(
+      sessionId,
+      ana.id,
+      [1, 2, 3].map((qty) => ({ kind: 'add' as const, idarticulo: 1181, qty })),
+      { at: () => at },
+    );
+    await pushEvents(db, ana.token, { events: morning }, { now: () => late });
 
     const row = await db.query<{ clock_skew_ms: number }>(
       'select clock_skew_ms from counters where id = $1',
@@ -624,13 +654,13 @@ suite('POST /api/c/:token/events', () => {
     // Stamps from the morning, but the device's clock *now* reads three
     // minutes slow: that is a measurement, and it is what gets recorded.
     const { sessionId, ana } = await dispatched();
-    const morning = counts(sessionId, ana.id, 1, 1181, { at: () => '2026-09-30T13:00:00.000Z' });
-    await pushEvents(
-      db,
-      ana.token,
-      { events: morning, deviceNow: '2026-09-30T21:57:00.000Z' },
-      { now: () => '2026-09-30T22:00:00.000Z' },
-    );
+    const at = await afterCreation(sessionId, 10);
+    const serverAt = await afterCreation(sessionId, 10 + 9 * 60);
+    const deviceNow = await afterCreation(sessionId, 10 + 9 * 60 - 3);
+    const morning = chainFor(sessionId, ana.id, [{ kind: 'add', idarticulo: 1181, qty: 1 }], {
+      at: () => at,
+    });
+    await pushEvents(db, ana.token, { events: morning, deviceNow }, { now: () => serverAt });
 
     const row = await db.query<{ clock_skew_ms: number }>(
       'select clock_skew_ms from counters where id = $1',

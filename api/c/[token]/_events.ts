@@ -379,7 +379,12 @@ export async function pushEvents(
   const after = [...stored, ...fresh.map(asStored)];
   const verdict = deriveCounterEstado(session.id, counter.id, after);
   const pushingDevice = fresh[fresh.length - 1].event.deviceId;
-  const skew = measureSkew(fresh, serverAt, (body as { deviceNow?: unknown }).deviceNow);
+  const skew = measureSkew(
+    fresh,
+    serverAt,
+    (body as { deviceNow?: unknown }).deviceNow,
+    session.createdAt,
+  );
 
   const result = await db.transaction(
     insertEventsStatements(counter.id, storedMax, fresh.map(toWire), {
@@ -476,17 +481,31 @@ export function measureSkew(
   batch: readonly ChainedEvent[],
   serverAt: string,
   deviceNow?: unknown,
+  /** The session's creation; no event can honestly be stamped before it. */
+  since?: string | null,
 ): number {
   const server = Date.parse(serverAt);
-  if (typeof deviceNow === 'string') {
-    const device = Date.parse(deviceNow);
-    if (!Number.isNaN(device)) return clampSkew(device - server);
-  }
-  let ahead = 0;
+  const floor = since ? Date.parse(since) : Number.NaN;
+  // The stamps carry their own evidence, whatever `deviceNow` says: a stamp
+  // ahead of the server, or before the session existed, came from a wrong
+  // clock. A tablet stuck in 2015 that corrected itself on reaching wifi sends
+  // a truthful `deviceNow` beside a morning of 2015 stamps, and the acta must
+  // not say its clock was fine.
+  let evidence = 0;
   for (const link of batch) {
     const client = Date.parse(link.event.at);
     if (Number.isNaN(client)) continue;
-    if (client - server > ahead) ahead = client - server;
+    if (client - server > evidence) evidence = client - server;
+    if (!Number.isNaN(floor) && client < floor && client - floor < -Math.abs(evidence)) {
+      evidence = client - floor;
+    }
   }
-  return clampSkew(ahead);
+  if (typeof deviceNow === 'string') {
+    const device = Date.parse(deviceNow);
+    if (!Number.isNaN(device)) {
+      const measured = device - server;
+      return clampSkew(Math.abs(measured) >= Math.abs(evidence) ? measured : evidence);
+    }
+  }
+  return clampSkew(evidence);
 }

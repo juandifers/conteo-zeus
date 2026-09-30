@@ -22,8 +22,9 @@
  *   1. A column **reordered on its own**: `toma` is a permutation of
  *      `existencia` (or `costo` of `costo2`) but not row for row. That is a
  *      sort of one column, exactly, and nothing else produces it.
- *   2. `costo` and `costo2` **disagree** on many rows. They are one number;
- *      a disagreement is an edit — or a locale re-typing «14.900» as 14,9.
+ *   2. `costo` a permutation of `costo2`, the same way — `costo` sorted alone.
+ *      A plain disagreement is *not* refused: with one real multi-row file,
+ *      an edit and a Zeus habit nobody has seen yet look the same.
  *   3. A quantity column **in order** over the whole file. A sort of
  *      existencia together with toma leaves (1) satisfied, and only its order
  *      gives it away. A whole-sheet sort by quantity lands here too, and is
@@ -128,23 +129,25 @@ export function alteredFileReason(file: ZeusFile): string | null {
     );
   }
 
-  // 2. The cost, twice, disagreeing.
+  // 2. `costo` reordered on its own. Only the permutation is refused: a plain
+  // disagreement between the two is an edit *or* a Zeus habit nobody has seen
+  // yet (costo2 left at 0 on some rows, say), one real multi-row file is not
+  // enough to tell those apart, and a refusal here has no override on cutoff
+  // day.
   const costOff = items.filter((item) => !closeCost(item.costo, item.costo2)).length;
-  if (costOff >= limit) {
-    const first = items.findIndex((item) => !closeCost(item.costo, item.costo2));
-    const permuted = sameMultiset(
+  if (
+    costOff >= limit &&
+    sameMultiset(
       items.map((item) => item.costo),
       items.map((item) => item.costo2),
       closeCost,
-    );
+    )
+  ) {
+    const first = items.findIndex((item) => !closeCost(item.costo, item.costo2));
     return (
-      (permuted
-        ? `Las columnas «costo» y «costo2» tienen las mismas cifras pero en otro orden ` +
-          `en ${costOff} de ${items.length} filas: una de las dos fue ordenada por separado`
-        : `Las columnas «costo» y «costo2» no coinciden en ${costOff} de ${items.length} ` +
-          'filas: el archivo fue editado, o una hoja de cálculo cambió el formato de los ' +
-          'números') +
-      ` (por ejemplo ${example(items, first)}).` +
+      `Las columnas «costo» y «costo2» tienen las mismas cifras pero en otro orden ` +
+      `en ${costOff} de ${items.length} filas (por ejemplo ${example(items, first)}): ` +
+      'una de las dos fue ordenada por separado.' +
       REEXPORT
     );
   }
