@@ -246,7 +246,12 @@ export class CounterSync {
         let ack: PushAck;
         try {
           ack = await this.within(
-            this.api.post<PushAck>(`/api/c/${this.token}/events`, { events: batch }),
+            // `deviceNow` lets the server measure this tablet's clock rather
+            // than infer it from stamps that are hours old by design.
+            this.api.post<PushAck>(`/api/c/${this.token}/events`, {
+              events: batch,
+              deviceNow: this.clock(),
+            }),
             PUSH_TIMEOUT,
             'el servidor no respondió',
           );

@@ -583,6 +583,62 @@ suite('POST /api/c/:token/events', () => {
     expect(stamps[0].client_at).toBe('2026-08-31T14:09:00.000Z');
   });
 
+  it('accepts a tablet whose clock reset to a factory date, and says so without overflowing', async () => {
+    // A flat battery and no network time: the tablet thinks it is 2015. The
+    // skew is ~11 years, far past what `clock_skew_ms integer` can hold, and
+    // this push used to die with `integer out of range` — a 500 the device
+    // retries for ever, with the wrong stamps already inside the hashes.
+    const { sessionId, ana } = await dispatched();
+    const serverAt = '2026-09-30T15:00:00.000Z';
+    const stale = counts(sessionId, ana.id, 2, 1181, { at: () => '2015-01-01T00:00:00.000Z' });
+    const result = await pushEvents(
+      db,
+      ana.token,
+      { events: stale, deviceNow: '2015-01-01T00:05:00.000Z' },
+      { now: () => serverAt },
+    );
+
+    expect(result.status).toBe(200);
+    const row = await db.query<{ clock_skew_ms: number }>(
+      'select clock_skew_ms from counters where id = $1',
+      [ana.id],
+    );
+    expect(row[0].clock_skew_ms).toBe(-2_147_483_647);
+  });
+
+  it('does not report an offline morning as a slow clock', async () => {
+    // Recorded at 08:00, delivered at 17:00 by a build that sends no
+    // `deviceNow`. Nine hours behind is the bodega, not the clock.
+    const { sessionId, ana } = await dispatched();
+    const morning = counts(sessionId, ana.id, 3, 1181, { at: () => '2026-09-30T13:00:00.000Z' });
+    await pushEvents(db, ana.token, { events: morning }, { now: () => '2026-09-30T22:00:00.000Z' });
+
+    const row = await db.query<{ clock_skew_ms: number }>(
+      'select clock_skew_ms from counters where id = $1',
+      [ana.id],
+    );
+    expect(row[0].clock_skew_ms).toBe(0);
+  });
+
+  it('measures the clock from `deviceNow` when the device sends it', async () => {
+    // Stamps from the morning, but the device's clock *now* reads three
+    // minutes slow: that is a measurement, and it is what gets recorded.
+    const { sessionId, ana } = await dispatched();
+    const morning = counts(sessionId, ana.id, 1, 1181, { at: () => '2026-09-30T13:00:00.000Z' });
+    await pushEvents(
+      db,
+      ana.token,
+      { events: morning, deviceNow: '2026-09-30T21:57:00.000Z' },
+      { now: () => '2026-09-30T22:00:00.000Z' },
+    );
+
+    const row = await db.query<{ clock_skew_ms: number }>(
+      'select clock_skew_ms from counters where id = $1',
+      [ana.id],
+    );
+    expect(row[0].clock_skew_ms).toBe(-3 * 60 * 1000);
+  });
+
   // --- the read endpoints ---------------------------------------------------
 
   it('/sync reports each counter and why the session cannot be sealed', async () => {

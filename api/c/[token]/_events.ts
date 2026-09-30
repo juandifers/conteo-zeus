@@ -85,6 +85,12 @@ export interface PushAck {
 /** `{ events: [{ event, prevHash, hash }] }` — one counter, contiguous ascending `seq`. */
 export interface PushBody {
   events: ChainedEvent[];
+  /**
+   * The device's clock when it sent this request, normalised UTC. Optional:
+   * builds cached before it existed do not send it. Used only to measure the
+   * device's clock skew — never to order or correct anything.
+   */
+  deviceNow?: string;
 }
 
 function bad(code: PushCode, error: string, extra: Record<string, unknown> = {}): ApiResult {
@@ -373,7 +379,7 @@ export async function pushEvents(
   const after = [...stored, ...fresh.map(asStored)];
   const verdict = deriveCounterEstado(session.id, counter.id, after);
   const pushingDevice = fresh[fresh.length - 1].event.deviceId;
-  const skew = maxSkew(fresh, serverAt);
+  const skew = measureSkew(fresh, serverAt, (body as { deviceNow?: unknown }).deviceNow);
 
   const result = await db.transaction(
     insertEventsStatements(counter.id, storedMax, fresh.map(toWire), {
@@ -437,14 +443,50 @@ function ackFor(
  * Rewriting a device's timestamps would change the hashes and break the chain to
  * fix a cosmetic problem.
  */
-function maxSkew(batch: readonly ChainedEvent[], serverAt: string): number {
+/**
+ * `counters.clock_skew_ms` is a Postgres `integer`. A tablet whose clock reset
+ * to a factory date after a flat battery is years off, and an unclamped value
+ * made the whole push fail with `integer out of range` — a 500 the device reads
+ * as bad wifi and retries for ever, with the stamps already hashed so that
+ * fixing the clock afterwards changes nothing. ±24.8 days already says «this
+ * clock is wrong»; the column does not need to say by how much beyond that.
+ */
+export const SKEW_LIMIT_MS = 2_147_483_647;
+
+function clampSkew(ms: number): number {
+  return Math.max(-SKEW_LIMIT_MS, Math.min(SKEW_LIMIT_MS, Math.round(ms)));
+}
+
+/**
+ * How far this device's clock is from the server's.
+ *
+ * With `deviceNow` — the device's clock at the moment it sent the request,
+ * which current builds put beside `events` — it is a measurement: the two
+ * clocks read at (almost) the same instant.
+ *
+ * Without it — a cached build from before the field existed — the stamps are
+ * all there is, and only a stamp **ahead** of the server is evidence about the
+ * clock. A stamp behind it is what every offline morning looks like: an event
+ * recorded at 10:00 and delivered at 17:00 is seven hours "behind" with a
+ * perfect clock. Counting those printed the length of somebody's shift on the
+ * monitor and on the acta as «reloj −25 200 s», which an auditor reads as a
+ * clock seven hours slow.
+ */
+export function measureSkew(
+  batch: readonly ChainedEvent[],
+  serverAt: string,
+  deviceNow?: unknown,
+): number {
   const server = Date.parse(serverAt);
-  let worst = 0;
+  if (typeof deviceNow === 'string') {
+    const device = Date.parse(deviceNow);
+    if (!Number.isNaN(device)) return clampSkew(device - server);
+  }
+  let ahead = 0;
   for (const link of batch) {
     const client = Date.parse(link.event.at);
     if (Number.isNaN(client)) continue;
-    const skew = client - server;
-    if (Math.abs(skew) > Math.abs(worst)) worst = skew;
+    if (client - server > ahead) ahead = client - server;
   }
-  return worst;
+  return clampSkew(ahead);
 }
