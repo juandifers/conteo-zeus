@@ -63,6 +63,7 @@ import { Search } from './Search';
 import { SyncBar } from './SyncBar';
 import { catalogueOf, type CounterCatalogue } from './assignment';
 import { bootCounter, type ChainStart } from './boot';
+import { outsideChrome, outsideChromeAdvice } from './browser';
 import { useCounterLock, type LockManagerLike } from './counterLock';
 import {
   clearStaleAssignments,
@@ -406,6 +407,7 @@ function Counting({
   }, [api, chain, assignments, counterId, payload.session.id]);
 
   const group = open ? catalogue.groups.get(open.codigo) ?? [open] : [];
+  const browser = outsideChrome(globalThis.navigator?.userAgent) as 'app' | 'otro' | null;
 
   function pick(item: CounterItem): void {
     setOpen(item);
@@ -422,6 +424,15 @@ function Counting({
       </div>
 
       <SyncBar sync={sync} otros={otros} onExport={setExported} />
+
+      {browser && (
+        <div className="banner" role="status">
+          {outsideChromeAdvice(
+            browser,
+            snapshot.events.some((event) => event.counterId === store.counterId),
+          )}
+        </div>
+      )}
 
       {live.start.assumedFresh && (
         <div className="banner" role="status">

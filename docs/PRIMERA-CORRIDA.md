@@ -5,35 +5,42 @@ existe porque una de ellas tiene que ejecutarse **antes de la primera sesión
 real**, y porque «lo revisamos con cuidado» no es un control: un control es una
 lista que alguien recorre y firma.
 
+> **Actualizado 2026-09-30.** La política vigente es `uncountedPolicy: 'zero'`
+> (decisión de 2026-09, `migrations/0006`, `VERIFIED_PARAMETERS`). Esta lista se
+> escribió para `'existencia'` y esperaba que una fila sin tocar **no moviera su
+> saldo**; con `'zero'` esa fila sale con `toma = 0` y **se espera que quede en
+> cero**. Lo que la política deja con su saldo es una fila **exonerada** en la
+> revisión. La prueba ahora tiene cuatro filas y no tres.
+>
+> **Una sesión de práctica o de capacitación nunca se sube a Zeus.** Con
+> `'zero'`, cada artículo que nadie contó ni exoneró va en el archivo como
+> vacío, y subirlo pone en cero su saldo. Capacitar sobre la bodega de prueba de
+> la opción 1, o no generar el archivo, o generarlo y no subirlo: las tres
+> sirven. Subir el de una práctica no.
+
 ---
 
 ## Qué está abierto, exactamente
 
-`uncountedPolicy: 'existencia'` **nunca se ha ejercido contra Zeus.**
+Dos comportamientos de Zeus sobre los que se apoya todo el archivo, y ninguno
+observado:
 
-La corrida verificada del 2026-08-28 (ZEUS_FORMAT.md §7.1) tenía **dos filas y
-las dos estaban contadas**. La política de filas sin contar fue, en esa corrida,
-código que no se ejecutó. En una sesión real es lo contrario: en una bodega de
-2 400 artículos la mayoría de las líneas del archivo salen de esa rama, no de un
-conteo.
+**Que `toma = 0` borre el saldo** (ZEUS_FORMAT.md §7.4). Con `'zero'` no es un
+caso raro: es la rama que escribe la mayoría de las líneas. En una bodega de
+2 400 artículos donde se alcanzaron 600, las otras 1 800 salen de ahí, y todas
+son bajas de inventario. §7.4 es un **recuerdo** de lo que el hotel cuenta que
+hace Zeus, no una fila del archivo de evidencia: la corrida verificada del
+2026-08-28 tenía dos filas, las dos contadas, ninguna en cero.
 
-La inferencia a favor es decente y está escrita en §9: la exportación del propio
-hotel trae `toma = existencia` en las 298 filas, así que la *forma* del archivo
-es la que Zeus ya recibe hoy. Pero inferencia decente es exactamente lo que §7.1
-existe para distinguir de observación, y este es el punto del proceso donde la
-distinción cuesta dinero: si Zeus tratara «toma igual a existencia» de alguna
-manera que no sea «sin cambio», el ajuste movería saldos en miles de filas que
-nadie tocó.
-
-Y hay una segunda cosa abierta que la misma prueba cierra: **§7.4 es un
-recuerdo**, no una observación comprometida. Que escribir `0` en `toma` borre el
-saldo está registrado a partir de lo que el hotel cuenta que hace Zeus, no de una
-fila del archivo de evidencia. Toda la lista de conteos en cero del acta (P2.4
-§3c) está construida sobre que eso sea cierto.
+**Que `toma = existencia` no mueva nada.** Es lo que escribe una fila
+**exonerada** — la única manera que deja la política de que un artículo no
+contado conserve su saldo, con nombre y motivo detrás. Tampoco se ha ejercido:
+si Zeus tratara «toma igual a existencia» de otra forma que «sin cambio», cada
+exoneración movería un saldo que nadie tocó.
 
 ---
 
-## Opción 1 — la prueba de tres filas (preferida)
+## Opción 1 — la prueba de cuatro filas (preferida)
 
 Más barata y más concluyente que la opción 2, y **no requiere código**. Cierra
 `uncountedPolicy` y §7.4 en una sola subida.
@@ -44,7 +51,7 @@ Se hace sobre una **bodega desechable**, nunca sobre una real.
       Anotar el código: `____`
 - [ ] **Exportar el `.xls` desde Zeus** para esa bodega y guardarlo tal cual.
       Nombre del archivo: `________________`
-- [ ] **Anotar los saldos de partida** de las tres filas, leídos en Zeus antes de
+- [ ] **Anotar los saldos de partida** de las cuatro filas, leídos en Zeus antes de
       tocar nada. No de memoria: una captura o un reporte impreso.
 
       | fila | `idarticulo` | `nombre` | `existencia` antes |
@@ -52,13 +59,15 @@ Se hace sobre una **bodega desechable**, nunca sobre una real.
       | A — se cuenta distinto | | | |
       | B — nadie la toca | | | |
       | C — se cuenta en cero, con existencia > 0 | | | |
+      | D — se exonera en la revisión, con existencia > 0 | | | |
 
 - [ ] **Importar el `.xls` en la aplicación**, despachar un contador, contar
       **solo** A y C:
       - A con una cantidad distinta de su existencia;
-      - C con `0`;
-      - B **sin tocar** — no exonerarla tampoco. Tiene que llegar al archivo por
-        la política, que es lo que se está probando.
+      - C con `0` («Está vacío»);
+      - B **sin tocar** — ni contarla ni exonerarla. Tiene que llegar al archivo
+        por la política, que es lo que se está probando;
+      - D **exonerada** por el administrador en Revisión, con un motivo.
 - [ ] **Sellar y generar el archivo.** Anotar `fileHash` (los primeros ocho van
       en el nombre): `________`
 - [ ] **Comprobar el archivo antes de subirlo**: abrir `tools/verificador.html`,
@@ -67,18 +76,21 @@ Se hace sobre una **bodega desechable**, nunca sobre una real.
       que el documento propuesto dice lo que se espera.
 - [ ] **Fusionar y leer los saldos de nuevo.**
 
-      | fila | esperado | observado |
+      | fila | esperado (con `'zero'`) | observado |
       |---|---|---|
       | A | el saldo pasa a la cantidad contada | |
-      | B | **el saldo no se mueve** | |
-      | C | el saldo queda en `0` | |
+      | B | el saldo queda en `0` — la política | |
+      | C | el saldo queda en `0` — el conteo | |
+      | D | **el saldo no se mueve** | |
 
-- [ ] **Si B se movió, parar.** `uncountedPolicy: 'existencia'` no significa lo
-      que este proyecto cree que significa y ninguna sesión real puede correr
-      hasta entenderlo. Registrar qué pasó y abrir el asunto en
-      ZEUS_FORMAT.md §7 como una pregunta, no como una nota.
+- [ ] **Si D se movió, parar.** Exonerar no significa lo que este proyecto cree
+      y ninguna sesión real puede correr hasta entenderlo.
+- [ ] **Si B o C no quedaron en `0`, parar.** §7.4 es falso: un cero no borra el
+      saldo, y la política `'zero'` no hace lo que se decidió que hiciera.
+      En los dos casos, registrar qué pasó y abrir el asunto en ZEUS_FORMAT.md
+      §7 como una pregunta, no como una nota.
 - [ ] **Registrar el resultado en ZEUS_FORMAT.md §7.6**, con la fecha, quién lo
-      hizo, la bodega y las tres filas. Un resultado que solo vive en la memoria
+      hizo, la bodega y las cuatro filas. Un resultado que solo vive en la memoria
       de quien lo hizo es la misma clase de vacío que este documento existe para
       cerrar.
 
@@ -88,7 +100,7 @@ Se hace sobre una **bodega desechable**, nunca sobre una real.
 
 Aceptable si la opción 1 no se pudo hacer. **Es más débil**: prueba lo mismo pero
 sobre datos reales, con un solo intento y sin manera de repetirlo, y la revisión
-tiene que hacerse sobre miles de filas en vez de tres.
+tiene que hacerse sobre miles de filas en vez de cuatro.
 
 La puerta de revisión dentro de Zeus, antes de fusionar, existe y es lo que hace
 esta opción viable. Es también carga: hay que usarla de verdad.
@@ -103,9 +115,13 @@ esta opción viable. Es también carga: hay que usarla de verdad.
 - [ ] **Comprobar el archivo** con `tools/verificador.html` antes de subirlo.
 - [ ] **Subir el `.txt` y detenerse en la revisión de Zeus.** No fusionar
       todavía.
-- [ ] **Elegir cinco filas que nadie contó**, de familias distintas, y comprobar
-      una por una que el documento propuesto **no mueve su saldo**. Anotarlas:
+- [ ] **Elegir cinco filas exoneradas**, de familias distintas, y comprobar una
+      por una que el documento propuesto **no mueve su saldo**. Anotarlas:
       `____________________________________________`
+- [ ] **Elegir cinco filas que nadie contó ni exoneró** y comprobar que el
+      documento propuesto las lleva a `0`. Con `'zero'` eso es lo esperado, y
+      son bajas de inventario: el acta dice cuántas son y cuánto valen
+      («sin contar»). Si ese número sorprende a alguien, parar antes de fusionar.
 - [ ] **Elegir cada fila contada en cero** — están itemizadas en el acta §4.1 —
       y comprobar que el documento propuesto **sí** las lleva a `0`. Son bajas de
       inventario: si aparece una que no se esperaba, parar.

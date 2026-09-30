@@ -121,3 +121,28 @@ describe('Enter — the keyboard-wedge hook', () => {
     expect(resolveEnter(index, groups, 'zzz')).toBeNull();
   });
 });
+
+describe('what people say, not what the catalogue says (pre-pilot pass)', () => {
+  // Every one of these answered «Sin resultados» against the real bodega.
+  const index = buildIndex(sampleSession().items);
+  const find = (query: string) => searchItems(index, query).map((hit) => hit.item.nombre);
+
+  it('finds the singular a plural stands for', () => {
+    for (const [query, expected] of [
+      ['tomates', /TOMATE/],
+      ['limones', /LIMON/],
+      ['cebollas', /CEBOLLA/],
+      ['quesos', /QUESO/],
+      ['arepas', /AREPA/],
+    ] as const) {
+      const found = find(query);
+      expect(found.length, query).toBeGreaterThan(0);
+      expect(found[0], query).toMatch(expected);
+    }
+  });
+
+  it('changes nothing for a word that already matched as typed', () => {
+    // HUEVOS is a real name: the plural query must still find it first.
+    expect(find('huevos')[0]).toMatch(/^HUEVOS/);
+  });
+});

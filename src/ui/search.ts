@@ -140,10 +140,34 @@ interface Scored<T extends Searchable> extends SearchHit<T> {
   allWhole: boolean;
 }
 
+/**
+ * The singulars a Spanish plural may stand for, most specific first.
+ *
+ * People say what they see — «tomates», «limones», «quesos» — and the catalogue
+ * names one of it: `TOMATE CHONTO`, `LIMON TAHITI`, `QUESO COSTEÑO`. Every one
+ * of those used to answer «Sin resultados», and the screen's advice for an
+ * article you cannot find is a note — so the article stayed uncounted and,
+ * under `uncountedPolicy: 'zero'`, went to Zeus as empty.
+ *
+ * Tried only when the token as typed matches nothing in the row, so nothing
+ * that matched before ranks differently now. The length floors keep «gas» or
+ * «res» from collapsing into two letters that match half the bodega.
+ */
+function singulars(token: string): string[] {
+  const out: string[] = [];
+  if (token.length >= 5 && token.endsWith('ES')) out.push(token.slice(0, -2));
+  if (token.length >= 4 && token.endsWith('S')) out.push(token.slice(0, -1));
+  return out;
+}
+
 function score<T extends Searchable>(entry: IndexedItem<T>, tokens: string[]): Scored<T> | null {
   const matches: TokenMatch[] = [];
   for (const token of tokens) {
-    const match = bestMatch(entry.blob, token);
+    let match = bestMatch(entry.blob, token);
+    for (const singular of match ? [] : singulars(token)) {
+      match = bestMatch(entry.blob, singular);
+      if (match) break;
+    }
     if (!match) return null;
     matches.push(match);
   }
