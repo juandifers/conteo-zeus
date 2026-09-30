@@ -14,9 +14,11 @@ export {
   inversionRate,
   toItems,
   CatalogueError,
+  ZeusLecturaError,
   type CatalogueFault,
   type ImportOptions,
 } from './importZeus.js';
+export { alteredFileReason, ArchivoAlteradoError } from './fileChecks.js';
 export {
   adjustmentFilename,
   exportAdjustment,

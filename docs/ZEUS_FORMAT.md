@@ -228,6 +228,31 @@ says `PECHUGA DE POLLO DESHUESADA`, one of them is wrong, and the same
 comparison catches a `costo` that moved by an order of magnitude. That check is
 not built. It is the obvious next one.
 
+**Signal three: the numbers check each other** (`src/app/fileChecks.ts`, 2026-09).
+Signals one and two read names and are blind to numbers: the pre-pilot
+failure-mode pass sorted `existencia` alone and the file was accepted, with 286
+of 298 book figures beside the wrong article. A genuine export carries
+redundancy that such an edit breaks — measured on both real files, every row:
+`toma = existencia` (Zeus pre-fills the count column) and `costo ≈ costo2` (one
+cost, twice, agreeing to 2e-8). Refused, each above 5 % of rows and never fewer
+than two:
+
+| Check | What it catches |
+|---|---|
+| `toma` a permutation of `existencia`, not row for row | one of the two sorted alone |
+| `costo` and `costo2` disagree | `costo` sorted alone, an edit, or a locale re-typing `14.900` |
+| `existencia` or `costo` monotonic over the file (≥ 12 rows, ties ignored) | `existencia` and `toma` sorted together — the pair cannot see that — and, deliberately, a whole-sheet sort by quantity |
+| a tab, CR or LF inside any field | a row the `.txt` cannot carry, which used to fail only at export, after the seal |
+
+Signal two now also reads Z→A, and rows in descending `idarticulo` order.
+
+What still gets through, found by the same pass, and each needing either a
+change in `src/zeus/` or the previous-session comparison above: an Excel error
+cell (`#N/A`) read as its numeric code, a workbook with an edited copy of the
+sheet placed first, a 1904-date workbook, text `10.080` read as 10.08, a
+numeric 8-digit `codigo`, a `.txt` in the wrong code page, a duplicated header,
+and any shear of a file under 12 rows.
+
 ---
 
 ## 5. The sample files are not a matched pair

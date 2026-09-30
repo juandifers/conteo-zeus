@@ -6,6 +6,7 @@
  * the file channel becomes ODBC, this file is rewritten and the domain is not.
  */
 import {
+  encodeCp850,
   NOT_APPLICABLE,
   parseTxt,
   parseXls,
@@ -15,6 +16,7 @@ import {
 } from '../zeus/index.js';
 import { sha256Hex } from '../lib/hash.js';
 import type { Item, Session, SessionSource } from '../domain/index.js';
+import { alteredFileReason, ArchivoAlteradoError } from './fileChecks.js';
 
 export interface ImportOptions {
   /** Session id. Defaults to a fresh uuid; injectable so tests are deterministic. */
@@ -163,11 +165,20 @@ const ENOUGH_ROWS = 12;
  */
 function sortedColumn(items: readonly Item[]): CatalogueFault | null {
   if (items.length < ENOUGH_ROWS) return null;
+  // Zeus's own order, in either direction: bodega 01 exports ascending, and
+  // nothing says every report does. A file whose rows still run in key order,
+  // up or down, has not had its rows moved.
+  let ascending = true;
+  let descending = true;
   for (let i = 1; i < items.length; i++) {
-    if (items[i - 1].idarticulo >= items[i].idarticulo) return null;
+    if (items[i - 1].idarticulo >= items[i].idarticulo) ascending = false;
+    if (items[i - 1].idarticulo <= items[i].idarticulo) descending = false;
   }
+  if (!ascending && !descending) return null;
   const names = items.map((item) => normal(item.nombre));
-  if (inversionRate(names) >= SORTED) return null;
+  // A to Z or Z to A: «ordenar de Z a A» is one click away from the other.
+  const rate = inversionRate(names);
+  if (rate >= SORTED && rate <= 1 - SORTED) return null;
   return {
     kind: 'columna-ordenada',
     key: 'nombre',
@@ -326,6 +337,9 @@ export function importZeusFile(file: ZeusFile, options: ImportOptions = {}): Ses
     );
   }
 
+  const unwritable = unencodable(file);
+  if (unwritable) throw new Error(unwritable);
+
   const seen = new Set<number>();
   const items: Item[] = [];
   for (const item of file.items) {
@@ -346,6 +360,12 @@ export function importZeusFile(file: ZeusFile, options: ImportOptions = {}): Ses
   // has uploaded it (ZEUS_FORMAT.md §4.1).
   const faults = catalogueFaults(items);
   if (faults.length > 0) throw new CatalogueError(faults);
+
+  // After the name checks, so a file they already refuse keeps their message.
+  // These read the numbers, which the name checks are blind to: a column of
+  // quantities or costs sorted on its own passed everything above (fileChecks.ts).
+  const altered = alteredFileReason(file);
+  if (altered) throw new ArchivoAlteradoError(altered);
 
   return {
     id: options.id ?? crypto.randomUUID(),
@@ -409,5 +429,96 @@ export function parseZeusBytes(bytes: Uint8Array): ZeusFile {
   if (bytes.length === 0) {
     throw new Error('el archivo está vacío');
   }
-  return startsWith(bytes, OLE2) || startsWith(bytes, ZIP) ? parseXls(bytes) : parseTxt(bytes);
+  const spreadsheet = startsWith(bytes, OLE2) || startsWith(bytes, ZIP);
+  try {
+    return spreadsheet ? parseXls(bytes) : parseTxt(bytes);
+  } catch (cause) {
+    throw new ZeusLecturaError(spreadsheet, cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/**
+ * The file is not a Zeus export the parser can read — said in the language of
+ * the person holding it.
+ *
+ * `src/zeus/` speaks in the format's own terms and in English («row 1 field
+ * existencia: "existencia" is not a valid Zeus number»), which is right for a
+ * byte-level adapter and useless at six on cutoff day: 31 of the 46 refusals
+ * the pre-pilot pass provoked reached the admin like that. The adapter's words
+ * are kept, after the remedy, as the detail somebody technical will want.
+ */
+export class ZeusLecturaError extends Error {
+  readonly detalle: string;
+  constructor(spreadsheet: boolean, detalle: string) {
+    super(`${whatIsWrong(spreadsheet, detalle)} ${UPLOAD_AS_EXPORTED} Detalle técnico: ${detalle}`);
+    this.name = 'ZeusLecturaError';
+    this.detalle = detalle;
+  }
+}
+
+const UPLOAD_AS_EXPORTED =
+  'Sube el .xls que exporta Zeus para esta bodega, tal como sale, sin abrirlo ni ' +
+  'guardarlo en Excel.';
+
+/** The adapter's refusal, read for the one sentence a person can act on. */
+function whatIsWrong(spreadsheet: boolean, detalle: string): string {
+  const cell = /(?:^|\s)row (\d+) field (\w+): (.*)$/.exec(detalle);
+  if (cell) {
+    const [, row, field, rest] = cell;
+    if (!spreadsheet && row === '1' && rest.toLowerCase().includes(`"${field.toLowerCase()}"`)) {
+      return (
+        'El .txt empieza con una fila de títulos, que el .txt de Zeus no lleva: es lo que ' +
+        'deja «Guardar como texto» en Excel.'
+      );
+    }
+    return (
+      `La fila ${row} tiene en «${field}» un valor que Zeus no escribe así: una hoja de ` +
+      'cálculo cambió el formato de los números o de las fechas (por ejemplo «20,8» como ' +
+      'texto), o la celda tiene un error.'
+    );
+  }
+  if (/missing expected column|has no sheet|is empty/.test(detalle)) {
+    return (
+      'Este archivo no tiene las columnas de la exportación de Zeus: les cambiaron el ' +
+      'nombre, hay filas de título encima, o la hoja con los datos no es la primera.'
+    );
+  }
+  return spreadsheet
+    ? 'Este archivo no tiene la forma de la exportación de Zeus.'
+    : 'Este archivo no es un .xls, y como texto tampoco tiene la forma del .txt de Zeus ' +
+        '(puede ser un CSV, un PDF, o un .txt guardado desde Excel).';
+}
+
+/**
+ * A character Zeus cannot take back, named with its article.
+ *
+ * The `.txt` is CP850, so «€», curly quotes or a dash pasted from a word
+ * processor cannot be written back. That was refused before too — deep in the
+ * hash, as «Cannot encode "€" (U+20AC) at position 26», with no article.
+ */
+function unencodable(file: ZeusFile): string | null {
+  for (const item of file.items) {
+    for (const [at, value] of item.rawRow.entries()) {
+      try {
+        encodeCp850(value);
+      } catch {
+        const bad = [...value].find((ch) => {
+          try {
+            encodeCp850(ch);
+            return false;
+          } catch {
+            return true;
+          }
+        });
+        const field = at === 1 ? 'el nombre' : at === 2 ? 'la presentación' : `la columna ${at + 1}`;
+        return (
+          `El artículo «${item.nombre}» (idarticulo ${item.idarticulo}) tiene en ${field} el ` +
+          `carácter «${bad ?? '?'}», que Zeus no puede recibir de vuelta en el archivo del ` +
+          'conteo. Corrígelo en Zeus (o en el archivo, si alguien lo editó) y vuelve a ' +
+          'exportar la bodega.'
+        );
+      }
+    }
+  }
+  return null;
 }
