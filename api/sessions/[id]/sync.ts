@@ -37,6 +37,7 @@ import {
   loadSessionActions,
   loadSessionRow,
 } from '../../_store.js';
+import { rowToRecord } from './acciones.js';
 
 export interface SyncView {
   session: {
@@ -133,7 +134,11 @@ export async function sessionSync(db: Db, id: string | null): Promise<ApiResult>
     chainComplete: whole(row),
   }));
 
-  const acciones = (await loadSessionActions(db, id)) as unknown as SessionActionRecord[];
+  // Through `rowToRecord`, like every other reader of this table: the row says
+  // `clientAt` and the record says `at`. A bare cast handed the desk records
+  // with no `at`, and the first waiver on a session blanked every screen of it
+  // (`formatInstant(undefined)` throws in render) — so nobody could seal it.
+  const acciones: SessionActionRecord[] = (await loadSessionActions(db, id)).map(rowToRecord);
 
   // Only after the seal, and only then: this is one extra query, and the
   // endpoint it lives on is polled every few seconds while a bodega is being

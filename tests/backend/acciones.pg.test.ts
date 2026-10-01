@@ -972,6 +972,20 @@ suite('POST /api/sessions/:id/acciones', () => {
       expect(await currentVersion(d.sessionId)).toBe(0);
     });
 
+    it('reaches the desk with its time on it, the same record the log endpoint gives', async () => {
+      // The desk polls the sync view, not the log endpoint. It handed back raw
+      // rows — `clientAt`, no `at` — and the review rendered
+      // `formatInstant(waiver.at)`: the first waiver blanked the whole session
+      // on the desk, so it could be neither reviewed nor sealed.
+      const d = await dispatched();
+      await waive(d.sessionId, d.suyos.slice(0, 2));
+      const view = (await sessionSync(db, d.sessionId)).body as { acciones: SessionActionRecord[] };
+      expect(view.acciones).toHaveLength(1);
+      expect(typeof view.acciones[0].at).toBe('string');
+      expect(Number.isNaN(Date.parse(view.acciones[0].at))).toBe(false);
+      expect(view.acciones).toEqual(await actions(d.sessionId));
+    });
+
     it('carries no quantity — the waived value is `existencia`, read where it lives', async () => {
       const d = await dispatched();
       await waive(d.sessionId, [d.suyos[0]]);
