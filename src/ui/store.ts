@@ -169,6 +169,17 @@ export interface CountStoreOptions {
   /** The outbox. Required in P2 mode; unused otherwise. */
   chain?: CounterChainRepository;
   /**
+   * A single-device count on the counter screens: counter mode, with nobody else
+   * and no server (`Session.contadorLocal`).
+   *
+   * The one thing it changes is who may waive. A counter may not — they never
+   * saw the book figure — and that stays true here: `markUnchanged` still
+   * refuses. But the review happens on this same tablet, by somebody who does
+   * see the figures, so the reviewer's bulk waiver (`waiveMany`, stamped with
+   * the reviewer's name) is written into the local chain like everything else.
+   */
+  sinServidor?: boolean;
+  /**
    * A clock watermark this device must not stamp earlier than.
    *
    * For a replacement tablet. `stamp` already keeps *this* device
@@ -192,6 +203,8 @@ export class CountStore {
   private readonly zonaFor?: (idarticulo: number | null) => string;
   /** Present exactly in P2 mode — see `CountStoreOptions.counterId`. */
   readonly counterId?: string;
+  /** See `CountStoreOptions.sinServidor`. */
+  readonly sinServidor: boolean;
   private readonly chain?: CounterChainRepository;
   /** This counter's chain head. Advances with every append in P2 mode. */
   private head: string;
@@ -217,6 +230,7 @@ export class CountStore {
     this.newId = options.newId ?? (() => crypto.randomUUID());
     this.zonaFor = options.zonaFor;
     this.counterId = options.counterId;
+    this.sinServidor = options.sinServidor === true && options.counterId !== undefined;
     this.chain = options.chain;
     this.head = options.head ?? '';
     if (this.counterId !== undefined && (options.head === undefined || !options.chain)) {
@@ -557,6 +571,15 @@ export class CountStore {
           'sólo se puede deshacer lo propio (DOMAIN.md §6)',
       );
     }
+    // A single-device count's waivers share the counter's chain, and so its
+    // `counterId`, but they carry the reviewer's signature: not the counter's
+    // to withdraw. Counting the article again is what supersedes one.
+    if (target.kind === 'unchanged') {
+      throw new Error(
+        `el registro ${eventId} es una exención firmada en la revisión; no se deshace ` +
+          'desde la tableta de conteo',
+      );
+    }
     const withdrawn = bucket.some(
       (event) => event.kind === 'retract' && event.retractsEventId === eventId,
     );
@@ -678,7 +701,12 @@ export class CountStore {
     // The second half of the same gate: `CounterEventDraft` no longer spells
     // `unchanged`, and this is where a draft typed as the wider
     // `CountEventDraft` would otherwise arrive.
-    if (this.counterId !== undefined && draft.kind === 'unchanged') {
+    //
+    // The one exception is the reviewer's waiver on a single-device count: it
+    // arrives only through `waiveMany`, which is the only caller that passes a
+    // `stamp`, and only when the store was opened `sinServidor`.
+    const reviewerWaiver = this.sinServidor && stamp !== undefined;
+    if (this.counterId !== undefined && draft.kind === 'unchanged' && !reviewerWaiver) {
       throw new Error(
         'una exención afirma que la cifra del sistema está bien; una tableta de ' +
           'contador nunca la vio y no puede afirmarlo (P2.3)',

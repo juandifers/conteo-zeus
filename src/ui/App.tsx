@@ -18,15 +18,33 @@
  * the browser not to evict the database (storage.ts), which matters a great
  * deal — but a refusal is something to *say*, not something to stop for, and
  * on a browser where the call hangs it must not hold the boot open.
+ *
+ * **Two kinds of session open from the list** (2026-10):
+ *
+ *     session.contadorLocal?
+ *       yes ──▶ LocalCount     the counter screens: Contar · Mis registros ·
+ *                              Notas · Terminar, then the review — every file
+ *                              imported from now on
+ *       no  ──▶ CountScreen    the screens a session imported before that was
+ *                              counted on, unchanged, so a count in progress
+ *                              finishes the way it started
+ *
+ * Decided per session, from what the session *is*, never by a switch: a log is
+ * either all P1 events or all one counter's chain, and opening one as the other
+ * would mix the two in a single session (docs/MIGRATION-P1-P2.md).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  CounterChainRepository,
   CountRepository,
   DeviceRepository,
   ExportRepository,
   Item,
+  Session,
 } from '../domain';
 import { UpdateNotice } from './components/UpdateNotice';
+import { LocalCount } from './counter/LocalCount';
+import type { LockManagerLike } from './counter/counterLock';
 import { browserDownload, type Downloader } from './download';
 import { loadUsuario } from './identity';
 import { noInstall, type Install } from './install';
@@ -45,6 +63,15 @@ type Route =
   | { name: 'faltantes'; sessionId: string }
   | { name: 'revision'; sessionId: string };
 
+/**
+ * What the route's session opened as. A P1 session gets the store its screens
+ * share; a single-device count opens its own store inside `LocalCount`, once
+ * that screen holds the counter's lock.
+ */
+type Opened =
+  | { kind: 'p1'; store: CountStore }
+  | { kind: 'local'; session: Session; usuario: string };
+
 type Boot =
   | { phase: 'starting' }
   | { phase: 'refused'; message: string }
@@ -52,6 +79,8 @@ type Boot =
 
 export function App({
   repo,
+  chain,
+  locks,
   outbox: injected,
   download: injectedDownload,
   updates: injectedUpdates,
@@ -59,6 +88,15 @@ export function App({
   persistence = requestPersistence,
 }: {
   repo: CountRepository & DeviceRepository & ExportRepository;
+  /**
+   * The device's chain table — the same `countEvents` as `repo`, seen as a
+   * counter's outbox. `Root` always passes it, and with it every import
+   * becomes a single-device count on the counter screens. Absent (only in
+   * tests of the older screens), imports stay P1 sessions as they used to be.
+   */
+  chain?: CounterChainRepository;
+  /** `navigator.locks` unless a test passes its own (see counterLock.ts). */
+  locks?: LockManagerLike;
   outbox?: Outbox;
   /** Injected so a test can catch the bytes that would have reached the disk. */
   download?: Downloader;
@@ -81,7 +119,7 @@ export function App({
   const [boot, setBoot] = useState<Boot>({ phase: 'starting' });
   const [attempt, setAttempt] = useState(0);
   const [route, setRoute] = useState<Route>({ name: 'sessions' });
-  const [store, setStore] = useState<CountStore | null>(null);
+  const [opened, setOpened] = useState<Opened | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [storage, setStorage] = useState<StorageReport>(UNKNOWN_STORAGE);
 
@@ -134,29 +172,47 @@ export function App({
   useEffect(() => {
     if (sessionId === null || boot.phase !== 'ready') return;
     let live = true;
-    // `identify()` again rather than reusing the boot value: `nextSeq` is a
-    // watermark the database advances on every write, so the current one is
-    // only knowable by asking. `deviceId` never changes.
-    repo
-      .identify()
-      .then((device) =>
-        CountStore.open(repo, sessionId, {
+    (async (): Promise<Opened> => {
+      const session = await repo.getSession(sessionId);
+      if (!session) throw new Error(`no existe la sesión ${sessionId}`);
+      // A single-device count needs the chain table to open. Without one this
+      // build cannot count it, and saying so beats opening it on the P1 path,
+      // which would write unchained events into a counter's log.
+      if (session.contadorLocal) {
+        if (!chain) {
+          throw new Error(
+            'esta sesión se cuenta en las pantallas de contador y esta tableta no las tiene ' +
+              'disponibles; recarga la aplicación',
+          );
+        }
+        return { kind: 'local', session, usuario: loadUsuario() };
+      }
+      // `identify()` again rather than reusing the boot value: `nextSeq` is a
+      // watermark the database advances on every write, so the current one is
+      // only knowable by asking. `deviceId` never changes.
+      const device = await repo.identify();
+      const events = await repo.eventsForSession(sessionId);
+      return {
+        kind: 'p1',
+        store: new CountStore(repo, session, events, {
           usuario: loadUsuario(),
           deviceId: device.deviceId,
           nextSeq: device.nextSeq,
           outbox,
         }),
-      )
-      .then((opened) => {
-        if (live) setStore(opened);
-      })
-      .catch((cause: unknown) => {
+      };
+    })().then(
+      (next) => {
+        if (live) setOpened(next);
+      },
+      (cause: unknown) => {
         if (live) setError(cause instanceof Error ? cause.message : String(cause));
-      });
+      },
+    );
     return () => {
       live = false;
     };
-  }, [repo, outbox, sessionId, boot.phase]);
+  }, [repo, chain, outbox, sessionId, boot.phase]);
 
   const retryBoot = useCallback(() => {
     setBoot({ phase: 'starting' });
@@ -201,7 +257,14 @@ export function App({
           storage={storage}
           install={install}
           download={download}
-          onOpen={(id) => setRoute({ name: 'count', sessionId: id })}
+          local={chain !== undefined}
+          onOpen={(id) => {
+            // Forget the last session's store first, so the next one never
+            // renders for a tick against it — and a single-device count is
+            // opened once, not once per stale session object.
+            setOpened(null);
+            setRoute({ name: 'count', sessionId: id });
+          }}
         />
       );
     }
@@ -216,7 +279,26 @@ export function App({
 
     // Never render a screen against the previous session's store: opening B
     // while A is still loaded would show A's items under B's header for a tick.
-    if (!store || store.getSnapshot().session.id !== sessionId) return null;
+    if (!opened) return null;
+    if (opened.kind === 'local') {
+      if (opened.session.id !== sessionId) return null;
+      return (
+        <LocalCount
+          key={opened.session.id}
+          repo={repo}
+          chain={chain!}
+          session={opened.session}
+          usuario={opened.usuario}
+          outbox={outbox}
+          download={download}
+          storage={storage}
+          locks={locks}
+          onBack={() => setRoute({ name: 'sessions' })}
+        />
+      );
+    }
+    const { store } = opened;
+    if (store.getSnapshot().session.id !== sessionId) return null;
 
     if (route.name === 'count') {
       return (

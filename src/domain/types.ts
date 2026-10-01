@@ -387,6 +387,18 @@ export interface Session {
    * than failing at the moment somebody presses the button.
    */
   source?: SessionSource;
+  /**
+   * Present on a single-device count taken through the counter screens
+   * (2026-10): the one counter this tablet counts as. `id` is that counter's
+   * identity and chain, exactly as a dispatched counter's would be; `nombre` is
+   * who was set to count when the file was imported.
+   *
+   * Absent on every session imported before that — a P1 session, counted on the
+   * single-device screens and folded exactly as it always was
+   * (docs/MIGRATION-P1-P2.md). The two never mix in one session: a P1 log has
+   * no `counterId` on any event and a local count has one on every event.
+   */
+  contadorLocal?: { id: string; nombre: string };
   items: readonly Item[];
 }
 

@@ -876,6 +876,17 @@ state needs action — finished, with events still queued — and it gets the
 persistent banner, because that counter is about to walk out of the building
 with the only copy of their afternoon in their hand.
 
+**A single-device count runs on these same four tabs** (2026-10). A file
+imported on the tablet becomes a session with one counter of its own
+(`Session.contadorLocal`), opened as that counter's device with no server: no
+sync bar, no manifest, and «Terminar» is the same gap review over one section —
+the whole bodega — with «Revisar y generar archivo» under it in place of a
+finish. The review is P1's, on the same tablet, behind the same gate (§2.1); the
+reviewer's signed bulk waiver goes into the counter's chain, which is the one
+place a counter-mode store accepts an `unchanged`, and only from `waiveMany`.
+Sessions imported before keep P1's screens. See docs/MIGRATION-P1-P2.md for the
+rules and why an existing session is never converted.
+
 ---
 
 ## 6.4 Counter changes after dispatch (P2.3.5)

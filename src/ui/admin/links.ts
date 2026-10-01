@@ -22,3 +22,11 @@ export function adminRoute(hash: string): { name: 'list' } | { name: 'session'; 
   const match = /^#\/admin\/([^/?#]+)/.exec(hash);
   return match ? { name: 'session', id: match[1] } : { name: 'list' };
 }
+
+/** The single-device app's own address (Entrance.tsx). */
+export const LOCAL_HASH = '#/local';
+
+/** The plain address — what the app icon opens: no route named at all. */
+export function plainHash(hash: string): boolean {
+  return hash === '' || hash === '#' || hash === '#/';
+}

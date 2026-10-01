@@ -167,13 +167,21 @@ function withdrawnIds(events: readonly CountEvent[]): Set<string> {
  * The retractions themselves are not rows. They annotate their target — which
  * is on screen, struck through — and a second row saying the first one was
  * undone is a list twice as long that says the same thing.
+ *
+ * Neither is a waiver. A counter cannot write one (the store refuses), so on a
+ * dispatched tablet there are none to leave out; on a single-device count the
+ * reviewer's signed bulk waiver goes into the same chain (local.ts), and it is
+ * the reviewer's act, not a registro — it must not appear on the counter's
+ * list, and above all must not be offered «Deshacer» there.
  */
 export function ownLog(events: readonly CountEvent[], counterId?: string): OwnEntry[] {
   const mine = own(events, counterId);
   const withdrawn = withdrawnIds(mine);
   return mine
     .filter(isItemEvent)
-    .filter((event) => event.kind !== 'retract' && event.kind !== 'note')
+    .filter(
+      (event) => event.kind !== 'retract' && event.kind !== 'note' && event.kind !== 'unchanged',
+    )
     .map((event) => ({ event, withdrawn: withdrawn.has(event.id) }));
 }
 

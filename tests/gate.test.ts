@@ -31,6 +31,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MemoryChain,
   genesisHash,
+  ownLog,
   resolve,
   undoLast,
   type CountEvent,
@@ -320,6 +321,11 @@ describe('«sin verificar» is not a counter’s to say (P2.3)', () => {
       'src/ui/counter/Notes.tsx',
       'src/ui/counter/Finish.tsx',
       'src/ui/counter/CounterScreen.tsx',
+      'src/ui/counter/CountingTabs.tsx',
+      // The single-device count runs on the same tabs. Its waiver is the
+      // reviewer's, on the review screen, and never from here.
+      'src/ui/counter/LocalCount.tsx',
+      'src/ui/counter/local.ts',
       'src/domain/ownWork.ts',
     ]) {
       expect(code(read(file)), file).not.toMatch(/kind:\s*['"]unchanged['"]/);
@@ -336,6 +342,55 @@ describe('«sin verificar» is not a counter’s to say (P2.3)', () => {
   it('the store refuses one even if something reaches for it', async () => {
     const { store } = await counterStore();
     expect(() => store.markUnchanged(2165)).toThrow(/nunca la vio/);
+  });
+
+  it('a single-device count lets the reviewer sign one into the chain, and nobody else', async () => {
+    // `sinServidor` (local.ts): the review is on this same tablet, so the
+    // signed bulk waiver has to land in this counter's chain — the only log
+    // the count has. The counter's own path stays shut.
+    const repo = await seededRepository();
+    const chain = new MemoryChain();
+    const store = new CountStore(repo, sampleSession(), [], {
+      ...fakeIdentity(),
+      nextSeq: 1,
+      counterId: COUNTER,
+      head: genesisHash(SESSION_ID, COUNTER),
+      chain,
+      sinServidor: true,
+    });
+    const count = store.addCount(2165, 4);
+    expect(() => store.markUnchanged(1181)).toThrow(/nunca la vio/);
+
+    const [waiver] = store.waiveMany([1181], { motivo: 'cuarto cerrado', usuario: 'marta' });
+    await store.settled();
+    expect(waiver).toMatchObject({
+      kind: 'unchanged',
+      counterId: COUNTER,
+      usuario: 'marta',
+      zona: '',
+      seq: 2,
+    });
+    // Chained onto the count before it, like any other event of this counter.
+    const links = await chain.unsynced(SESSION_ID, COUNTER, 10);
+    expect(links.map((link) => link.event.id)).toEqual([count.id, waiver.id]);
+    expect(links[1].prevHash).toBe(links[0].hash);
+
+    // Not the counter's to see or take back: «Mis registros» does not list it,
+    // and the store refuses the withdrawal even if something asks.
+    expect(ownLog(store.getSnapshot().events, COUNTER).map((row) => row.event.id)).toEqual([
+      count.id,
+    ]);
+    expect(() => store.withdraw(1181, waiver.id)).toThrow(/exención firmada/);
+  });
+
+  it('a dispatched counter’s store refuses even the reviewer’s path', async () => {
+    // On a dispatched count the waiver is the admin's, at the desk, through the
+    // server. A tablet store opened without `sinServidor` has no business
+    // writing one, whoever's name is on it.
+    const { store } = await counterStore();
+    expect(() => store.waiveMany([1181], { motivo: 'x', usuario: 'marta' })).toThrow(
+      /nunca la vio/,
+    );
   });
 
   it('the P1 store and the supervisor’s bulk waiver still write them', async () => {

@@ -57,6 +57,16 @@ const COUNTING_SURFACES = [
   'ui/counter/tapGuard.ts',
   'ui/counter/counterLock.ts',
   'ui/counter/browser.ts',
+  // The four tabs, shared by both ways a tablet counts (2026-10), and the
+  // single-device count that now runs on them. `local.ts` is where a session's
+  // items — figures and all — become the catalogue those tabs see, so it is the
+  // one file here that holds an `Item`, and must reach into it only through
+  // `counterItem`.
+  'ui/counter/CountingTabs.tsx',
+  'ui/counter/LocalCount.tsx',
+  'ui/counter/local.ts',
+  // What the plain address and the app icon open: a list of prepared links.
+  'ui/Entrance.tsx',
   'ui/screens/CountScreen.tsx',
   'ui/screens/FaltantesScreen.tsx',
   'ui/components/EntryCard.tsx',
@@ -84,6 +94,15 @@ const FORBIDDEN: Array<[string, RegExp]> = [
 ];
 
 const read = (file: string) => readFileSync(resolvePath(SRC, file), 'utf8');
+
+/**
+ * The components a file draws, by JSX tag. A `<` preceded by a word character
+ * is a type parameter (`useState<Live | null>`), not an element.
+ */
+function renderedBy(file: string): string[] {
+  const source = code(read(file));
+  return [...source.matchAll(/(?:^|[^\w.])<([A-Z]\w+)\b/gm)].map((match) => match[1]);
+}
 
 /** Comments explain what is absent and why; only code is under test. */
 function code(source: string): string {
@@ -116,6 +135,9 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
    */
   const P2_COUNTING = [
     'ui/counter/CounterScreen.tsx',
+    'ui/counter/CountingTabs.tsx',
+    'ui/counter/LocalCount.tsx',
+    'ui/counter/local.ts',
     'ui/counter/Search.tsx',
     'ui/counter/Entry.tsx',
     'ui/counter/MyEntries.tsx',
@@ -183,16 +205,29 @@ describe('no counting surface reads a Zeus figure (§2.1)', () => {
         'Prepare',
         'Counting',
         'SyncBar',
-        'Entry',
-        'Search',
-        'MyEntries',
-        'Notes',
+        'CountingTabs',
         'FinishPanel',
         'UpdateNotice',
         // The shared-user door. A password form, drawn before any assignment
         // is on the device; it renders nothing about any article.
         'Login',
       ]),
+    );
+    expect(new Set(renderedBy('ui/counter/CountingTabs.tsx'))).toEqual(
+      new Set(['Entry', 'Search', 'MyEntries', 'Notes']),
+    );
+  });
+
+  it('covers the single-device count, and the one door out of it into the reveal', () => {
+    // Every import since 2026-10 opens here (App → LocalCount). The tabs are
+    // the dispatched counter's, so the list above already holds them; what is
+    // asserted is that nothing else is drawn — and that the review, which is
+    // the reveal and is meant to be, is reached through its own gate and not
+    // embedded in the counting view.
+    const app = code(read('ui/App.tsx'));
+    expect(app).toMatch(/<LocalCount\b/);
+    expect(new Set(renderedBy('ui/counter/LocalCount.tsx'))).toEqual(
+      new Set(['Masthead', 'ReviewScreen', 'Counting', 'CountingTabs', 'GapReview']),
     );
   });
 

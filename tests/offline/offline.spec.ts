@@ -90,11 +90,13 @@ test.describe('a tablet that loses its signal', () => {
 
     await card.click()
     await expect(page.getByLabel('buscar artículo')).toBeVisible()
-    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '298')
 
-    // And the items are really there: search reaches the frozen catalogue.
+    // And the items are really there: search reaches the frozen catalogue…
     await page.getByLabel('buscar artículo').fill('melon')
     await expect(page.getByText('MELON', { exact: false }).first()).toBeVisible()
+    // …all 298 of them, on the counter screens' gap review.
+    await page.locator('.tabs').getByRole('button', { name: 'Terminar', exact: true }).click()
+    await expect(page.getByText('Tu sección: Toda la bodega · 298 artículos')).toBeVisible()
   })
 
   /**
@@ -113,13 +115,13 @@ test.describe('a tablet that loses its signal', () => {
     await expect(page.getByText(EMPTY)).toBeVisible()
 
     await importBodega(page)
-    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '298')
 
     // And a count taken offline is a count that survives the next launch.
     await page.getByLabel('buscar artículo').fill('0111020')
     await page.getByLabel('buscar artículo').press('Enter')
-    await page.getByLabel(/^cantidad contada de/).fill('5')
-    await page.getByRole('button', { name: /^Guardar/ }).click()
+    await page.getByLabel(/cantidad contada/).fill('5')
+    await page.getByRole('button', { name: /^Registrar 5 / }).click()
+    await expect(page.getByLabel('buscar artículo')).toBeVisible()
 
     await page.reload()
     await expect(page.getByRole('button', { name: /Bodega/ })).toContainText('1 verificados')

@@ -44,11 +44,12 @@ import {
   type ExportRecord,
   type ExportRepository,
   type ItemSummary,
+  type NoteEvent,
 } from '../../domain';
 import { BulkWaiver } from '../components/BulkWaiver';
 import { PostConfirm, PostDone, PostRepeat } from '../components/PostPanel';
 import { VarianceTable } from '../components/VarianceTable';
-import { formatMoney, formatQty } from '../format';
+import { formatInstant, formatMoney, formatQty } from '../format';
 import { loadSupervisor, saveSupervisor } from '../identity';
 import { defaultFilename, formatCoverage, postFigures } from '../posting';
 import type { Downloader } from '../download';
@@ -124,6 +125,26 @@ export function ReviewScreen({
 
   const summary = useMemo(() => summarizeSession(session, events), [session, events]);
 
+  // What the counter wrote down that is not a quantity. Only a count taken on
+  // the counter screens has any (a P1 log cannot hold a note), and on a
+  // single-device count this screen is the only place they can be read.
+  const notas = useMemo(() => {
+    const byId = new Map(session.items.map((item) => [item.idarticulo, item]));
+    const all = events
+      .filter((event): event is NoteEvent => event.kind === 'note')
+      .slice()
+      .sort(compareEvents)
+      .map((event) => ({
+        event,
+        item: event.idarticulo === null ? null : byId.get(event.idarticulo) ?? null,
+      }));
+    // Loose ones first: stock with no catalogue row, which the file cannot carry.
+    return [
+      ...all.filter((note) => note.event.idarticulo === null),
+      ...all.filter((note) => note.event.idarticulo !== null),
+    ];
+  }, [session.items, events]);
+
   // Who last touched each row. The table prints it under the name: "where did
   // the money go" is always followed by "and who says so", and the event log
   // is the only place that answer exists (DOMAIN.md §4).
@@ -131,8 +152,9 @@ export function ReviewScreen({
     const map = new Map<number, CountEvent>();
     for (const event of events) {
       // "Who last touched this row" is a question about a row, so the
-      // session-scoped kinds have no answer to contribute.
-      if (!isItemEvent(event)) continue;
+      // session-scoped kinds have no answer to contribute — and a note is a
+      // remark about the row, not a count of it, so it is not «who says so».
+      if (!isItemEvent(event) || event.kind === 'note') continue;
       const current = map.get(event.idarticulo);
       if (!current || compareEvents(current, event) < 0) map.set(event.idarticulo, event);
     }
@@ -608,6 +630,40 @@ export function ReviewScreen({
             </>
           )}
         </section>
+
+        {notas.length > 0 && (
+          <section className="section" aria-label="notas">
+            <h2 className="section__title">
+              Notas · <span className="num">{notas.length}</span>
+            </h2>
+            {notas.some((note) => note.event.idarticulo === null) && (
+              <p className="section__body">
+                Las notas sin artículo son mercancía que el catálogo no tiene: el archivo para
+                Zeus no la puede llevar. Decide qué hacer con ella antes de generar el archivo.
+              </p>
+            )}
+            <ul className="rows">
+              {notas.map(({ event, item }) => (
+                <li key={event.id} className="row row--static">
+                  <span className="row__main">
+                    <span className="row__nombre">{event.texto}</span>
+                    <span className="row__meta">
+                      {item ? (
+                        <>
+                          {item.nombre} · <span className="num">{item.codigo}</span>
+                        </>
+                      ) : (
+                        'sin artículo'
+                      )}{' '}
+                      · {event.usuario || 'sin nombre'} ·{' '}
+                      <span className="num">{formatInstant(event.at)}</span>
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {exports.length > 0 && (
           <section className="section" aria-label="archivos generados">

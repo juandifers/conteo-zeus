@@ -5,7 +5,12 @@
  *
  *   `#/admin…`  the desk. Create a session, divide the bodega, hand out tablets.
  *   `#/c/<tok>` a counter's tablet, preparing itself on office wifi.
- *   anything     the P1 counting app, which is still entirely local.
+ *   `#/local`   the single-device app: import a file, count it on this tablet
+ *               on the same four tabs a dispatched counter uses, review, and
+ *               generate the `.txt`. Entirely local.
+ *   plain `/`   whatever this tablet was prepared for (Entrance.tsx): the
+ *               counter link if there is one, the single-device app if not.
+ *   anything else  the single-device app, as before.
  *
  * A hash and not a path. The service worker answers every navigation from the
  * precache, so a hash route opens with no network at all — which is the whole
@@ -17,7 +22,7 @@
  * acquiring a `deviceId`, and a tablet on the preparation screen has not
  * started counting yet.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type {
   CounterChainRepository,
@@ -28,10 +33,11 @@ import type {
 import type { AssignmentStore } from '../store';
 import { App } from './App';
 import { AdminApp } from './admin/AdminApp';
-import { adminRoute, tokenInHash } from './admin/links';
+import { adminRoute, plainHash, tokenInHash } from './admin/links';
 import { httpApi, type Api } from './api';
 import { storageAuth } from './auth';
 import { CounterScreen } from './counter/CounterScreen';
+import { Entrance } from './Entrance';
 import type { Install } from './install';
 import type { Updates } from './updates';
 
@@ -56,7 +62,27 @@ export function Root({
   useEffect(() => {
     const onChange = () => setHash(globalThis.location?.hash ?? '');
     globalThis.addEventListener?.('hashchange', onChange);
-    return () => globalThis.removeEventListener?.('hashchange', onChange);
+    // History traversal between entries `go` pushed: some browsers report it
+    // only as `popstate`, and the screen must follow the address either way.
+    globalThis.addEventListener?.('popstate', onChange);
+    return () => {
+      globalThis.removeEventListener?.('hashchange', onChange);
+      globalThis.removeEventListener?.('popstate', onChange);
+    };
+  }, []);
+
+  // `pushState`/`replaceState` rather than assigning `location.hash`, so the
+  // entrance's redirect can *replace* the plain address — «back» from a
+  // counter's tablet must not land on a screen that sends it straight back.
+  const go = useCallback((next: string, options: { replace?: boolean } = {}) => {
+    const history = globalThis.history;
+    if (history) {
+      if (options.replace) history.replaceState(history.state, '', next);
+      else history.pushState(null, '', next);
+      setHash(globalThis.location?.hash ?? next);
+    } else if (globalThis.location) {
+      globalThis.location.hash = next;
+    }
   }, []);
 
   // The browser's login gate, shared by the two networked faces. The local P1
@@ -87,5 +113,7 @@ export function Root({
     );
   }
 
-  return <App repo={repo} updates={updates} install={install} />;
+  const app = <App repo={repo} chain={chain} updates={updates} install={install} />;
+  if (plainHash(hash)) return <Entrance assignments={assignments} app={app} go={go} />;
+  return app;
 }

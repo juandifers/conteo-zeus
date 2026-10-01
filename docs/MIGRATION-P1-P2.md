@@ -326,3 +326,69 @@ to.
   same refusal that has been there since P2.2. The verifier is for sealed P2
   sessions; handed a P1 export it would have nothing to check, which is why the
   bundle is served from `sellado` onwards and not from anywhere else.
+
+## Single-device counts move onto the counter screens (2026-10)
+
+Until now a file imported on the tablet was counted on P1's own screens — an
+entry card that opened on the article's running figure, «Modo conteo»,
+«Descartar conteo», a «Faltantes» list — while a dispatched counter had the four
+tabs of DOMAIN.md §6.3, where every quantity is an independent registro. Two
+ways to count, taught twice, and the older one anchored the second pile of an
+article on the first. From this change **every new import is counted on the four
+tabs**, and the review and the `.txt` stay exactly where they were.
+
+**The mechanism is a counter of one.** The import mints
+`Session.contadorLocal = { id, nombre }` (`src/ui/counter/local.ts`), and the
+session is opened as one counter's device: a `CountStore` with
+`counterId = contadorLocal.id`, a chain from genesis on this tablet, and
+`appendChainedBatch` as the write path. The fold, «Mis registros», the scoped
+withdrawal and the gap list are then not *like* a dispatched counter's — they
+are the same code over the same shape of log.
+
+Rules, each with its reason:
+
+- **A session is one or the other, for life.** `contadorLocal` present: every
+  event carries that `counterId` and is chained. Absent: a P1 log, opened on
+  P1's screens (`CountScreen`, `FaltantesScreen`) exactly as before, and folded
+  by the same code as before — `tests/domain/migration.test.ts` is untouched.
+  **An existing P1 session is never converted.** Its log has unchained events
+  with no `counterId` and possibly whole-item retractions; appending chained
+  events after them would put two kinds of log in one session, and rule 1 above
+  (a P1 event is never hashed) means the result could neither be chained nor
+  left alone. A count in progress on the day of the upgrade finishes on the
+  screens it started on.
+- **The reviewer's waiver goes into the counter's chain.** On a dispatched count
+  the admin waives at the desk, as a server action. Here the review is on this
+  tablet and the session's log is the only record there is, so the store is
+  opened `sinServidor`, which lets `waiveMany` — and only `waiveMany`, with the
+  reviewer's name on every event — write an `unchanged` into the chain. The
+  counter still cannot waive: `markUnchanged` refuses in counter mode either way.
+  Those waivers are not the counter's registros, so `ownLog` leaves them out of
+  «Mis registros» and `withdraw` refuses one; counting the article again is what
+  supersedes it, as everywhere.
+- **The rows are flagged `pendiente` and nothing drains them.** That flag is what
+  `appendChainedBatch` writes, and the only reader that would push them,
+  `otherOutboxes`, skips a queue no assignment row names — which is every
+  single-device count. Nothing on the sessions list reads the flag. Left as it
+  is rather than given a third sync state, because a third state would be a
+  schema change to say «nobody will ever ask».
+- **`zona` stays empty**, as on every P1 event: one section, the whole bodega,
+  and a zone that is the same on every row carries nothing.
+- **The export is P1's.** `ReviewScreen` → `generateAdjustment` →
+  `uncountedPolicy: 'reject'`: an uncounted row blocks the file until the
+  reviewer counts or waives it. Not P2.5's `'zero'` — that policy belongs to a
+  sealed server session whose admin chose it, and there is no admin here.
+- **One writer.** The single-device count takes the same Web Lock a dispatched
+  tablet does (`counterLock.ts`), named for its counter, and opens its store only
+  once the lock is held: two tabs on one chain would continue it from one head.
+
+**No Dexie migration.** `contadorLocal` is an unindexed field on the session row,
+and IndexedDB stores whatever shape it is handed. A session row without it is a
+P1 session, which is the rule above stated by the data.
+
+**The plain address changed too** (`src/ui/Entrance.tsx`). The installed app
+starts at `/`, so a tablet prepared from a counter link and reopened from its
+icon used to land on the single-device app. Now `/` opens the tablet's prepared
+link when there is exactly one and it was prepared in the last four days, offers
+a choice when there are several or the one is older, and is the single-device
+app only when nothing is prepared. The single-device app is always at `#/local`.

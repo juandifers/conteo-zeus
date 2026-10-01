@@ -79,20 +79,7 @@ export function FinishPanel({
   /** Jump to the entry screen for one gap row. */
   onCount: (idarticulo: number) => void;
 }) {
-  /** The gap row whose «está vacío» is waiting for its second tap. */
-  const [emptying, setEmptying] = useState<number | null>(null);
-  // «Sí, está vacío» opens under the row's own «Está vacío»; see tapGuard.ts.
-  const question = useTapGuard();
-  /** Shared sessions only: whether the whole-catalogue gap list is open. */
-  const [listaCompleta, setListaCompleta] = useState(false);
   const { estado, serverEstado } = useSyncExternalStore(sync.subscribe, sync.getSnapshot);
-
-  // The gap list is «my articles with nothing standing **from me**» (P2.3 §5a),
-  // minus whatever somebody else had already registered when this device
-  // fetched (P2.3.5 §6b). Without that subtraction a counter who inherited
-  // Luis's 120 articles would be shown all 120 and sent to recount sixty of
-  // them, which is the double count of §4b arriving by a second route.
-  const progress = sectionProgress(catalogue.sections, events, store.counterId, catalogue.heredados);
   const summary = ownSummary(catalogue.sections, events, store.counterId, catalogue.heredados);
 
   const terminar = () => {
@@ -155,6 +142,70 @@ export function FinishPanel({
 
   return (
     <>
+      <GapReview
+        store={store}
+        catalogue={catalogue}
+        events={events}
+        onCount={onCount}
+        storage={storage}
+      />
+      <div className="actions">
+        <button type="button" className="btn btn--primary" onClick={terminar}>
+          {/* In a shared session a personal gap is the ordinary case — the rest
+              of the list is somebody else's afternoon — so the button does not
+              apologise for it. */}
+          {!catalogue.compartido && summary.sinRegistrar > 0
+            ? 'Terminar de todas formas'
+            : 'Terminar'}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * What a counter reviews before finishing: their own work, and the articles in
+ * their sections with nothing standing — each one countable or declarable
+ * empty from here.
+ *
+ * Split out of `FinishPanel` so that a single-device count (`LocalCount`)
+ * shows exactly the same review, rows and questions, with a different action
+ * under it: there is no server to finish to, and the next step is the review
+ * on the same tablet.
+ */
+export function GapReview({
+  store,
+  catalogue,
+  events,
+  onCount,
+  storage = null,
+  sinServidor = false,
+}: {
+  store: CountStore;
+  catalogue: CounterCatalogue;
+  events: readonly CountEvent[];
+  onCount: (idarticulo: number) => void;
+  storage?: StorageReport | null;
+  /** A single-device count: nothing is ever uploaded, so the storage line says so. */
+  sinServidor?: boolean;
+}) {
+  /** The gap row whose «está vacío» is waiting for its second tap. */
+  const [emptying, setEmptying] = useState<number | null>(null);
+  // «Sí, está vacío» opens under the row's own «Está vacío»; see tapGuard.ts.
+  const question = useTapGuard();
+  /** Shared sessions only: whether the whole-catalogue gap list is open. */
+  const [listaCompleta, setListaCompleta] = useState(false);
+
+  // The gap list is «my articles with nothing standing **from me**» (P2.3 §5a),
+  // minus whatever somebody else had already registered when this device
+  // fetched (P2.3.5 §6b). Without that subtraction a counter who inherited
+  // Luis's 120 articles would be shown all 120 and sent to recount sixty of
+  // them, which is the double count of §4b arriving by a second route.
+  const progress = sectionProgress(catalogue.sections, events, store.counterId, catalogue.heredados);
+  const summary = ownSummary(catalogue.sections, events, store.counterId, catalogue.heredados);
+
+  return (
+    <>
       <div className="panel">
         <div className="panel__title">Tu trabajo</div>
         <div className="panel__body">
@@ -193,9 +244,13 @@ export function FinishPanel({
             <div className="hint">
               {storage.persistence === 'granted'
                 ? 'Almacenamiento de la tableta: protegido.'
-                : 'Almacenamiento de la tableta: sin garantía. Si le falta espacio, el ' +
-                  'navegador puede borrar lo que no se haya subido: acércate a la señal ' +
-                  'seguido e instala la aplicación en esta tableta.'}
+                : sinServidor
+                  ? 'Almacenamiento de la tableta: sin garantía. Este conteo solo existe en ' +
+                    'esta tableta, y si le falta espacio el navegador puede borrarlo: instala ' +
+                    'la aplicación en esta tableta.'
+                  : 'Almacenamiento de la tableta: sin garantía. Si le falta espacio, el ' +
+                    'navegador puede borrar lo que no se haya subido: acércate a la señal ' +
+                    'seguido e instala la aplicación en esta tableta.'}
             </div>
           )}
         </div>
@@ -331,17 +386,6 @@ export function FinishPanel({
         </div>
       ))
       )}
-
-      <div className="actions">
-        <button type="button" className="btn btn--primary" onClick={terminar}>
-          {/* In a shared session a personal gap is the ordinary case — the rest
-              of the list is somebody else's afternoon — so the button does not
-              apologise for it. */}
-          {!catalogue.compartido && summary.sinRegistrar > 0
-            ? 'Terminar de todas formas'
-            : 'Terminar'}
-        </button>
-      </div>
     </>
   );
 }

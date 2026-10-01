@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { importZeusBytes } from '../../app';
 import { resolveAll, type CountRepository, type SessionMeta } from '../../domain';
 import { BUILD, buildLabel } from '../build';
+import { nuevoContadorLocal } from '../counter/local';
 import { debugExportName, encodeCsv, eventLogCsv, type SessionLog } from '../debugExport';
 import type { Downloader } from '../download';
 import { loadUsuario, saveUsuario } from '../identity';
@@ -35,6 +36,7 @@ export function SessionsScreen({
   storage,
   install,
   download,
+  local = false,
   onOpen,
 }: {
   repo: CountRepository;
@@ -44,6 +46,12 @@ export function SessionsScreen({
   storage: StorageReport;
   install: Install;
   download: Downloader;
+  /**
+   * Import as a single-device count on the counter screens (`App` passes it
+   * whenever it has the chain table, which in the real app is always). The
+   * session gets its one counter here, at import, and keeps it for good.
+   */
+  local?: boolean;
   onOpen: (sessionId: string) => void;
 }) {
   const [sessions, setSessions] = useState<Progress[] | null>(null);
@@ -107,7 +115,13 @@ export function SessionsScreen({
       // adjustment file at the other end: the hotel already has a habit for
       // what these files are called, and matching it is safer than teaching
       // them a convention of ours.
-      const session = importZeusBytes(bytes, file.name);
+      const imported = importZeusBytes(bytes, file.name);
+      // Named after whoever is set to count right now. The name on each entry
+      // is still read when the count opens, so a tablet handed to somebody
+      // else mid-count stamps the new name on what they register.
+      const session = local
+        ? { ...imported, contadorLocal: nuevoContadorLocal(usuario) }
+        : imported;
       await repo.createSession(session);
       setSessions(await reload());
       onOpen(session.id);

@@ -39,12 +39,10 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 
 import type {
   CounterChainRepository,
-  CounterItem,
   CounterPayload,
   CountRepository,
   DeviceRepository,
 } from '../../domain';
-import { registeredArticles } from '../../domain';
 import type { AssignmentStore } from '../../store';
 import { reauthOn401, type Api } from '../api';
 import { openAuth, type AuthGate } from '../auth';
@@ -54,12 +52,9 @@ import { localOutbox } from '../outbox';
 import { CountStore } from '../store';
 import { requestPersistence, type StorageReport } from '../storage';
 import { noUpdates, type Updates } from '../updates';
-import { Entry } from './Entry';
+import { CountingTabs } from './CountingTabs';
 import { FinishPanel } from './Finish';
-import { MyEntries } from './MyEntries';
-import { Notes } from './Notes';
 import { Prepare } from './Prepare';
-import { Search } from './Search';
 import { SyncBar } from './SyncBar';
 import { catalogueOf, type CounterCatalogue } from './assignment';
 import { bootCounter, type ChainStart } from './boot';
@@ -79,15 +74,6 @@ interface Live {
   start: ChainStart;
   catalogue: CounterCatalogue;
 }
-
-type Tab = 'contar' | 'registros' | 'notas' | 'terminar';
-
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'contar', label: 'Contar' },
-  { id: 'registros', label: 'Mis registros' },
-  { id: 'notas', label: 'Notas' },
-  { id: 'terminar', label: 'Terminar' },
-];
 
 // One instance, at module scope: a default built per render would change the
 // wrapped api's identity every render, and the boot effect watches it.
@@ -351,19 +337,10 @@ function Counting({
   assignments: AssignmentStore;
 }) {
   const { store, sync, catalogue } = live;
-  const [tab, setTab] = useState<Tab>('contar');
-  const [open, setOpen] = useState<CounterItem | null>(null);
-  const [echo, setEcho] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
   const [otros, setOtros] = useState<readonly OtherOutbox[]>([]);
 
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-
-  // Membership only — never a resolution, never a quantity (§2.1).
-  const registrados = useMemo(
-    () => registeredArticles(snapshot.events, store.counterId),
-    [snapshot.events, store.counterId],
-  );
 
   /**
    * Somebody else's queue on this tablet (P2.3.5 §6a).
@@ -411,13 +388,7 @@ function Counting({
     };
   }, [api, chain, assignments, counterId, payload.session.id]);
 
-  const group = open ? catalogue.groups.get(open.codigo) ?? [open] : [];
   const browser = outsideChrome(globalThis.navigator?.userAgent) as 'app' | 'otro' | null;
-
-  function pick(item: CounterItem): void {
-    setOpen(item);
-    setEcho(null);
-  }
 
   return (
     <div className="screen">
@@ -454,95 +425,23 @@ function Counting({
         </div>
       )}
 
-      {/*
-        Halted: the tabs are gone, not disabled. Accumulating unsaved work behind
-        a warning is worse than stopping, and a greyed-out screen still reads as
-        «keep going, it will come back». The sync bar stays above it, because
-        what is already in the outbox still has to get out.
-      */}
-      {snapshot.halted ? (
-        <>
-          <div className="empty" role="alert">
-            <div className="empty__title">{snapshot.halted.title}</div>
-            <div className="empty__body">{snapshot.halted.detail}</div>
-          </div>
-          <div className="actions">
-            <button type="button" className="btn btn--primary" onClick={() => store.retryFailures()}>
-              Reintentar guardado ({snapshot.failures.length})
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <nav className="tabs">
-            {TABS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className={`tabs__tab ${tab === entry.id ? 'tabs__tab--on' : ''}`}
-                aria-pressed={tab === entry.id}
-                onClick={() => {
-                  setTab(entry.id);
-                  setOpen(null);
-                }}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </nav>
-
-          {tab === 'contar' &&
-            (open ? (
-              <Entry
-                key={open.idarticulo}
-                item={open}
-                group={group}
-                registrados={registrados}
-                heredados={catalogue.heredados}
-                mostrarMarca={payload.session.mostrarMarcaRegistrado}
-                store={store}
-                onActive={setOpen}
-                onDone={(line) => {
-                  setOpen(null);
-                  setEcho(line);
-                }}
-              />
-            ) : (
-              <Search
-                catalogue={catalogue}
-                registrados={registrados}
-                heredados={catalogue.heredados}
-                mostrarMarca={payload.session.mostrarMarcaRegistrado}
-                echo={echo}
-                onPick={pick}
-              />
-            ))}
-
-          {tab === 'registros' && (
-            <MyEntries store={store} catalogue={catalogue} events={snapshot.events} />
-          )}
-
-          {tab === 'notas' && (
-            <Notes store={store} catalogue={catalogue} events={snapshot.events} />
-          )}
-
-          {tab === 'terminar' && (
-            <FinishPanel
-              store={store}
-              sync={sync}
-              storage={storage}
-              catalogue={catalogue}
-              events={snapshot.events}
-              onCount={(idarticulo) => {
-                const item = catalogue.byId.get(idarticulo);
-                if (!item) return;
-                setTab('contar');
-                pick(item);
-              }}
-            />
-          )}
-        </>
-      )}
+      {/* The sync bar stays above the tabs even when they are halted, because
+          what is already in the outbox still has to get out. */}
+      <CountingTabs
+        store={store}
+        catalogue={catalogue}
+        mostrarMarca={payload.session.mostrarMarcaRegistrado}
+        terminar={({ events, onCount }) => (
+          <FinishPanel
+            store={store}
+            sync={sync}
+            storage={storage}
+            catalogue={catalogue}
+            events={events}
+            onCount={onCount}
+          />
+        )}
+      />
     </div>
   );
 }

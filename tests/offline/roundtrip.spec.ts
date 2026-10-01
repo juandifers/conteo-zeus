@@ -7,23 +7,27 @@
  * and read the bytes that reach the filesystem — the artifact somebody uploads
  * to Zeus, off the disk, not out of a Blob in page context.
  *
+ * Since 2026-10 an import is counted on the **counter screens** — Contar, Mis
+ * registros, Notas, Terminar — the same four tabs a dispatched tablet uses, and
+ * every quantity is an independent registro: a second pile of one article is a
+ * second entry, never an edit of the first. The file at the end is still the
+ * single-device `.txt`, generated on this tablet.
+ *
  * Two of the assertions below cannot be reached from jsdom at all, and they
  * are the reason this file exists rather than another case in
  * `tests/integration.test.ts`:
  *
- * **The mid-count reload.** The in-process integration test already covers
- * "imports, persists, counts, reloads and posts" — through a fake IndexedDB,
- * with no service worker in the loop and no page teardown. This version tests
- * something different: that the Dexie write actually *committed*, in a real
- * transaction, before a real navigation, on a page a worker is controlling.
+ * **The mid-count reload.** That the chained Dexie write actually
+ * *committed*, in a real transaction, before a real navigation, on a page a
+ * worker is controlling — and that the count reopens on «Mis registros» with
+ * every entry, and continues the same chain rather than starting a second one.
  * Somebody will run this experiment unknowingly on day one, when a tablet
  * screen-locks in the middle of a shelf.
  *
- * **The undo.** `retract` is the riskiest mechanic in the UI, because it is an
- * append that has to *win* the fold — it does not delete anything. If the
- * ordering is ever wrong, the file carries a number the counter explicitly
- * took back, and no screen anywhere would show it. So one retracted value is
- * followed all the way from the tap to the byte.
+ * **The withdrawal.** «Deshacer» is an append that has to *win* the fold — it
+ * does not delete anything. If the ordering is ever wrong, the file carries a
+ * number the counter explicitly took back, and no screen anywhere would show
+ * it. So one withdrawn value is followed all the way from the tap to the byte.
  *
  * One test, deliberately. This is a guarantee, not a matrix: the value is in
  * the single unbroken chain from a tap in a cold room to a field in a file,
@@ -57,21 +61,24 @@ const at = (idarticulo: number) => source.items.find((item) => item.idarticulo =
  * only add taps here.
  */
 const PINA = 85 // PIÑA OROMIEL · KILO · the accent-folded search, typed by hand
-const MELON = 77 // MELON · KILO · tally mode. Booked at 0, so a count is an overage.
-const HARINA = 42 // HARINA PAN AMARILLA · KILO · counted, then taken back
+const MELON = 77 // MELON · KILO · two piles, two registros. Booked at 0: an overage.
+const HARINA = 42 // HARINA PAN AMARILLA · KILO · registered, then withdrawn
+
+/** Longer than the list's tap guard (tapGuard.ts), as in shift.spec.ts. */
+const READ_MS = 450
 
 /** What the test types, and what the file must therefore carry. */
 const TYPED_PINA = 12.5
-const TALLY_TAPS = 3
-const TYPED_THEN_RETRACTED = 50
+const MELON_PILES = [2, 1] as const
+const TYPED_THEN_WITHDRAWN = 50
 
 test('counts a bodega with no signal and hands over a file Zeus can read', async ({
   page,
   context,
 }) => {
-  // The retracted row only proves anything if the number that was taken back
+  // The withdrawn row only proves anything if the number that was taken back
   // is not the number a waiver would produce anyway.
-  expect(at(HARINA).existencia).not.toBe(TYPED_THEN_RETRACTED)
+  expect(at(HARINA).existencia).not.toBe(TYPED_THEN_WITHDRAWN)
 
   // ---- online, once ------------------------------------------------------
   await page.goto('/')
@@ -86,45 +93,40 @@ test('counts a bodega with no signal and hands over a file Zeus can read', async
   await page.getByLabel('quién cuenta').fill('ana')
   await page.locator('input[type="file"]').setInputFiles(SAMPLE)
   await expect(page.getByLabel('buscar artículo')).toBeVisible()
-
-  const search = page.getByLabel('buscar artículo')
+  await expect(tab(page, 'Mis registros')).toBeVisible()
 
   // A search that only works if accents are folded. Nobody wearing gloves in a
   // cold room is going to produce an Ñ, and the catalogue is full of them.
-  await search.fill('pina oromiel')
-  await page.getByRole('button', { name: /PIÑA OROMIEL/ }).click()
   // Typed with a comma, which is the separator a Colombian keyboard offers and
   // the one the ERP does not take. The conversion is the app's job.
-  await page.getByLabel(/^cantidad contada de/).fill('12,5')
-  await page.getByRole('button', { name: /^Guardar/ }).click()
+  await registrar(page, 'pina oromiel', '12,5', /PIÑA OROMIEL/)
 
-  // Tally mode: the other way a quantity gets into the log, one tap at a time.
-  await search.fill(at(MELON).codigo)
-  await search.press('Enter')
-  await page.getByRole('button', { name: 'Modo conteo' }).click()
-  const pad = page.getByRole('button', { name: /^sumar uno a/ })
-  for (let tap = 0; tap < TALLY_TAPS; tap++) await pad.click()
-  await page.getByRole('button', { name: 'Listo' }).click()
-
-  // And one that is counted and then taken back. The count is real while it
-  // lasts — the progress bar moves — and the retraction has to undo that.
-  await search.fill(at(HARINA).codigo)
-  await search.press('Enter')
-  await page.getByLabel(/^cantidad contada de/).fill(String(TYPED_THEN_RETRACTED))
-  await page.getByRole('button', { name: /^Guardar/ }).click()
-  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
-
-  await search.fill(at(HARINA).codigo)
-  await search.press('Enter')
-  await page.getByRole('button', { name: 'Descartar conteo' }).click()
+  // Two piles of melon, found at two moments: two registros, and the keypad
+  // opens empty the second time — the 1 is counted, not reconciled with the 2.
+  await registrar(page, at(MELON).codigo, String(MELON_PILES[0]))
+  await open(page, at(MELON).codigo)
+  await expect(quantity(page)).toHaveValue('')
   await page.getByRole('button', { name: 'volver a buscar' }).click()
-  // Back to blocking the post, which is the point of a retraction: it should
-  // make somebody deal with the row, not quietly resolve it.
-  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2')
+  await registrar(page, at(MELON).codigo, String(MELON_PILES[1]))
 
-  // The coverage figure lives in the review body, not in the bottom bar: that
-  // bar was trimmed to counts, net variance and the post button. `.total__` is
-  // the block it sits in now.
+  // And one that is registered and then withdrawn from «Mis registros».
+  await registrar(page, at(HARINA).codigo, String(TYPED_THEN_WITHDRAWN))
+  await tab(page, 'Mis registros').click()
+  const harina = page.locator('li', { hasText: at(HARINA).nombre })
+  // A person reads the list before tapping: «Deshacer» ignores a tap that
+  // lands within the guard window of the list appearing (tapGuard.ts), which
+  // is exactly what a test that clicks at machine speed would otherwise do.
+  await page.waitForTimeout(READ_MS)
+  await harina.getByRole('button', { name: 'Deshacer' }).click()
+  await expect(harina).toHaveClass(/row--withdrawn/)
+  await expect(page.locator('li.row--withdrawn')).toHaveCount(1)
+
+  // Withdrawn means back on the gap list: it should make somebody deal with
+  // the row, not quietly resolve it.
+  await tab(page, 'Terminar').click()
+  await expect(gaps(page)).toContainText(String(source.items.length - 2))
+
+  // The coverage figure lives in the review body. `.total__` is the block.
   const cobertura = page
     .locator('.panel__figures > div')
     .filter({ has: page.locator('.total__label', { hasText: 'cobertura' }) })
@@ -134,22 +136,21 @@ test('counts a bodega with no signal and hands over a file Zeus can read', async
   await page.reload()
   await expect(page.getByRole('button', { name: /Bodega/ })).toContainText('2 verificados')
   await page.getByRole('button', { name: /Bodega/ }).click()
-  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2')
 
-  // Not just the tally of how many: the numbers themselves came back, folded
-  // from the log rather than from anything stored resolved.
-  await expect(await readout(page, 'pina oromiel')).toHaveValue('12,5')
-  await page.getByRole('button', { name: 'volver a buscar' }).click()
-  await expect(await readout(page, at(MELON).codigo)).toHaveValue('3')
-  await page.getByRole('button', { name: 'volver a buscar' }).click()
-  // And the retracted one is empty and cannot be discarded again.
-  await expect(await readout(page, at(HARINA).codigo)).toHaveValue('')
-  await expect(page.getByRole('button', { name: 'Descartar conteo' })).toBeDisabled()
-  await page.getByRole('button', { name: 'volver a buscar' }).click()
+  // Every entry came back, in order, the withdrawn one still struck through —
+  // folded from the log, not from anything stored resolved.
+  await tab(page, 'Mis registros').click()
+  const rows = page.locator('ul.rows > li')
+  await expect(rows).toHaveCount(4)
+  await expect(page.locator('li.row--withdrawn')).toHaveCount(1)
+  await expect(page.locator('li.row--withdrawn')).toContainText(at(HARINA).nombre)
 
+  await tab(page, 'Terminar').click()
+  await expect(gaps(page)).toContainText(String(source.items.length - 2))
   expect(await coverage(page, cobertura)).toBe(before)
 
   // ---- review, waive the rest, generate ---------------------------------
+  await tab(page, 'Terminar').click()
   await page.getByRole('button', { name: 'Revisar y generar archivo' }).click()
   await page.getByRole('button', { name: 'Ver las cifras del sistema' }).click()
   await page.getByRole('button', { name: 'Exentar artículos sin contar' }).click()
@@ -215,20 +216,23 @@ test('counts a bodega with no signal and hands over a file Zeus can read', async
   const emittedAt = (idarticulo: number) =>
     emitted.items.find((item) => item.idarticulo === idarticulo)!
 
-  // The two counted rows carry exactly what was typed and tapped.
+  // The two counted rows carry exactly what was typed — the melon as the sum
+  // of its two registros, which the review is the first screen to show.
+  const melon = MELON_PILES[0] + MELON_PILES[1]
   expect(emittedAt(PINA).toma).toBe(TYPED_PINA)
   expect(emittedAt(PINA).diferencia).toBe(TYPED_PINA - at(PINA).existencia)
-  expect(emittedAt(MELON).toma).toBe(TALLY_TAPS)
-  expect(emittedAt(MELON).diferencia).toBe(TALLY_TAPS - at(MELON).existencia)
+  expect(emittedAt(MELON).toma).toBe(melon)
+  expect(emittedAt(MELON).diferencia).toBe(melon - at(MELON).existencia)
 
-  // And the retracted row carries the value *after* the undo — the waiver's
-  // existencia, not the 50 somebody typed and took back. If `retract` ever
-  // stopped winning the fold, this is the field that would carry the lie.
+  // And the withdrawn row carries the value *after* the withdrawal — the
+  // waiver's existencia, not the 50 somebody typed and took back. If the
+  // withdrawal ever stopped winning the fold, this is the field that would
+  // carry the lie.
   expect(emittedAt(HARINA).toma).toBe(at(HARINA).existencia)
   expect(emittedAt(HARINA).diferencia).toBe(0)
 
   // Everything else was waived, so it posts as an explicit no-change
-  // (DOMAIN.md §4). 295 signed rows, each one with a name and a motivo in the
+  // (DOMAIN.md §4). 296 signed rows, each one with a name and a motivo in the
   // log — which is what makes them different from an omission.
   const counted = new Set([PINA, MELON])
   const waived = emitted.items.filter((item) => !counted.has(item.idarticulo))
@@ -239,12 +243,38 @@ test('counts a bodega with no signal and hands over a file Zeus can read', async
   }
 })
 
-/** Open an item from the search box and hand back its quantity field. */
-async function readout(page: Page, query: string): Promise<Locator> {
+/** One of the four tabs, by its exact label. */
+function tab(page: Page, name: string): Locator {
+  return page.locator('.tabs').getByRole('button', { name, exact: true })
+}
+
+/** The keypad's field on an open entry card. */
+function quantity(page: Page): Locator {
+  return page.getByLabel(/cantidad contada/)
+}
+
+/** Open an article from the search box: by code with Enter, by name with a tap. */
+async function open(page: Page, query: string, pick?: RegExp): Promise<void> {
+  await tab(page, 'Contar').click()
   const search = page.getByLabel('buscar artículo')
   await search.fill(query)
-  await search.press('Enter')
-  return page.getByLabel(/^cantidad contada de/)
+  if (pick) await page.getByRole('button', { name: pick }).click()
+  else await search.press('Enter')
+}
+
+/** One registro: open, type, one tap. There is no second «¿seguro?». */
+async function registrar(page: Page, query: string, qty: string, pick?: RegExp): Promise<void> {
+  await open(page, query, pick)
+  await quantity(page).fill(qty)
+  await page.getByRole('button', { name: new RegExp(`^Registrar ${qty} `) }).click()
+  await expect(page.getByLabel('buscar artículo')).toBeVisible()
+}
+
+/** The «sin registrar» line of the gap review's one section. */
+function gaps(page: Page): Locator {
+  return page
+    .locator('.panel', { hasText: 'Tu sección: Toda la bodega' })
+    .locator('.checkrow', { hasText: 'sin registrar' })
 }
 
 /**
@@ -255,11 +285,12 @@ async function readout(page: Page, query: string): Promise<Locator> {
  * so coming back asks again rather than staying open behind somebody's back.
  */
 async function coverage(page: Page, figure: Locator): Promise<string> {
+  await tab(page, 'Terminar').click()
   await page.getByRole('button', { name: 'Revisar y generar archivo' }).click()
   await page.getByRole('button', { name: 'Ver las cifras del sistema' }).click()
   const text = (await figure.textContent()) ?? ''
   await page.getByRole('button', { name: 'volver', exact: true }).click()
-  await expect(page.getByLabel('buscar artículo')).toBeVisible()
+  await expect(tab(page, 'Contar')).toBeVisible()
   return text
 }
 

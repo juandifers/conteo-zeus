@@ -9,9 +9,13 @@
  * - **An entry is pushed when it is made**, when there is signal — not on the
  *   next thirty-second tick. The sync bar used to say «Todo lo que llevas está
  *   subido» for that whole half-minute, which is the sentence that tells
- *   somebody it is safe to walk out of signal.
+ *   somebody it is safe to walk out of signal. * - **The app icon opens the counter's link.** The installed app starts at
+ *   `/`, which used to be the single-device app whatever the tablet had been
+ *   prepared for. Now the plain address finds the link in IndexedDB and opens
+ *   it, with no network (Entrance.tsx).
  */
 import { expect, test, type BrowserContext, type Route } from '@playwright/test'
+import { installed } from './serviceWorker'
 
 const TOKEN = 'cccccccccccccccccccccc'
 const SESSION = '11111111-1111-4111-8111-111111111111'
@@ -137,4 +141,28 @@ test('an entry made with signal is pushed right away, not on the next tick', asy
   await expect.poll(() => server.pushes.length, { timeout: 5_000 }).toBeGreaterThan(before)
   expect(server.pushes[server.pushes.length - 1].at - tapped).toBeLessThan(5_000)
   await expect(page.getByText(/Todo lo que llevas está subido/)).toBeVisible()
+})
+
+test('the plain address — the app icon — opens the prepared link, even offline', async ({
+  context,
+}) => {
+  await backend(context)
+  const page = await context.newPage()
+  // Prepared on office wifi, the way a counter's tablet is.
+  await page.goto(`/#/c/${TOKEN}`)
+  await expect(page.getByLabel('buscar artículo')).toBeVisible()
+  await installed(page)
+  await page.close()
+
+  // Later, in the bodega, from the icon: `start_url` is `/`, and there is no
+  // signal to ask anything.
+  await context.setOffline(true)
+  const fromIcon = await context.newPage()
+  await fromIcon.goto('/')
+  await expect(fromIcon.getByText('Ana Rodríguez')).toBeVisible()
+  await expect(fromIcon.getByLabel('buscar artículo')).toBeVisible()
+  expect(new URL(fromIcon.url()).hash).toBe(`#/c/${TOKEN}`)
+  // And the single-device app is still there, under its own address.
+  await fromIcon.goto('/#/local')
+  await expect(fromIcon.getByText('Trae un archivo de Zeus y empieza')).toBeVisible()
 })

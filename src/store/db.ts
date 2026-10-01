@@ -17,6 +17,8 @@ export interface SessionRow {
   itemCount: number;
   /** The imported file's name. The bytes are in `sources`. */
   sourceName?: string;
+  /** See `Session.contadorLocal`. Optional: no migration, older rows lack it. */
+  contadorLocal?: { id: string; nombre: string };
 }
 
 /**
