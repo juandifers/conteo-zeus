@@ -7,8 +7,6 @@
  *   - a double tap answers the question it raised («Sí» opens under the finger);
  *   - a double tap on a search result types a digit into the card it opened;
  *   - «0» + «Registrar 0» skipped the «¿está vacío?» question;
- *   - a second entry on your own article silently adds (30, then «81» to fix it,
- *     is 111);
  *   - «Corregir» asked nothing, so 8 → 0 or 8 → 81 000 went straight in;
  *   - «0,0000001» and a 22-digit slip were accepted, and made the Zeus writer
  *     throw after the seal;
@@ -160,54 +158,25 @@ describe('a zero always takes the zero question', () => {
   });
 });
 
-describe('a second entry on your own article says it will add', () => {
-  it('asks before adding, and «Volver» writes nothing', async () => {
+describe('every registro is independent', () => {
+  it('registers a second quantity on the same article straight away, asking nothing', async () => {
+    // 10 tomatoes on the shelf, later 6 in the cold room: two registros, and
+    // the counter is never asked about the first while entering the second.
     const { user, written } = await openTablet();
     await openCard(user, 'TAJADO');
-    await user.type(screen.getByLabelText(/cantidad contada/), '30');
-    await user.click(screen.getByRole('button', { name: /^Registrar 30 / }));
-    expect(await written()).toHaveLength(1);
+    await user.type(screen.getByLabelText(/cantidad contada/), '10');
+    await user.click(screen.getByRole('button', { name: /^Registrar 10 / }));
 
-    // Later: the paper habit — write the total again «to fix it».
     await openCard(user, 'TAJADO');
-    await user.type(screen.getByLabelText(/cantidad contada/), '81');
-    await user.click(screen.getByRole('button', { name: /^Registrar 81 / }));
-    expect(screen.getByText(/Ya registraste este artículo/)).toBeTruthy();
-    expect(screen.getByText(/corrígelo en Mis registros/)).toBeTruthy();
-    // No number but the one being typed: the sentence says «se suma», not a total.
-    expect(document.body.textContent).not.toContain('111');
+    await user.type(screen.getByLabelText(/cantidad contada/), '6');
+    await user.click(screen.getByRole('button', { name: /^Registrar 6 / }));
 
-    await user.click(screen.getByRole('button', { name: 'Volver' }));
-    expect(await written()).toHaveLength(1);
-  });
-
-  it('adds when the counter says it is another place', async () => {
-    const { user, written } = await openTablet();
-    await openCard(user, 'TAJADO');
-    await user.type(screen.getByLabelText(/cantidad contada/), '30');
-    await user.click(screen.getByRole('button', { name: /^Registrar 30 / }));
-    await openCard(user, 'TAJADO');
-    await user.type(screen.getByLabelText(/cantidad contada/), '12');
-    await user.click(screen.getByRole('button', { name: /^Registrar 12 / }));
-    read();
-    await user.click(screen.getByRole('button', { name: 'Sí, sumar 12' }));
+    expect(screen.queryByText(/ya registraste/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /sumar/i })).toBeNull();
     expect(await written()).toMatchObject([
-      { kind: 'add', qty: 30 },
-      { kind: 'add', qty: 12 },
+      { kind: 'add', qty: 10 },
+      { kind: 'add', qty: 6 },
     ]);
-  });
-
-  it('does not stack a second question on a zero', async () => {
-    const { user, written } = await openTablet();
-    await openCard(user, 'TAJADO');
-    await user.type(screen.getByLabelText(/cantidad contada/), '30');
-    await user.click(screen.getByRole('button', { name: /^Registrar 30 / }));
-    await openCard(user, 'TAJADO');
-    await user.click(screen.getByRole('button', { name: /Está vacío/ }));
-    read();
-    await user.click(screen.getByRole('button', { name: 'Sí, está vacío' }));
-    expect(screen.queryByText(/Ya registraste este artículo/)).toBeNull();
-    expect(await written()).toHaveLength(2);
   });
 });
 

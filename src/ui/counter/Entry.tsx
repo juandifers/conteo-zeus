@@ -59,21 +59,6 @@ type Phase =
    * sentence says.
    */
   | { name: 'otro'; qty: number }
-  /**
-   * This counter already registered this article, and is about to add to it.
-   *
-   * Two entries on one article are two locations and the count is their sum —
-   * that is the model, and it is right. But a worker trained on paper writes
-   * the *total*, and on a second visit re-enters it: 30, then 81 «to fix it»,
-   * is 111, and nothing downstream can tell that from two shelves. So the
-   * additivity is said out loud here as well, exactly as it is for somebody
-   * else's article. It reveals nothing new — Mis registros already lists this
-   * counter's own entries by name — and it carries no number.
-   *
-   * A zero skips it: the zero question already says «cero no borra lo
-   * anterior», and one question per tap is the budget.
-   */
-  | { name: 'propio'; qty: number }
   | { name: 'zero' };
 
 const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0', '⌫'] as const;
@@ -162,8 +147,11 @@ export function Entry({
    * quietly skip it.
    */
   function record(qty: number): void {
+    // A counter's own earlier entries on this article are never mentioned
+    // here: every registro is an independent observation of what is in front
+    // of them — 10 here, 6 there — and asking about the first while they type
+    // the second would anchor one on the other.
     if (heredados.has(item.idarticulo)) ask({ name: 'otro', qty });
-    else if (qty !== 0 && registrados.has(item.idarticulo)) ask({ name: 'propio', qty });
     else write(qty);
   }
 
@@ -323,30 +311,6 @@ export function Entry({
             <div className="hint">
               Si estás en otro lugar del que contó esa persona, está bien: la suma es el
               conteo. Si vas a recontar lo mismo, avisa al administrador en vez de registrar.
-            </div>
-          </div>
-          <div className="actions__pair">
-            <button type="button" className="btn" onClick={() => setPhase({ name: 'typing' })}>
-              Volver
-            </button>
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={confirmed(() => write(phase.qty))}
-            >
-              {`Sí, sumar ${formatQty(phase.qty)}`}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {phase.name === 'propio' && (
-        <div className="confirm">
-          <div className="confirm__text">
-            Ya registraste este artículo. Esta cantidad se suma a lo que registraste antes.
-            <div className="hint">
-              Si estás contando otro lugar, está bien: la suma es el conteo. Si te equivocaste
-              antes, no registres el total otra vez: corrígelo en Mis registros.
             </div>
           </div>
           <div className="actions__pair">

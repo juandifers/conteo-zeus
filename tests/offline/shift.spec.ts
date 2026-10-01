@@ -189,14 +189,8 @@ async function registrar(page: Page, codigo: string, qty: string): Promise<void>
   await page.getByLabel(/cantidad contada/).fill(qty)
   // The button carries the unit as well as the number.
   await page.getByRole('button', { name: new RegExp(`^Registrar ${qty} `) }).click()
-  // A second entry on one's own article says it will add, once.
-  const sumar = page.getByRole('button', { name: `Sí, sumar ${qty}`, exact: true })
-  await expect(page.getByLabel('buscar artículo').or(sumar)).toBeVisible()
-  if (await sumar.isVisible()) {
-    await page.waitForTimeout(READ_MS)
-    await sumar.click()
-    await expect(page.getByLabel('buscar artículo')).toBeVisible()
-  }
+  // Every registro is independent: a second one on the same article asks nothing.
+  await expect(page.getByLabel('buscar artículo')).toBeVisible()
 }
 
 test.describe('a whole shift with no signal', () => {

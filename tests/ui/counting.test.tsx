@@ -142,10 +142,6 @@ async function registrar(user: ReturnType<typeof userEvent.setup>, query: string
   await user.type(screen.getByLabelText(/cantidad contada/), qty);
   // One tap: «Registrar 4» is the write. There is no second «Sí, registrar».
   await user.click(screen.getByRole('button', { name: new RegExp(`^Registrar ${qty} `) }));
-  // …unless this counter already registered the article: then the additivity
-  // is said out loud once (the paper-trained re-entry of a total).
-  const sumar = screen.queryByRole('button', { name: `Sí, sumar ${qty}` });
-  if (sumar) await user.click(sumar);
 }
 
 describe('no running total is reachable in the counting path', () => {

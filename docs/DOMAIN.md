@@ -823,13 +823,15 @@ and «Corregir» alike:
 | «¿Confirmas que este lugar está vacío?» | any zero, typed or tapped — a zero is a stock deletion (§7.4) |
 | «Es una cantidad poco común» | five or more whole digits — a good part of the 80-for-8 class |
 | «Otra persona ya registró este artículo» | an inherited article (§6.4) |
-| «Ya registraste este artículo… se suma» | a second non-zero entry on your *own* article |
 
-The last one exists because the additive model (§3.1) is right and a
-paper-trained worker does not expect it: on a second visit they write the
-*total* again, and 30 then «81, to fix it» is 111 — indistinguishable downstream
-from two shelves. The sentence carries no number, and reveals nothing Mis
-registros does not already list.
+**A counter's own earlier entries are never brought up while they count.**
+Every registro is an independent observation — 10 tomatoes on the shelf, later
+6 in the cold room, registered as 10 and then 6 — and the sum is the fold's
+job, not the counter's. A question about an article's earlier entries, asked
+while the next one is being typed, anchors the second observation on the first.
+(A pre-pilot change asked exactly that, «Ya registraste este artículo… se
+suma», and was withdrawn for this reason.) A mistaken entry is fixed in Mis
+registros; training carries the rest.
 
 **A question's «Sí» ignores taps for 400 ms after it appears**, and the keypad
 for 300 ms after the card opens (`src/ui/counter/tapGuard.ts`). Every question
