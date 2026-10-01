@@ -106,7 +106,7 @@ export function ReviewScreen({
   onBack: () => void;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { session, events } = snapshot;
+  const { session, events, halted, pending } = snapshot;
 
   const [filter, setFilter] = useState<Filter>('todos');
   const [showAll, setShowAll] = useState(false);
@@ -239,7 +239,7 @@ export function ReviewScreen({
     setError(null);
     // Belt as well as braces: the button is disabled without these, and this
     // is the only call site of `generateAdjustment` in the app.
-    if (!summary.canPost || !intact || faults.length > 0) return;
+    if (!summary.canPost || !intact || faults.length > 0 || halted || pending > 0) return;
     let built;
     try {
       built = generateAdjustment(session, events);
@@ -277,18 +277,27 @@ export function ReviewScreen({
 
   const rows = summary.items.filter((row) => matches(row, filter));
   const figures = postFigures(summary);
-  const blocked =
-    faults.length > 0
-      ? 'El archivo de esta sesión se contradice a sí mismo, así que sus conteos no ' +
-        'se pueden atribuir a un artículo. Vuelve a importar la bodega y cuenta ' +
-        'contra el archivo nuevo.'
-      : summary.counts.untouched > 0
-        ? `Faltan ${summary.counts.untouched} artículos por contar o exentar.`
-        : !intact
-          ? session.source
-            ? 'El archivo guardado con esta sesión ya no coincide con el conteo. No se puede generar un ajuste contra otro corte.'
-            : 'Esta sesión no guardó el archivo de Zeus del que se importó, así que no puede generar un ajuste.'
-          : null;
+  // The file is generated from what is on screen, and on screen is ahead of
+  // the disk until every write has landed. A file built over a write that then
+  // fails — or that already failed — claims a count the tablet will not have
+  // after a reload: on a single-device count there is no lifeboat behind the
+  // chain (store.ts), so the log on disk is the whole record.
+  const blocked = halted
+    ? 'La tableta no pudo guardar todo lo registrado. No se genera el archivo hasta ' +
+      'que el guardado funcione: toca «Reintentar guardado».'
+    : pending > 0
+      ? 'Guardando en la tableta…'
+      : faults.length > 0
+        ? 'El archivo de esta sesión se contradice a sí mismo, así que sus conteos no ' +
+          'se pueden atribuir a un artículo. Vuelve a importar la bodega y cuenta ' +
+          'contra el archivo nuevo.'
+        : summary.counts.untouched > 0
+          ? `Faltan ${summary.counts.untouched} artículos por contar o exentar.`
+          : !intact
+            ? session.source
+              ? 'El archivo guardado con esta sesión ya no coincide con el conteo. No se puede generar un ajuste contra otro corte.'
+              : 'Esta sesión no guardó el archivo de Zeus del que se importó, así que no puede generar un ajuste.'
+            : null;
 
   if (summary.counts.untouched > 0 && !revealed) {
     return (
@@ -439,6 +448,15 @@ export function ReviewScreen({
       {error && (
         <div className="banner" role="alert">
           {error}
+        </div>
+      )}
+
+      {halted && (
+        <div className="banner" role="alert">
+          <strong>{halted.title}.</strong> {halted.detail}{' '}
+          <button type="button" className="btn btn--small" onClick={() => store.retryFailures()}>
+            Reintentar guardado ({snapshot.failures.length})
+          </button>
         </div>
       )}
 

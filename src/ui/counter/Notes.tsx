@@ -110,7 +110,7 @@ export function Notes({
         <div className="empty">
           <div className="empty__title">Sin notas todavía</div>
           <div className="empty__body">
-            Lo que no cabe en una cantidad se escribe aquí y llega al administrador.
+            Lo que no cabe en una cantidad se escribe aquí y llega a quien revisa el conteo.
           </div>
         </div>
       ) : (

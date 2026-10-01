@@ -209,6 +209,7 @@ export {
   ownSummary,
   registeredArticles,
   sectionProgress,
+  waivedArticles,
   type AssignedSection,
   type OwnEntry,
   type OwnSummary,

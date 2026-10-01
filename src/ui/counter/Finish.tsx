@@ -180,6 +180,7 @@ export function GapReview({
   onCount,
   storage = null,
   sinServidor = false,
+  exentos,
 }: {
   store: CountStore;
   catalogue: CounterCatalogue;
@@ -188,6 +189,13 @@ export function GapReview({
   storage?: StorageReport | null;
   /** A single-device count: nothing is ever uploaded, so the storage line says so. */
   sinServidor?: boolean;
+  /**
+   * A single-device count's rows the reviewer has exempted (`waivedArticles`).
+   * Somebody signed for them, so they are not this counter's gaps — and not
+   * their registros either: they take the slot a handover's inherited articles
+   * take on a dispatched tablet, which a single-device count never has.
+   */
+  exentos?: ReadonlySet<number>;
 }) {
   /** The gap row whose «está vacío» is waiting for its second tap. */
   const [emptying, setEmptying] = useState<number | null>(null);
@@ -201,8 +209,10 @@ export function GapReview({
   // fetched (P2.3.5 §6b). Without that subtraction a counter who inherited
   // Luis's 120 articles would be shown all 120 and sent to recount sixty of
   // them, which is the double count of §4b arriving by a second route.
-  const progress = sectionProgress(catalogue.sections, events, store.counterId, catalogue.heredados);
-  const summary = ownSummary(catalogue.sections, events, store.counterId, catalogue.heredados);
+  const resueltos = sinServidor ? exentos ?? new Set<number>() : catalogue.heredados;
+  const progress = sectionProgress(catalogue.sections, events, store.counterId, resueltos);
+  const summary = ownSummary(catalogue.sections, events, store.counterId, resueltos);
+  const deOtro = sinServidor ? 'exentos en la revisión' : 'ya registrados por otra persona';
 
   return (
     <>
@@ -219,7 +229,7 @@ export function GapReview({
               // registered 38» and «38 are registered, 12 of them by somebody
               // else» are not the same sentence about the same afternoon.
               <li className="checkrow">
-                <span>ya registrados por otra persona</span>
+                <span>{deOtro}</span>
                 <span className="num">{summary.heredados}</span>
               </li>
             )}
@@ -301,7 +311,7 @@ export function GapReview({
               </li>
               {section.heredados > 0 && (
                 <li className="checkrow">
-                  <span>ya registrados por otra persona</span>
+                  <span>{deOtro}</span>
                   <span className="num">{section.heredados}</span>
                 </li>
               )}

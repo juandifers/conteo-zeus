@@ -58,9 +58,21 @@ export function Root({
   install?: Install;
 }) {
   const [hash, setHash] = useState(() => globalThis.location?.hash ?? '');
+  // Whether this page *opened* on the plain address — the app icon, a typed
+  // URL — and nothing has moved since. Only then may the entrance walk straight
+  // into a prepared link. Coming back to `/` later (Back from a link chosen on
+  // the chooser) must show the chooser again: a link refetched in between is
+  // «recent» now, and redirecting on it would bounce Back straight forward and
+  // leave «Conteo de una sola tableta» unreachable in an app with no address bar.
+  const [recienAbierta, setRecienAbierta] = useState(() =>
+    plainHash(globalThis.location?.hash ?? ''),
+  );
 
   useEffect(() => {
-    const onChange = () => setHash(globalThis.location?.hash ?? '');
+    const onChange = () => {
+      setHash(globalThis.location?.hash ?? '');
+      setRecienAbierta(false);
+    };
     globalThis.addEventListener?.('hashchange', onChange);
     // History traversal between entries `go` pushed: some browsers report it
     // only as `popstate`, and the screen must follow the address either way.
@@ -75,6 +87,7 @@ export function Root({
   // entrance's redirect can *replace* the plain address — «back» from a
   // counter's tablet must not land on a screen that sends it straight back.
   const go = useCallback((next: string, options: { replace?: boolean } = {}) => {
+    setRecienAbierta(false);
     const history = globalThis.history;
     if (history) {
       if (options.replace) history.replaceState(history.state, '', next);
@@ -114,6 +127,8 @@ export function Root({
   }
 
   const app = <App repo={repo} chain={chain} updates={updates} install={install} />;
-  if (plainHash(hash)) return <Entrance assignments={assignments} app={app} go={go} />;
+  if (plainHash(hash)) {
+    return <Entrance assignments={assignments} app={app} go={go} abrirDirecto={recienAbierta} />;
+  }
   return app;
 }

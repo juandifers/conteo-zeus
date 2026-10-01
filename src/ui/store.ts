@@ -395,9 +395,18 @@ export class CountStore {
    * stood; nobody stood anywhere for these, and stamping the last zone a
    * tablet was set to would put a place on an event that never happened there.
    *
-   * One event per item, each one held, flushed and acknowledged on its own.
-   * Two hundred transactions rather than one is the cost of every row being
-   * independently durable and independently attributable.
+   * On a P1 store, one event per item, each one held, flushed and
+   * acknowledged on its own: two hundred transactions rather than one is the
+   * cost of every row being independently durable and independently
+   * attributable.
+   *
+   * On a single-device count (`sinServidor`) the waivers go into a chain, and
+   * a chain cannot be written that way: dispatched one by one, a failure at
+   * row 40 does not stop rows 41… from landing over the hole, and a reload
+   * before «Reintentar» makes the hole permanent — row 40 silently back to
+   * untouched under a waiver everybody saw signed. So there they are built
+   * first and written in **one transaction** (`appendChainedBatch`), all or
+   * none, the way «Corregir» writes its two halves.
    */
   waiveMany(
     idarticulos: readonly number[],
@@ -414,9 +423,29 @@ export class CountStore {
     if (usuario.length === 0) {
       throw new Error('escribe quién autoriza la exención antes de firmarla');
     }
-    return idarticulos.map((idarticulo) =>
-      this.append(idarticulo, { kind: 'unchanged', motivo }, { usuario, zona: '' }),
-    );
+    const stamp = { usuario, zona: '' };
+    if (this.counterId === undefined) {
+      return idarticulos.map((idarticulo) =>
+        this.append(idarticulo, { kind: 'unchanged', motivo }, stamp),
+      );
+    }
+    if (idarticulos.length === 0) return [];
+    // Every build first, one position: if any of them cannot be built, none
+    // of them is written and the chain is exactly where it was.
+    const position = { seq: this.seq, head: this.head, highWater: this.highWater };
+    let built;
+    try {
+      built = idarticulos.map((idarticulo) =>
+        this.build(idarticulo, { kind: 'unchanged', motivo }, stamp),
+      );
+    } catch (cause) {
+      this.seq = position.seq;
+      this.head = position.head;
+      this.highWater = position.highWater;
+      throw cause;
+    }
+    this.commit(built);
+    return built.map(({ event }) => event);
   }
 
   /**
@@ -459,7 +488,26 @@ export class CountStore {
    * is a second copy of the fold (DOMAIN.md §3).
    */
   canUndo(idarticulo: number): boolean {
-    return undoLast(this.byItem.get(idarticulo) ?? [], this.counterId) !== null;
+    const draft = undoLast(this.byItem.get(idarticulo) ?? [], this.counterId);
+    return draft !== null && !this.targetsWaiver(idarticulo, draft);
+  }
+
+  /**
+   * Whether an undo would withdraw a reviewer's waiver.
+   *
+   * Only reachable on a single-device count, where the reviewer's waivers share
+   * the counter's chain and so its `counterId`: to the scoped undo they look
+   * like the counter's own last event. They are not the counter's to take back
+   * (`requireOwnStanding` says the same for «Deshacer»).
+   */
+  private targetsWaiver(idarticulo: number, draft: CountEventDraft): boolean {
+    if (this.counterId === undefined || draft.kind !== 'retract' || !draft.retractsEventId) {
+      return false;
+    }
+    const target = (this.byItem.get(idarticulo) ?? []).find(
+      (event) => event.id === draft.retractsEventId,
+    );
+    return target?.kind === 'unchanged';
   }
 
   /**
@@ -501,6 +549,12 @@ export class CountStore {
     // which is the single-counter case and what the existing callers pass.
     const draft = undoLast(this.byItem.get(idarticulo) ?? [], this.counterId);
     if (!draft) return null;
+    if (this.targetsWaiver(idarticulo, draft)) {
+      throw new Error(
+        'lo último en este artículo es una exención firmada en la revisión; no se deshace ' +
+          'desde la tableta de conteo',
+      );
+    }
     return this.append(idarticulo, draft);
   }
 

@@ -113,6 +113,39 @@ describe('the plain address', () => {
   });
 });
 
+describe('coming back to the plain address', () => {
+  it('shows the chooser again rather than bouncing Back into the link', async () => {
+    // Opening a link on wifi refetches it, so an old link is «recent» by the
+    // time somebody presses Back. Redirecting then would make Back a loop and
+    // «Conteo de una sola tableta» unreachable in an app with no address bar.
+    const user = userEvent.setup();
+    const rows = [link('tok-viejo', ago(30 * 24 * 60 * 60 * 1000), 'Ana')];
+    draw(rows);
+    await user.click(await screen.findByRole('button', { name: /Bodega/ }));
+    expect(globalThis.location.hash).toBe('#/c/tok-viejo');
+
+    rows[0] = { ...rows[0], fetchedAt: new Date().toISOString() };
+    globalThis.history.back();
+    expect(
+      await screen.findByText('Esta tableta está preparada para este conteo. Ábrelo, o empieza un conteo de una sola tableta.'),
+    ).toBeTruthy();
+    expect(globalThis.location.hash).toBe('');
+    expect(screen.getByRole('button', { name: 'Conteo de una sola tableta' })).toBeTruthy();
+  });
+
+  it('falls back to the single-device app when the prepared links cannot be read', async () => {
+    render(
+      <Root
+        repo={new MemoryRepository()}
+        assignments={{ ...prepared([]), list: async () => Promise.reject(new Error('IndexedDB')) }}
+        chain={new MemoryChain()}
+        api={api}
+      />,
+    );
+    expect(await screen.findByText('Trae un archivo de Zeus y empieza')).toBeTruthy();
+  });
+});
+
 describe('#/local', () => {
   it('is always the single-device app, whatever is prepared', async () => {
     go('#/local');

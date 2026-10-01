@@ -331,6 +331,13 @@ export function validateEvent(event: CountEvent): void {
         'carry a null idarticulo (ZEUS_FORMAT.md §4)',
     );
   }
+  // And when there is one, it is Zeus's primary key: a whole number. Checked
+  // for the qty check's reason — `NaN` passed every rule here, hashed as the
+  // string "NaN", and then took the fold down far from the write that caused it
+  // (two NaN buckets are «more than one item» to `resolve`).
+  if (idarticulo !== null && !Number.isSafeInteger(idarticulo)) {
+    throw new Error(`${where}: idarticulo must be a whole number (ZEUS_FORMAT.md §4)`);
+  }
 }
 
 /** The kinds that are about the session rather than about one item — see `SessionScopedEvent`. */

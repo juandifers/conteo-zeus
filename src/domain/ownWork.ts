@@ -47,6 +47,12 @@ function own(events: readonly CountEvent[], counterId?: string): CountEvent[] {
  * folds to nothing, so an article somebody remarked on and never counted stays
  * in the gap list, which is right: the remark is the reason to go back, not a
  * substitute for going.
+ *
+ * Nor is a waiver. A counter cannot write one; on a single-device count the
+ * reviewer's go into the counter's chain (local.ts), and counting them here
+ * would draw «ya registraste algo aquí» on articles nobody counted and credit
+ * the reviewer's signature to the counter's afternoon. They are reported apart,
+ * by `waivedArticles`.
  */
 export function registeredArticles(
   events: readonly CountEvent[],
@@ -54,7 +60,7 @@ export function registeredArticles(
 ): Set<number> {
   const byItem = new Map<number, CountEvent[]>();
   for (const event of own(events, counterId)) {
-    if (!isItemEvent(event)) continue;
+    if (!isItemEvent(event) || event.kind === 'unchanged') continue;
     const bucket = byItem.get(event.idarticulo);
     if (bucket) bucket.push(event);
     else byItem.set(event.idarticulo, [event]);
@@ -66,6 +72,30 @@ export function registeredArticles(
     if (resolve(bucket).state !== 'untouched') registered.add(idarticulo);
   }
   return registered;
+}
+
+/**
+ * The articles whose standing resolution is a signed waiver.
+ *
+ * For a single-device count's gap review: after the review, the rows the
+ * reviewer exempted are not the counter's gaps any more — somebody signed for
+ * them — and not the counter's registros either. Ids only, like everything
+ * here; the waiver's figure is the book figure, which this module never hands
+ * back.
+ */
+export function waivedArticles(events: readonly CountEvent[]): Set<number> {
+  const byItem = new Map<number, CountEvent[]>();
+  for (const event of events) {
+    if (!isItemEvent(event)) continue;
+    const bucket = byItem.get(event.idarticulo);
+    if (bucket) bucket.push(event);
+    else byItem.set(event.idarticulo, [event]);
+  }
+  const waived = new Set<number>();
+  for (const [idarticulo, bucket] of byItem) {
+    if (resolve(bucket).state === 'unchanged') waived.add(idarticulo);
+  }
+  return waived;
 }
 
 export interface SectionProgress {

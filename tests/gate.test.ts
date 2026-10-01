@@ -381,6 +381,44 @@ describe('«sin verificar» is not a counter’s to say (P2.3)', () => {
       count.id,
     ]);
     expect(() => store.withdraw(1181, waiver.id)).toThrow(/exención firmada/);
+    // Nor by the scoped undo, to which the waiver looks like the counter's own
+    // last event on that article.
+    expect(store.canUndo(1181)).toBe(false);
+    expect(() => store.undo(1181)).toThrow(/exención firmada/);
+  });
+
+  it('writes a single-device count’s waivers in one transaction, all or none', async () => {
+    const repo = await seededRepository();
+    const chain = new MemoryChain();
+    const batches: number[] = [];
+    const append = chain.appendChainedBatch.bind(chain);
+    chain.appendChainedBatch = async (links) => {
+      batches.push(links.length);
+      return append(links);
+    };
+    const store = new CountStore(repo, sampleSession(), [], {
+      ...fakeIdentity(),
+      nextSeq: 1,
+      counterId: COUNTER,
+      head: genesisHash(SESSION_ID, COUNTER),
+      chain,
+      sinServidor: true,
+    });
+
+    store.waiveMany([1181, 330, 2660], { motivo: 'cierre', usuario: 'marta' });
+    await store.settled();
+    expect(batches).toEqual([3]);
+
+    // One that cannot be built takes the others down with it, and the chain
+    // stays exactly where it was: the next event is seq 4 on the same head.
+    const head = store.chainHead();
+    expect(() =>
+      store.waiveMany([1595, Number.NaN], { motivo: 'cierre', usuario: 'marta' }),
+    ).toThrow();
+    expect(store.chainHead()).toBe(head);
+    expect(store.addCount(2165, 1).seq).toBe(4);
+    await store.settled();
+    expect(batches).toEqual([3, 1]);
   });
 
   it('a dispatched counter’s store refuses even the reviewer’s path', async () => {

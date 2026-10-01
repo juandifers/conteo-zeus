@@ -118,6 +118,21 @@ export async function openLocalCount(input: {
   const held = await chain.localChain(session.id, contador.id);
   const events = await repo.eventsForSession(session.id);
 
+  // Never mixed, checked rather than assumed. The one way it could happen is a
+  // tab still running a build from before this change, opening this session on
+  // the P1 path and writing unchained events into it: they would fold into the
+  // file while «Mis registros» and the gap list could not see them. Refused
+  // loudly, before anything else is appended.
+  const ajenos = events.filter((event) => event.counterId !== contador.id).length;
+  if (ajenos > 0) {
+    throw new Error(
+      `esta sesión tiene ${ajenos} registro(s) que no son del conteo de esta tableta — ` +
+        'probablemente de una versión anterior de la aplicación abierta en otra pestaña. ' +
+        'No se abre, para no mezclar dos clases de registro: cierra las otras pestañas ' +
+        'y avisa a sistemas.',
+    );
+  }
+
   const payload = localPayload(session);
   const catalogue: CounterCatalogue = { ...catalogueOf(payload), zonaFor: () => '' };
 

@@ -356,16 +356,22 @@ Rules, each with its reason:
   events after them would put two kinds of log in one session, and rule 1 above
   (a P1 event is never hashed) means the result could neither be chained nor
   left alone. A count in progress on the day of the upgrade finishes on the
-  screens it started on.
+  screens it started on. The rule is also checked: `openLocalCount` refuses a
+  `contadorLocal` session whose log holds any event without that counter's id —
+  the trace a tab still running an older build would leave by opening it on the
+  P1 path.
 - **The reviewer's waiver goes into the counter's chain.** On a dispatched count
   the admin waives at the desk, as a server action. Here the review is on this
   tablet and the session's log is the only record there is, so the store is
   opened `sinServidor`, which lets `waiveMany` — and only `waiveMany`, with the
   reviewer's name on every event — write an `unchanged` into the chain. The
   counter still cannot waive: `markUnchanged` refuses in counter mode either way.
-  Those waivers are not the counter's registros, so `ownLog` leaves them out of
-  «Mis registros» and `withdraw` refuses one; counting the article again is what
-  supersedes it, as everywhere.
+  Those waivers are not the counter's registros: `ownLog` leaves them out of
+  «Mis registros», `registeredArticles` leaves them out of the «registrado»
+  mark, `withdraw` and `undo` refuse one, and the gap review counts them apart
+  as «exentos en la revisión». Counting the article again is what supersedes
+  one, as everywhere. And they are written in **one transaction**: dispatched
+  one by one, a failure at row 40 would let rows 41… land over the hole.
 - **The rows are flagged `pendiente` and nothing drains them.** That flag is what
   `appendChainedBatch` writes, and the only reader that would push them,
   `otherOutboxes`, skips a queue no assignment row names — which is every
@@ -378,6 +384,12 @@ Rules, each with its reason:
   `uncountedPolicy: 'reject'`: an uncounted row blocks the file until the
   reviewer counts or waives it. Not P2.5's `'zero'` — that policy belongs to a
   sealed server session whose admin chose it, and there is no admin here.
+- **No file over a write that has not landed.** P1's review had the
+  `localStorage` lifeboat behind it; a chained store has none, so the review
+  refuses «Generar archivo» while any write is pending and while the store is
+  halted, with «Reintentar guardado» beside the reason. A file built from rows
+  that then failed would claim a count the tablet does not have after a
+  reload.
 - **One writer.** The single-device count takes the same Web Lock a dispatched
   tablet does (`counterLock.ts`), named for its counter, and opens its store only
   once the lock is held: two tabs on one chain would continue it from one head.
@@ -389,6 +401,9 @@ P1 session, which is the rule above stated by the data.
 **The plain address changed too** (`src/ui/Entrance.tsx`). The installed app
 starts at `/`, so a tablet prepared from a counter link and reopened from its
 icon used to land on the single-device app. Now `/` opens the tablet's prepared
-link when there is exactly one and it was prepared in the last four days, offers
-a choice when there are several or the one is older, and is the single-device
-app only when nothing is prepared. The single-device app is always at `#/local`.
+link when there is exactly one, it was prepared in the last four days, and the
+page has just been opened; offers a choice when there are several, when the one
+is older, or when somebody came *back* to `/` (opening a link refetches it, and
+a redirect then would turn Back into a loop); and is the single-device app only
+when nothing is prepared. The single-device app is always at `#/local`, and on
+the chooser.

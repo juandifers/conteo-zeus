@@ -9,11 +9,16 @@
  *
  *     links prepared on this tablet
  *       none                       ──▶ the single-device app, as before
- *       one, prepared recently     ──▶ straight into it (#/c/<token>),
- *                                      replacing the history entry, so
+ *       one, prepared recently,    ──▶ straight into it (#/c/<token>),
+ *       and the page just opened       replacing the history entry, so
  *                                      «back» does not bounce here again
  *       otherwise                  ──▶ a chooser: each link, newest first,
  *                                      and «Conteo de una sola tableta»
+ *
+ * «The page just opened» (`abrirDirecto`, from Root): coming back to `/` with
+ * Back after choosing a link shows the chooser again rather than redirecting —
+ * opening the link may have refetched it, which makes it «recent», and an
+ * entrance that redirected then would turn Back into a loop.
  *
  * «Recently» is the only judgement here, and it is there because a tablet
  * keeps a link until it is prepared for another session (handover.ts,
@@ -39,6 +44,7 @@ export function Entrance({
   assignments,
   app,
   go,
+  abrirDirecto = true,
   now = () => Date.now(),
 }: {
   assignments: AssignmentStore;
@@ -46,6 +52,8 @@ export function Entrance({
   app: ReactNode;
   /** Move to another hash route; `replace` leaves no history entry behind. */
   go: (hash: string, options?: { replace?: boolean }) => void;
+  /** Whether a single recent link may be opened without asking (see above). */
+  abrirDirecto?: boolean;
   /** Injected so a test can age a link without waiting four days. */
   now?: () => number;
 }) {
@@ -68,12 +76,11 @@ export function Entrance({
     };
   }, [assignments]);
 
-  const direct =
+  const reciente =
     links !== null &&
     links.length === 1 &&
-    now() - Date.parse(links[0].fetchedAt) <= RECIENTE_MS
-      ? links[0]
-      : null;
+    now() - Date.parse(links[0].fetchedAt) <= RECIENTE_MS;
+  const direct = reciente && abrirDirecto ? links![0] : null;
 
   useEffect(() => {
     if (direct) go(`#/c/${direct.token}`, { replace: true });
@@ -91,10 +98,13 @@ export function Entrance({
         <div className="panel">
           <div className="panel__body">
             <div className="hint">
-              {links.length === 1
-                ? 'Esta tableta se preparó para este conteo hace más de unos días. Si es el ' +
-                  'tuyo, ábrelo; si hoy cuentas otra cosa, empieza un conteo de una sola tableta.'
-                : 'Esta tableta está preparada para más de un conteo. Elige el tuyo.'}
+              {links.length > 1
+                ? 'Esta tableta está preparada para más de un conteo. Elige el tuyo.'
+                : reciente
+                  ? 'Esta tableta está preparada para este conteo. Ábrelo, o empieza un conteo ' +
+                    'de una sola tableta.'
+                  : 'Esta tableta se preparó para este conteo hace más de unos días. Si es el ' +
+                    'tuyo, ábrelo; si hoy cuentas otra cosa, empieza un conteo de una sola tableta.'}
             </div>
           </div>
         </div>

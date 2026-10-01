@@ -42,16 +42,24 @@ afterEach(() => {
   globalThis.localStorage?.clear();
 });
 
-/** The repository and the chain over one table, as `DexieCounterChain` is. */
+/**
+ * The repository and the chain over one table, as `DexieCounterChain` is.
+ * `batches` records each write's size; `failBatches` makes multi-event writes
+ * fail, the way a full disk refuses the big one first.
+ */
 function sharedDevice() {
   const repo = new MemoryRepository();
   const chain = new MemoryChain();
+  const batches: number[] = [];
+  const state = { failBatches: false };
   const append = chain.appendChainedBatch.bind(chain);
   chain.appendChainedBatch = async (links) => {
+    if (state.failBatches && links.length > 1) throw new Error('QuotaExceededError');
+    batches.push(links.length);
     await append(links);
     for (const link of links) await repo.appendEvent(link.event);
   };
-  return { repo, chain };
+  return { repo, chain, batches, state };
 }
 
 function zeusFile(path: string, name: string): File {
@@ -188,7 +196,12 @@ describe('a file imported on the tablet', () => {
     await user.type(screen.getByLabelText('quién autoriza'), 'marta');
     await user.click(screen.getByRole('button', { name: 'Firmar exención' }));
 
-    await user.click(screen.getByRole('button', { name: 'Generar archivo', exact: true }));
+    // All 297 in one write: a chain cannot take them one by one, where a
+    // failure at row 40 would let rows 41… land over the hole.
+    await waitFor(() => expect(device.batches.slice(-1)).toEqual([297]));
+    const generar = screen.getByRole('button', { name: 'Generar archivo', exact: true });
+    await waitFor(() => expect(generar).toBeEnabled());
+    await user.click(generar);
     const confirm = screen.getAllByRole('button', { name: 'Generar archivo', exact: true });
     await user.click(confirm[confirm.length - 1]);
     expect(await screen.findByText('Archivo generado')).toBeTruthy();
@@ -206,6 +219,53 @@ describe('a file imported on the tablet', () => {
     await user.click(tab('Mis registros'));
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(screen.queryAllByRole('button', { name: 'Deshacer' })).toHaveLength(2);
+
+    // Nor are they the counter's gaps: somebody signed for them. The gap
+    // review breaks them out under the reviewer's word for them — the same
+    // shape a handover's inherited articles take on a dispatched tablet,
+    // «298 resolved, 297 of them not by you».
+    await user.click(tab('Terminar'));
+    const trabajo = screen.getByText('Tu trabajo').parentElement!;
+    expect(within(trabajo).getByText('artículos registrados').parentElement).toHaveTextContent(
+      '298',
+    );
+    expect(within(trabajo).getByText('exentos en la revisión').parentElement).toHaveTextContent(
+      '297',
+    );
+    expect(within(trabajo).getByText('sin registrar').parentElement).toHaveTextContent('0');
+    // And the search does not mark a waived article «ya registraste algo aquí».
+    await user.click(tab('Contar'));
+    await user.type(screen.getByLabelText('buscar artículo'), 'MELON');
+    await screen.findAllByRole('button', { name: /MELON/ });
+    expect(screen.queryAllByLabelText('ya registraste algo aquí')).toHaveLength(0);
+  }, 30_000);
+
+  it('will not generate the file while the waivers are not on disk', async () => {
+    const { device, user } = await importOnTablet({ usuario: 'ana' });
+    await screen.findByRole('button', { name: 'Contar' });
+    await registrar(user, PAN, '14');
+
+    await user.click(tab('Terminar'));
+    await user.click(screen.getByRole('button', { name: 'Revisar y generar archivo' }));
+    await user.click(screen.getByRole('button', { name: 'Ver las cifras del sistema' }));
+    device.state.failBatches = true;
+    await user.click(screen.getByRole('button', { name: 'Exentar artículos sin contar' }));
+    await user.type(screen.getByLabelText('motivo'), 'cierre');
+    await user.type(screen.getByLabelText('quién autoriza'), 'marta');
+    await user.click(screen.getByRole('button', { name: 'Firmar exención' }));
+
+    // On screen every row is resolved, and the file would have built: the
+    // waivers exist only in this tab. So the review says so and refuses.
+    expect(await screen.findByText(/No se está guardando nada/)).toBeTruthy();
+    const generar = screen.getByRole('button', { name: 'Generar archivo', exact: true });
+    expect(generar).toBeDisabled();
+    expect(screen.getByText(/No se genera el archivo hasta que el guardado funcione/)).toBeTruthy();
+
+    // And the retry is right there; once it lands, the file can be made.
+    device.state.failBatches = false;
+    await user.click(screen.getByRole('button', { name: /Reintentar guardado/ }));
+    await waitFor(() => expect(generar).toBeEnabled());
+    expect(await chained(device)).toHaveLength(1 + 297);
   }, 30_000);
 
   it('carries a note written at the shelf to the review', async () => {
@@ -254,6 +314,36 @@ describe('a reload mid-count', () => {
     await screen.findByRole('button', { name: 'Contar' });
     await user.click(screen.getByRole('button', { name: 'volver a las sesiones' }));
     expect(await screen.findByRole('button', { name: /Bodega/ })).toBeTruthy();
+  });
+});
+
+describe('a log with events from somewhere else', () => {
+  it('is refused rather than counted into', async () => {
+    // A tab still running an older build, opening this session on the P1 path,
+    // would write unchained events into it: they would fold into the file and
+    // stay invisible to «Mis registros». Loud, before anything is appended.
+    const first = await importOnTablet();
+    await screen.findByRole('button', { name: 'Contar' });
+    const [meta] = await first.device.repo.listSessions();
+    await first.device.repo.appendEvent({
+      id: 'p1-intruso',
+      sessionId: meta.id,
+      idarticulo: ID.panTajado,
+      kind: 'set',
+      qty: 3,
+      usuario: 'otra pestaña',
+      zona: '',
+      at: '2026-10-01T10:00:00.000Z',
+      deviceId: 'otro',
+      seq: 1,
+    });
+    first.view.unmount();
+
+    const second = openApp(first.device);
+    await second.user.click(await screen.findByRole('button', { name: /Bodega/ }));
+    expect(await screen.findByText('No se pudo abrir el conteo en esta tableta')).toBeTruthy();
+    expect(screen.getByText(/no son del conteo de esta tableta/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Contar', exact: true })).toBeNull();
   });
 });
 

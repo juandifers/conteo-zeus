@@ -9,7 +9,8 @@
  * - **An entry is pushed when it is made**, when there is signal — not on the
  *   next thirty-second tick. The sync bar used to say «Todo lo que llevas está
  *   subido» for that whole half-minute, which is the sentence that tells
- *   somebody it is safe to walk out of signal. * - **The app icon opens the counter's link.** The installed app starts at
+ *   somebody it is safe to walk out of signal.
+ * - **The app icon opens the counter's link.** The installed app starts at
  *   `/`, which used to be the single-device app whatever the tablet had been
  *   prepared for. Now the plain address finds the link in IndexedDB and opens
  *   it, with no network (Entrance.tsx).

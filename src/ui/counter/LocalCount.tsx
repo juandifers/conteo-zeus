@@ -29,12 +29,13 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
-import type {
-  CounterChainRepository,
-  CountRepository,
-  DeviceRepository,
-  ExportRepository,
-  Session,
+import {
+  waivedArticles,
+  type CounterChainRepository,
+  type CountRepository,
+  type DeviceRepository,
+  type ExportRepository,
+  type Session,
 } from '../../domain';
 import type { Downloader } from '../download';
 import type { Outbox } from '../outbox';
@@ -176,6 +177,7 @@ function Counting({
               onCount={onCount}
               storage={storage}
               sinServidor
+              exentos={waivedArticles(events)}
             />
             <div className="panel">
               <div className="panel__body">
